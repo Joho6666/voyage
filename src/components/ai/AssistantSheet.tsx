@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Undo2, Redo2 } from "lucide-react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { travelAgent } from "@/services/ai/mock";
+import { travelAgent } from "@/services/ai";
 import type { AgentMessage } from "@/services/ai/types";
+import { useHistoryStore } from "@/store/history-store";
 import { useTripStore } from "@/store/trip-store";
 import { useUiStore } from "@/store/ui-store";
 import { uid } from "@/lib/utils";
@@ -19,7 +20,12 @@ export function AssistantSheet() {
   const setOpen = useUiStore((s) => s.setAssistantOpen);
   const trip = useTripStore((s) => s.trip);
   const patch = useTripStore((s) => s.patchTrip);
+  const setTrip = useTripStore((s) => s.setTrip);
+  const pushHistory = useHistoryStore((s) => s.push);
+  const undo = useHistoryStore((s) => s.undo);
+  const redo = useHistoryStore((s) => s.redo);
   const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
   const [messages, setMessages] = useState<AgentMessage[]>([
     {
       id: "welcome",
@@ -28,24 +34,66 @@ export function AssistantSheet() {
     },
   ]);
 
-  const send = (text: string) => {
+  const send = async (text: string) => {
     const content = text.trim();
-    if (!content) return;
+    if (!content || busy) return;
     const user: AgentMessage = { id: uid("msg"), role: "user", content };
-    const reply = travelAgent.chat(trip, content);
-    setMessages((m) => [...m, user, reply]);
+    setMessages((m) => [...m, user]);
     setDraft("");
+    setBusy(true);
+    try {
+      const reply = await travelAgent.chat(trip, content);
+      setMessages((m) => [...m, reply]);
+    } catch {
+      toast.error("AI 请求失败，请重试");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const applyProposal = (proposal: NonNullable<AgentMessage["proposal"]>) => {
+    pushHistory(trip);
+    patch(proposal.apply);
+    toast.success("行程已更新");
+  };
+
+  const onUndo = () => {
+    const previous = undo(trip);
+    if (previous) {
+      setTrip(previous);
+      toast.message("已撤销");
+    } else {
+      toast.message("没有可撤销的操作");
+    }
+  };
+
+  const onRedo = () => {
+    const next = redo(trip);
+    if (next) {
+      setTrip(next);
+      toast.message("已重做");
+    }
   };
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetContent className="flex flex-col">
-        <div className="border-b border-border px-4 py-4 pr-10">
-          <SheetTitle className="flex items-center gap-2">
-            <Sparkles className="size-4 text-primary" />
-            AI Assistant
-          </SheetTitle>
-          <p className="mt-1 text-[13px] text-muted-foreground">动作会写回当前旅行项目。</p>
+        <div className="flex items-start justify-between border-b border-border px-4 py-4 pr-10">
+          <div>
+            <SheetTitle className="flex items-center gap-2">
+              <Sparkles className="size-4 text-primary" />
+              AI Assistant
+            </SheetTitle>
+            <p className="mt-1 text-[13px] text-muted-foreground">动作会写回当前旅行项目，可撤销。</p>
+          </div>
+          <div className="flex gap-1 pr-6">
+            <Button variant="ghost" size="icon" onClick={onUndo} aria-label="撤销">
+              <Undo2 className="size-4" />
+            </Button>
+            <Button variant="ghost" size="icon" onClick={onRedo} aria-label="重做">
+              <Redo2 className="size-4" />
+            </Button>
+          </div>
         </div>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 scrollbar-thin">
           {messages.map((msg) => (
@@ -59,20 +107,14 @@ export function AssistantSheet() {
               >
                 <p className="leading-6">{msg.content}</p>
                 {msg.proposal ? (
-                  <Button
-                    size="sm"
-                    className="mt-2"
-                    onClick={() => {
-                      patch(msg.proposal!.apply);
-                      toast.success("行程已更新");
-                    }}
-                  >
+                  <Button size="sm" className="mt-2" onClick={() => applyProposal(msg.proposal!)}>
                     应用修改
                   </Button>
                 ) : null}
               </div>
             </div>
           ))}
+          {busy ? <p className="text-[13px] text-muted-foreground">AI 正在思考……</p> : null}
         </div>
         <div className="border-t border-border p-3">
           <div className="mb-2 flex flex-wrap gap-1.5">
@@ -80,8 +122,9 @@ export function AssistantSheet() {
               <button
                 key={q}
                 type="button"
-                onClick={() => send(q)}
-                className="rounded-full border border-border px-2.5 py-1 text-[12px] text-muted-foreground hover:bg-secondary"
+                disabled={busy}
+                onClick={() => void send(q)}
+                className="rounded-full border border-border px-2.5 py-1 text-[12px] text-muted-foreground hover:bg-secondary disabled:opacity-40"
               >
                 {q}
               </button>
@@ -95,7 +138,7 @@ export function AssistantSheet() {
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                send(draft);
+                void send(draft);
               }
             }}
           />

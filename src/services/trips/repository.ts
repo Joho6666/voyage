@@ -1,10 +1,13 @@
 import { chongqingTrip, DEMO_TRIP_ID } from "@/data/demo/chongqing";
 import type { Trip, TripSummary } from "@/types/travel";
+import { SupabaseTripRepository, isSupabaseConfigured } from "./supabase";
 
 export interface TripRepository {
   list(): Promise<TripSummary[]>;
   get(id: string): Promise<Trip | null>;
   save(trip: Trip): Promise<Trip>;
+  update?(trip: Trip): Promise<Trip>;
+  delete?(id: string): Promise<void>;
 }
 
 function toSummary(trip: Trip): TripSummary {
@@ -17,11 +20,12 @@ function toSummary(trip: Trip): TripSummary {
     travelers: trip.travelers,
     budget: trip.budget,
     coverImage: trip.coverImage,
-    status: trip.id === DEMO_TRIP_ID ? "ready" : "draft",
+    status: trip.status ?? (trip.id === DEMO_TRIP_ID ? "ready" : "draft"),
+    createdAt: trip.createdAt,
   };
 }
 
-class MemoryTripRepository implements TripRepository {
+export class MemoryTripRepository implements TripRepository {
   private trips = new Map<string, Trip>([[chongqingTrip.id, structuredClone(chongqingTrip)]]);
 
   async list() {
@@ -37,19 +41,25 @@ class MemoryTripRepository implements TripRepository {
     this.trips.set(trip.id, structuredClone(trip));
     return structuredClone(trip);
   }
-}
 
-class SupabaseTripRepository implements TripRepository {
-  async list(): Promise<TripSummary[]> {
-    throw new Error("SupabaseTripRepository is not wired in MVP. Use MemoryTripRepository.");
+  async update(trip: Trip) {
+    return this.save(trip);
   }
-  async get(): Promise<Trip | null> {
-    throw new Error("SupabaseTripRepository is not wired in MVP.");
-  }
-  async save(): Promise<Trip> {
-    throw new Error("SupabaseTripRepository is not wired in MVP.");
+
+  async delete(id: string) {
+    this.trips.delete(id);
   }
 }
 
-export const tripRepository: TripRepository = new MemoryTripRepository();
-export { SupabaseTripRepository };
+function createRepository(): TripRepository {
+  if (isSupabaseConfigured()) {
+    try {
+      return new SupabaseTripRepository();
+    } catch {
+      return new MemoryTripRepository();
+    }
+  }
+  return new MemoryTripRepository();
+}
+
+export const tripRepository: TripRepository = createRepository();

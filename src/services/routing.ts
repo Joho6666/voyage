@@ -31,6 +31,7 @@ export function recomputeDay(trip: Trip, dayId: string): Trip {
       duration: item.duration || placeOf(trip, item.placeId)?.stayMinutes || 60,
     };
     cursor = addMinutes(updated.startTime, updated.duration);
+    updated.endTime = cursor;
     const following = items[index + 1];
     if (following) {
       const a = placeOf(trip, item.placeId);

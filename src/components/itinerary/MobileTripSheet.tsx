@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "motion/react";
-import { MockMap } from "@/components/map/MockMap";
+import { MapCanvas } from "@/components/map/MapCanvas";
 import { ItineraryPanel } from "./ItineraryPanel";
 import { useUiStore } from "@/store/ui-store";
 
@@ -14,7 +14,7 @@ export function MobileTripSheet() {
   return (
     <div className="relative h-full bg-[var(--map-water)]">
       <div className="absolute inset-0">
-        <MockMap />
+        <MapCanvas />
       </div>
       <motion.div
         className="absolute inset-x-0 bottom-0 z-20 overflow-hidden rounded-t-[14px] border-t border-border bg-surface pb-14 shadow-[var(--shadow-float)]"

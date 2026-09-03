@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useParams } from "next/navigation";
 import { TripShell } from "@/components/layout/TripShell";
-import { MockMap } from "@/components/map/MockMap";
+import { MapCanvas } from "@/components/map/MapCanvas";
 import { tripRepository } from "@/services/trips/repository";
 import { hydrateTrip } from "@/store/trip-store";
 
@@ -17,7 +17,7 @@ export default function TripLayout({ children }: { children: React.ReactNode }) 
   }, [params.id]);
 
   return (
-    <TripShell tripId={params.id} map={<MockMap />}>
+    <TripShell tripId={params.id} map={<MapCanvas />}>
       {children}
     </TripShell>
   );

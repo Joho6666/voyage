@@ -163,7 +163,7 @@ export class MockTravelAgent implements TravelAgent {
     return recomputeDay(next, dayId);
   }
 
-  chat(trip: Trip, message: string): AgentMessage {
+  async chat(trip: Trip, message: string): Promise<AgentMessage> {
     const text = message.trim();
     if (text.includes("赶") || text.toLowerCase().includes("day 2")) {
       const proposal = this.optimizeDay(trip, "day-2");

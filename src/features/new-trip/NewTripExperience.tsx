@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { brand } from "@/lib/brand";
-import { travelAgent } from "@/services/ai/mock";
+import { travelAgent } from "@/services/ai";
 import type { GenerationStep } from "@/services/ai/types";
 import { tripRepository } from "@/services/trips/repository";
 import { hydrateTrip } from "@/store/trip-store";

@@ -45,6 +45,9 @@ export interface Place {
   description: string;
   tags: string[];
   district: string;
+  estimatedCost?: number;
+  source?: "amap" | "demo" | "llm" | "user";
+  sourceId?: string;
 }
 
 export interface Day {
@@ -67,11 +70,13 @@ export interface ItineraryItem {
   type: ItineraryItemType;
   placeId: string;
   startTime: string;
+  endTime?: string;
   duration: number;
   order: number;
   status: ItemStatus;
   notes?: string;
   meal?: "breakfast" | "lunch" | "dinner" | "snack";
+  reservationId?: string;
 }
 
 export interface RouteSegment {
@@ -83,6 +88,8 @@ export interface RouteSegment {
   meters: number;
   minutes: number;
   label: string;
+  polyline?: Array<[number, number]>;
+  estimatedCost?: number;
 }
 
 export interface Hotel {
@@ -147,6 +154,8 @@ export interface Task {
   group: "before" | "day";
   status: TaskStatus;
   checkin?: boolean;
+  dueAt?: string;
+  linkedItemId?: string;
 }
 
 export interface BudgetItem {
@@ -165,7 +174,9 @@ export interface Booking {
   title: string;
   provider: string;
   url: string;
-  status: "idle" | "opened";
+  status: "idle" | "opened" | "confirmed" | "cancelled";
+  externalUrl?: string;
+  reference?: string;
 }
 
 export interface User {
@@ -175,8 +186,11 @@ export interface User {
   avatarInitials: string;
 }
 
+export type TripStatus = "draft" | "ready" | "traveling" | "done";
+
 export interface Trip {
   id: string;
+  ownerId?: string;
   title: string;
   destination: string;
   origin: string;
@@ -184,10 +198,14 @@ export interface Trip {
   endDate: string;
   travelers: number;
   budget: number;
+  currency?: string;
+  status?: TripStatus;
   estimatedSpend: number;
   coverImage: string;
   vibe: string[];
   prompt: string;
+  createdAt?: string;
+  updatedAt?: string;
   days: Day[];
   items: ItineraryItem[];
   segments: RouteSegment[];
@@ -209,7 +227,8 @@ export interface TripSummary {
   travelers: number;
   budget: number;
   coverImage: string;
-  status: "draft" | "ready" | "traveling" | "done";
+  status: TripStatus;
+  createdAt?: string;
 }
 
 export const PLACE_CATEGORY_LABEL: Record<PlaceCategory, string> = {

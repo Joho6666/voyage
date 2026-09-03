@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { TravelImage } from "@/components/travel/TravelImage";
 import { PLACE_CATEGORY_LABEL, type Place } from "@/types/travel";
-import { travelAgent } from "@/services/ai/mock";
+import { travelAgent } from "@/services/ai";
 import { useTripStore } from "@/store/trip-store";
 import { useUiStore } from "@/store/ui-store";
 import { toast } from "sonner";
