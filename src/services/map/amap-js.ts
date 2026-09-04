@@ -19,6 +19,7 @@ export interface AMapInstance {
   setFitView: (overlays?: unknown[], immediately?: boolean, avoid?: number[]) => void;
   destroy: () => void;
   setCenter: (lnglat: [number, number]) => void;
+  panTo: (lnglat: [number, number]) => void;
   setZoom: (zoom: number) => void;
 }
 

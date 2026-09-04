@@ -14,10 +14,18 @@ export interface AmapPoi {
   cost?: number;
 }
 
+export interface AmapRouteStep {
+  instruction: string;
+  distanceMeters: number;
+  durationMinutes: number;
+  polyline?: Array<[number, number]>;
+}
+
 export interface AmapRouteResult {
   distanceMeters: number;
   durationMinutes: number;
   polyline: Array<[number, number]>;
+  steps: AmapRouteStep[];
 }
 
 function serverKey() {
@@ -100,6 +108,23 @@ export async function amapGeocode(address: string, city?: string) {
   return { ...location, adcode: String(first?.adcode ?? ""), district: String(first?.district ?? "") };
 }
 
+export async function amapReverseGeocode(lat: number, lng: number) {
+  const data = await amapGet("/v3/geocode/regeo", {
+    location: `${lng},${lat}`,
+    extensions: "base",
+  });
+  if (data.status !== "1") throw new Error(`AMap reverse geocode failed: ${String(data.info ?? "unknown")}`);
+  const regeocode = data.regeocode as Record<string, unknown> | undefined;
+  const addressComponent = regeocode?.addressComponent as Record<string, unknown> | undefined;
+  return {
+    formattedAddress: String(regeocode?.formatted_address ?? ""),
+    province: String(addressComponent?.province ?? ""),
+    city: String(addressComponent?.city ?? ""),
+    district: String(addressComponent?.district ?? ""),
+    township: String(addressComponent?.township ?? ""),
+  };
+}
+
 function parsePolyline(polyline: unknown): Array<[number, number]> {
   if (typeof polyline !== "string") return [];
   const points: Array<[number, number]> = [];
@@ -114,7 +139,10 @@ function parsePolyline(polyline: unknown): Array<[number, number]> {
   return points;
 }
 
-export async function amapWalkingRoute(origin: { lng: number; lat: number }, destination: { lng: number; lat: number }) {
+export async function amapWalkingRoute(
+  origin: { lng: number; lat: number },
+  destination: { lng: number; lat: number },
+): Promise<AmapRouteResult> {
   const data = await amapGet("/v3/direction/walking", {
     origin: `${origin.lng},${origin.lat}`,
     destination: `${destination.lng},${destination.lat}`,
@@ -123,20 +151,63 @@ export async function amapWalkingRoute(origin: { lng: number; lat: number }, des
   const paths = ((data.route as Record<string, unknown>)?.paths ?? []) as Record<string, unknown>[];
   const path = paths[0];
   if (!path) throw new Error("AMap walking route empty");
-  const steps = Array.isArray(path.steps) ? path.steps : [];
-  const polyline = steps.flatMap((step) => parsePolyline((step as Record<string, unknown>).polyline));
+  const rawSteps = Array.isArray(path.steps) ? (path.steps as Record<string, unknown>[]) : [];
+  const steps: AmapRouteStep[] = rawSteps.map((step) => {
+    const poly = parsePolyline(step.polyline);
+    return {
+      instruction: String(step.instruction ?? "").replace(/<[^>]+>/g, ""),
+      distanceMeters: Number(step.distance ?? 0),
+      durationMinutes: Math.round(Number(step.duration ?? 0) / 60),
+      polyline: poly,
+    };
+  });
+  const polyline = steps.flatMap((s) => s.polyline ?? []);
   return {
     distanceMeters: Number(path.distance ?? 0),
     durationMinutes: Math.round(Number(path.duration ?? 0) / 60),
     polyline,
-  } satisfies AmapRouteResult;
+    steps,
+  };
+}
+
+export async function amapDrivingRoute(
+  origin: { lng: number; lat: number },
+  destination: { lng: number; lat: number },
+): Promise<AmapRouteResult> {
+  const data = await amapGet("/v3/direction/driving", {
+    origin: `${origin.lng},${origin.lat}`,
+    destination: `${destination.lng},${destination.lat}`,
+    strategy: "0",
+    extensions: "all",
+  });
+  if (data.status !== "1") throw new Error("AMap driving route failed");
+  const paths = ((data.route as Record<string, unknown>)?.paths ?? []) as Record<string, unknown>[];
+  const path = paths[0];
+  if (!path) throw new Error("AMap driving route empty");
+  const rawSteps = Array.isArray(path.steps) ? (path.steps as Record<string, unknown>[]) : [];
+  const steps: AmapRouteStep[] = rawSteps.map((step) => {
+    const poly = parsePolyline(step.polyline);
+    return {
+      instruction: String(step.instruction ?? "").replace(/<[^>]+>/g, ""),
+      distanceMeters: Number(step.distance ?? 0),
+      durationMinutes: Math.round(Number(step.duration ?? 0) / 60),
+      polyline: poly,
+    };
+  });
+  const polyline = steps.flatMap((s) => s.polyline ?? []);
+  return {
+    distanceMeters: Number(path.distance ?? 0),
+    durationMinutes: Math.round(Number(path.duration ?? 0) / 60),
+    polyline,
+    steps,
+  };
 }
 
 export async function amapTransitRoute(
   origin: { lng: number; lat: number },
   destination: { lng: number; lat: number },
   city: string,
-) {
+): Promise<AmapRouteResult> {
   const data = await amapGet("/v3/direction/transit/integrated", {
     origin: `${origin.lng},${origin.lat}`,
     destination: `${destination.lng},${destination.lat}`,
@@ -149,16 +220,44 @@ export async function amapTransitRoute(
   const first = transits[0];
   if (!first) throw new Error("AMap transit route empty");
   const segments = Array.isArray(first.segments) ? (first.segments as Record<string, unknown>[]) : [];
-  const polyline = segments.flatMap((segment) => {
-    const walking = segment.walking as Record<string, unknown> | undefined;
-    const steps = Array.isArray(walking?.steps) ? (walking?.steps as Record<string, unknown>[]) : [];
-    return steps.flatMap((step) => parsePolyline(step.polyline));
-  });
+  const steps: AmapRouteStep[] = [];
+  const polyline: Array<[number, number]> = [];
+
+  for (const seg of segments) {
+    const walking = seg.walking as Record<string, unknown> | undefined;
+    if (walking && Array.isArray(walking.steps)) {
+      for (const wStep of walking.steps as Record<string, unknown>[]) {
+        const poly = parsePolyline(wStep.polyline);
+        polyline.push(...poly);
+        steps.push({
+          instruction: String(wStep.instruction ?? "").replace(/<[^>]+>/g, ""),
+          distanceMeters: Number(wStep.distance ?? 0),
+          durationMinutes: Math.round(Number(wStep.duration ?? 0) / 60),
+          polyline: poly,
+        });
+      }
+    }
+    const bus = seg.bus as Record<string, unknown> | undefined;
+    const buslines = Array.isArray(bus?.buslines) ? (bus?.buslines as Record<string, unknown>[]) : [];
+    if (buslines[0]) {
+      const b = buslines[0];
+      const poly = parsePolyline(b.polyline);
+      polyline.push(...poly);
+      steps.push({
+        instruction: `乘坐 ${String(b.name ?? "公共交通")}`,
+        distanceMeters: Number(b.distance ?? 0),
+        durationMinutes: Math.round(Number(b.duration ?? 0) / 60),
+        polyline: poly,
+      });
+    }
+  }
+
   return {
     distanceMeters: Number(route?.distance ?? 0),
     durationMinutes: Math.round(Number(first.duration ?? 0) / 60),
     polyline,
-  } satisfies AmapRouteResult;
+    steps,
+  };
 }
 
 export async function amapWeather(cityAdcode: string) {

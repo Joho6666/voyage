@@ -79,17 +79,36 @@ export interface ItineraryItem {
   reservationId?: string;
 }
 
+export interface RouteStep {
+  instruction: string;
+  distanceMeters: number;
+  durationMinutes: number;
+  polyline?: Array<[number, number]>;
+}
+
 export interface RouteSegment {
   id: string;
+  tripId?: string;
   dayId: string;
   fromItemId: string;
   toItemId: string;
+  fromPlaceId: string;
+  toPlaceId: string;
   mode: TransportKind;
+  distanceMeters: number;
+  durationMinutes: number;
+  /** Backwards-compatible alias for distanceMeters */
   meters: number;
+  /** Backwards-compatible alias for durationMinutes */
   minutes: number;
   label: string;
   polyline?: Array<[number, number]>;
+  steps?: RouteStep[];
+  provider: "amap" | "haversine" | "mock";
+  providerRouteId?: string;
+  estimated: boolean;
   estimatedCost?: number;
+  updatedAt: string;
 }
 
 export interface Hotel {

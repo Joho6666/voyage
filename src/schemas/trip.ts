@@ -101,17 +101,34 @@ export const itineraryItemSchema = z.object({
   reservationId: z.string().optional(),
 });
 
+export const routeStepSchema = z.object({
+  instruction: z.string(),
+  distanceMeters: z.number().min(0),
+  durationMinutes: z.number().min(0),
+  polyline: z.array(z.tuple([z.number(), z.number()])).optional(),
+});
+
 export const routeSegmentSchema = z.object({
   id: z.string().min(1),
+  tripId: z.string().optional(),
   dayId: z.string().min(1),
   fromItemId: z.string().min(1),
   toItemId: z.string().min(1),
+  fromPlaceId: z.string().optional().default(""),
+  toPlaceId: z.string().optional().default(""),
   mode: transportKindSchema,
+  distanceMeters: z.number().min(0).optional(),
+  durationMinutes: z.number().min(0).optional(),
   meters: z.number().min(0),
   minutes: z.number().min(0),
-  label: z.string(),
+  label: z.string().optional().default(""),
   polyline: z.array(z.tuple([z.number(), z.number()])).optional(),
+  steps: z.array(routeStepSchema).optional(),
+  provider: z.enum(["amap", "haversine", "mock"]).optional().default("haversine"),
+  providerRouteId: z.string().optional(),
+  estimated: z.boolean().optional().default(true),
   estimatedCost: z.number().optional(),
+  updatedAt: z.string().optional(),
 });
 
 export const budgetItemSchema = z.object({

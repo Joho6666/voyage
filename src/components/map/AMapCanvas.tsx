@@ -78,6 +78,13 @@ export function AMapCanvas() {
       overlays.current.push(pin);
     });
     if (overlays.current.length) map.setFitView(overlays.current, false, [60, 60, 60, 60]);
+
+    if (selectedId) {
+      const selectedPlace = trip.places.find((p) => p.id === selectedId);
+      if (selectedPlace) {
+        map.panTo([selectedPlace.lng, selectedPlace.lat]);
+      }
+    }
   }, [trip, selectedId, hoverId, filters, search, activeDayId, selectPlace]);
 
   if (failed) return <MockMap />;
