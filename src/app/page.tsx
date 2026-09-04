@@ -6,79 +6,152 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { brand } from "@/lib/brand";
+import { ArrowRight, Compass, Sparkles, Navigation, Calendar, Shuffle } from "lucide-react";
+
+const SUGGESTIONS = [
+  "从桂林去重庆玩3天，2个人，预算2500，喜欢美食和夜景，不想每天走太多路。",
+  "成都出发自驾川西4天，2人，摄影风景，避开高反。",
+  "杭州周末2日慢游，独行，咖啡馆、独立书店与西湖徒步。",
+];
 
 export default function LandingPage() {
   const router = useRouter();
-  const [prompt, setPrompt] = useState("从桂林去重庆玩 3 天，2 人，预算 2500，喜欢美食和夜景。");
+  const [prompt, setPrompt] = useState(
+    "从桂林去重庆玩3天，2个人，预算2500，喜欢美食和夜景，不想每天走太多路。",
+  );
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    router.push(`/new-trip?q=${encodeURIComponent(prompt)}`);
+  };
 
   return (
-    <div className="min-h-dvh bg-background">
-      <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-        <Link href="/" className="text-sm font-medium">
-          {brand.name}
-          <span className="ml-1 text-muted-foreground">{brand.product}</span>
+    <div className="min-h-dvh bg-background text-foreground flex flex-col justify-between">
+      {/* Top Header */}
+      <header className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-5">
+        <Link href="/" className="flex items-center gap-2 text-sm font-semibold tracking-tight">
+          <div className="size-6 rounded-[6px] bg-primary text-white grid place-items-center text-xs font-bold shadow-xs">
+            V
+          </div>
+          <span>{brand.name}</span>
+          <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground">
+            Travel OS Beta
+          </span>
         </Link>
-        <nav className="flex items-center gap-4 text-[13px]">
-          <Link href="/trips" className="text-muted-foreground hover:text-foreground">
+        <nav className="flex items-center gap-3 text-[13px]">
+          <Link href="/trips" className="text-muted-foreground hover:text-foreground px-2 py-1 transition-colors">
             我的旅行
           </Link>
-          <Button asChild size="sm">
-            <Link href="/new-trip">开始规划</Link>
+          <Button asChild size="sm" className="h-8 shadow-xs">
+            <Link href="/new-trip">进入工作台</Link>
           </Button>
         </nav>
       </header>
 
-      <section className="relative mx-auto max-w-4xl px-6 pb-20 pt-16">
-        <div className="absolute inset-x-8 top-8 -z-10 h-[420px] overflow-hidden rounded-[14px] bg-[var(--map-land)]">
-          <div className="h-full w-full map-dots opacity-80" />
-          <div
-            className="absolute inset-0 opacity-40"
-            style={{
-              backgroundImage:
-                "url(https://images.unsplash.com/photo-1474181487882-5abf3f0ba6c2?auto=format&fit=crop&w=1800&q=70)",
-              backgroundSize: "cover",
-              backgroundPosition: "center",
-            }}
-          />
+      {/* Hero: Direct, Minimalist, Action-Oriented */}
+      <main className="mx-auto w-full max-w-3xl px-6 py-12 sm:py-20">
+        <div className="space-y-3 text-center sm:text-left">
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-secondary/60 px-3 py-1 text-[12px] text-muted-foreground">
+            <Sparkles className="size-3 text-primary" />
+            <span>AI-Native Travel Operating System</span>
+          </div>
+
+          <h1 className="text-3xl sm:text-5xl font-semibold tracking-tight leading-[1.15] text-balance">
+            Tell Voyage where you&apos;re going.
+          </h1>
+
+          <p className="text-base sm:text-lg text-muted-foreground max-w-xl text-balance">
+            输入自然语言，自动生成带真实坐标、路网交通、实时天气与预算的结构化行程。
+          </p>
         </div>
-        <h1 className="max-w-xl text-4xl font-medium leading-[1.15] tracking-tight text-balance sm:text-5xl">
-          把一次旅行，
-          <br />
-          变成一张真正能走的路线。
-        </h1>
-        <p className="mt-5 max-w-xl text-[16px] leading-7 text-muted-foreground">
-          {brand.description}
-        </p>
+
+        {/* The Prompt Console */}
         <form
-          className="mt-8 rounded-[14px] border border-border bg-surface/95 p-3 shadow-[var(--shadow-float)]"
-          onSubmit={(e) => {
-            e.preventDefault();
-            router.push(`/new-trip?q=${encodeURIComponent(prompt)}`);
-          }}
+          onSubmit={handleSubmit}
+          className="mt-8 rounded-[16px] border border-border bg-surface p-3.5 shadow-[var(--shadow-float)] transition-all focus-within:border-primary/50"
         >
           <Textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            className="min-h-24 border-0 bg-transparent text-[15px] focus-visible:ring-0"
+            placeholder="例如：从桂林去重庆玩3天，2个人，预算2500，喜欢美食和夜景，不想每天走太多路。"
+            className="min-h-28 resize-none border-0 bg-transparent text-[15px] leading-relaxed placeholder:text-muted-foreground/60 focus-visible:ring-0 p-1"
           />
-          <div className="flex justify-end">
-            <Button type="submit">AI 创建旅行</Button>
+
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/60">
+            <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground overflow-x-auto py-1">
+              <span className="shrink-0 text-[11px]">快捷灵感:</span>
+              <button
+                type="button"
+                onClick={() => setPrompt(SUGGESTIONS[0]!)}
+                className="rounded-full bg-secondary/80 px-2.5 py-0.5 text-[11px] hover:bg-secondary truncate max-w-[200px]"
+              >
+                桂林 → 重庆 3天
+              </button>
+              <button
+                type="button"
+                onClick={() => setPrompt(SUGGESTIONS[1]!)}
+                className="rounded-full bg-secondary/80 px-2.5 py-0.5 text-[11px] hover:bg-secondary truncate max-w-[200px]"
+              >
+                川西 4天自驾
+              </button>
+            </div>
+
+            <Button type="submit" className="gap-1.5 text-sm h-9 px-4 font-medium shadow-sm">
+              <span>生成完整旅行</span>
+              <ArrowRight className="size-4" />
+            </Button>
           </div>
         </form>
-      </section>
 
-      <section className="mx-auto grid max-w-5xl gap-8 px-6 py-16 sm:grid-cols-3">
-        {[
-          { title: "Plan", body: "把日期、预算和偏好收成一份按天走的行程。" },
-          { title: "Explore", body: "地图上找景点、火锅和当地活动，直接加入某一天。" },
-          { title: "Travel", body: "出发后只看下一站。任务、天气、导航都在 Today。" },
-        ].map((s) => (
-          <div key={s.title}>
-            <h2 className="text-sm font-medium">{s.title}</h2>
-            <p className="mt-2 text-[14px] leading-6 text-muted-foreground">{s.body}</p>
+        {/* 4 Core Pillars of Voyage: Plan, Explore, Adapt, Travel */}
+        <div className="mt-14 grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="rounded-[12px] border border-border/70 bg-surface p-3.5 space-y-1">
+            <div className="size-7 rounded-[6px] bg-primary/10 text-primary grid place-items-center mb-2">
+              <Calendar className="size-3.5" />
+            </div>
+            <h3 className="text-sm font-semibold">1. Plan</h3>
+            <p className="text-[12px] text-muted-foreground leading-relaxed">
+              真实高德 POI 与路网规划，生成按天执行的时间轴与预算。
+            </p>
           </div>
-        ))}
-      </section>
+
+          <div className="rounded-[12px] border border-border/70 bg-surface p-3.5 space-y-1">
+            <div className="size-7 rounded-[6px] bg-primary/10 text-primary grid place-items-center mb-2">
+              <Compass className="size-3.5" />
+            </div>
+            <h3 className="text-sm font-semibold">2. Explore</h3>
+            <p className="text-[12px] text-muted-foreground leading-relaxed">
+              探索地道火锅、咖啡与文化地标，一键顺路插进行程。
+            </p>
+          </div>
+
+          <div className="rounded-[12px] border border-border/70 bg-surface p-3.5 space-y-1">
+            <div className="size-7 rounded-[6px] bg-primary/10 text-primary grid place-items-center mb-2">
+              <Shuffle className="size-3.5" />
+            </div>
+            <h3 className="text-sm font-semibold">3. Adapt</h3>
+            <p className="text-[12px] text-muted-foreground leading-relaxed">
+              “太累了 / 下雨了 / 省100”，AI 生成量化 Diff 待你审阅。
+            </p>
+          </div>
+
+          <div className="rounded-[12px] border border-border/70 bg-surface p-3.5 space-y-1">
+            <div className="size-7 rounded-[6px] bg-primary/10 text-primary grid place-items-center mb-2">
+              <Navigation className="size-3.5" />
+            </div>
+            <h3 className="text-sm font-semibold">4. Travel</h3>
+            <p className="text-[12px] text-muted-foreground leading-relaxed">
+              Today 现场执行模式：下一站、出发倒计时与单手导航。
+            </p>
+          </div>
+        </div>
+      </main>
+
+      {/* Footer */}
+      <footer className="mx-auto w-full max-w-5xl px-6 py-6 border-t border-border/60 text-center sm:flex sm:justify-between text-[12px] text-muted-foreground">
+        <p>Voyage · AI-Native Travel OS · Real World Travel Beta</p>
+        <p className="mt-1 sm:mt-0">高德地图 · 真实路网 · 结构化 TravelAction</p>
+      </footer>
     </div>
   );
 }
