@@ -20,7 +20,12 @@ export class SupabaseTripRepository implements TripRepository {
     if (!url || !key) {
       throw new Error("Supabase is not configured: set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY");
     }
-    this.client = createClient(url, key, { auth: { persistSession: false } });
+    this.client = createClient(url, key, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+      },
+    });
   }
 
   async list(): Promise<TripSummary[]> {
@@ -57,7 +62,10 @@ export class SupabaseTripRepository implements TripRepository {
 
   async save(trip: Trip): Promise<Trip> {
     const stamped: Trip = { ...trip, updatedAt: new Date().toISOString() };
-    const tripRow = {
+    const userRes = await this.client.auth.getUser();
+    const ownerId = userRes.data.user?.id;
+
+    const tripRow: Record<string, unknown> = {
       id: stamped.id,
       title: stamped.title,
       destination: stamped.destination,
@@ -73,6 +81,9 @@ export class SupabaseTripRepository implements TripRepository {
       payload: stamped,
       updated_at: new Date().toISOString(),
     };
+    if (ownerId) {
+      tripRow.owner_id = ownerId;
+    }
 
     const { error: tripError } = await this.client.from("trips").upsert(tripRow);
     if (tripError) throw new Error(`SupabaseTripRepository.save(trips) failed: ${tripError.message}`);

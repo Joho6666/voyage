@@ -1,12 +1,16 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronsLeft, Compass } from "lucide-react";
+import { ChevronsLeft, Compass, User as UserIcon } from "lucide-react";
 import { brand } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 import { useTripStore } from "@/store/trip-store";
 import { useUiStore } from "@/store/ui-store";
+import { getCurrentUser } from "@/services/supabase/auth";
+import type { User } from "@supabase/supabase-js";
+import { AuthDialog } from "@/components/auth/AuthDialog";
 import { bottomNav, globalNav, tripNav } from "./nav";
 
 export function Sidebar({ tripId }: { tripId?: string }) {
@@ -15,6 +19,16 @@ export function Sidebar({ tripId }: { tripId?: string }) {
   const toggle = useUiStore((s) => s.toggleSidebar);
   const trip = useTripStore((s) => s.trip);
   const items = tripId ? tripNav(tripId) : [];
+
+  const [user, setUser] = useState<User | null>(null);
+  const [authOpen, setAuthOpen] = useState(false);
+
+  useEffect(() => {
+    void getCurrentUser().then(setUser);
+  }, []);
+
+  const displayName = user?.user_metadata?.name || user?.email?.split("@")[0] || "游客";
+  const displaySub = user?.email || "点击登录与同步";
 
   return (
     <aside
@@ -61,17 +75,28 @@ export function Sidebar({ tripId }: { tripId?: string }) {
 
       <div className="mt-auto border-t border-border p-2">
         <NavGroup collapsed={collapsed} items={bottomNav} pathname={pathname} />
-        <div className={cn("mt-2 flex items-center gap-2 px-1", collapsed && "justify-center")}>
-          <div className="grid size-8 place-items-center rounded-full bg-secondary text-[12px] font-medium">
-            周
+
+        {/* User Account Button with AuthDialog */}
+        <button
+          type="button"
+          onClick={() => setAuthOpen(true)}
+          className={cn(
+            "mt-2 flex w-full items-center gap-2 rounded-[8px] p-1.5 text-left hover:bg-secondary transition-colors",
+            collapsed && "justify-center p-1",
+          )}
+          title={user?.email ? `已登录: ${user.email}` : "点击登录"}
+        >
+          <div className="grid size-8 place-items-center rounded-full bg-primary/10 text-primary text-[12px] font-medium shrink-0">
+            {user?.email ? user.email.slice(0, 1).toUpperCase() : <UserIcon className="size-4" />}
           </div>
           {!collapsed ? (
-            <div className="min-w-0">
-              <p className="truncate text-[13px] font-medium">周行</p>
-              <p className="truncate text-[12px] text-muted-foreground">zhou@voyage.app</p>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] font-medium text-foreground">{displayName}</p>
+              <p className="truncate text-[11px] text-muted-foreground">{displaySub}</p>
             </div>
           ) : null}
-        </div>
+        </button>
+
         <button
           type="button"
           onClick={toggle}
@@ -81,6 +106,8 @@ export function Sidebar({ tripId }: { tripId?: string }) {
           <ChevronsLeft className={cn("size-4 transition-transform", collapsed && "rotate-180")} />
         </button>
       </div>
+
+      <AuthDialog open={authOpen} onOpenChange={setAuthOpen} />
     </aside>
   );
 }
