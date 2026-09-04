@@ -5,7 +5,7 @@ import { chongqingTrip, DEMO_TRIP_ID } from "@/data/demo/chongqing";
 import { uid } from "@/lib/utils";
 import { estimateBudgetItems } from "@/services/ai/actions/executor";
 import { recomputeTrip } from "@/services/routing";
-import { amapSearchPois, isAmapConfigured } from "@/services/map/amap-rest";
+import { amapSearchPois, isAmapConfigured, amapGeocode, amapWeather } from "@/services/map/amap-rest";
 import { tripRepository } from "@/services/trips/repository";
 import type { Day, Place, Trip } from "@/types/travel";
 
@@ -133,18 +133,43 @@ async function buildCandidates(destination: string): Promise<{ places: Candidate
   throw new Error("NO_CANDIDATES: configure AMAP_SERVER_KEY to plan destinations outside the built-in demo");
 }
 
-function buildDays(startDate: string, endDate: string, tripId: string): Day[] {
+async function buildDays(startDate: string, endDate: string, tripId: string, destination: string): Promise<Day[]> {
   const start = new Date(`${startDate}T12:00:00`);
   const end = new Date(`${endDate}T12:00:00`);
   const dayCount = Math.max(1, Math.min(7, Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1));
-  const weathers = [
+
+  let forecasts: Array<{ date: string; tempC: number; condition: string; icon: "sun" | "cloud" | "rain" | "overcast" }> = [];
+  if (isAmapConfigured()) {
+    try {
+      const geo = await amapGeocode(destination, destination);
+      const casts = await amapWeather(geo.adcode || destination);
+      forecasts = casts.map((c) => ({
+        date: c.date,
+        tempC: Math.round((c.dayTemp + c.nightTemp) / 2) || c.dayTemp,
+        condition: c.dayWeather,
+        icon: c.dayWeather.includes("雨")
+          ? ("rain" as const)
+          : c.dayWeather.includes("云")
+            ? ("cloud" as const)
+            : c.dayWeather.includes("阴")
+              ? ("overcast" as const)
+              : ("sun" as const),
+      }));
+    } catch {
+      // ignore
+    }
+  }
+
+  const fallbackWeathers = [
     { tempC: 24, condition: "多云", icon: "cloud" as const },
     { tempC: 18, condition: "小雨", icon: "rain" as const },
     { tempC: 22, condition: "晴", icon: "sun" as const },
   ];
+
   return Array.from({ length: dayCount }, (_, index) => {
     const date = new Date(start.getTime() + index * 86_400_000);
     const iso = date.toISOString().slice(0, 10);
+    const forecast = forecasts[index] ?? fallbackWeathers[index % fallbackWeathers.length];
     return {
       id: `day-${index + 1}`,
       tripId,
@@ -152,7 +177,11 @@ function buildDays(startDate: string, endDate: string, tripId: string): Day[] {
       date: iso,
       title: "",
       summary: "",
-      weather: weathers[index % weathers.length],
+      weather: {
+        tempC: forecast?.tempC ?? 22,
+        condition: forecast?.condition ?? "晴",
+        icon: forecast?.icon ?? "sun",
+      },
     };
   });
 }
@@ -194,14 +223,14 @@ async function llmOutline(input: { prompt: string; candidates: Candidate[]; dayC
   return parsed.data;
 }
 
-function assembleTrip(input: {
+async function assembleTrip(input: {
   outline?: Outline;
   body: z.output<typeof bodySchema>;
   candidates: Candidate[];
-}): Trip {
+}): Promise<Trip> {
   const { body, candidates } = input;
   const tripId = `${body.destination}-${body.startDate}`.replace(/\s+/g, "");
-  const days = buildDays(body.startDate, body.endDate, tripId);
+  const days = await buildDays(body.startDate, body.endDate, tripId, body.destination);
   const outline = input.outline;
   const places: Place[] = [];
   const items: Trip["items"] = [];
@@ -317,7 +346,7 @@ export async function POST(request: Request) {
   };
 
   const outline = llmEnv ? await llmOutlineSafe(body.data, candidates) : undefined;
-  const trip = outline ? assembleTrip({ outline, body: body.data, candidates }) : fallbackTrip();
+  const trip = outline ? await assembleTrip({ outline, body: body.data, candidates }) : fallbackTrip();
   try {
     const saved = await tripRepository.save(trip);
     return Response.json({ source: outline ? "llm" : "mock", mapProvider: provider, trip: saved });

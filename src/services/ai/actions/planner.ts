@@ -110,14 +110,30 @@ function ruleBasedActions(trip: Trip, message: string): TravelActionList {
   return { actions, summary: text };
 }
 
+import { buildWeatherContext } from "@/services/weather/context";
+
 function buildUserMessage(trip: Trip, message: string) {
   const candidates = trip.places
     .filter((p) => !trip.items.some((i) => i.placeId === p.id))
     .map((p) => `${p.id} ${p.name}(${p.category})`)
     .join("、");
+  const weatherCtx = buildWeatherContext(trip);
+  const weatherSummary = weatherCtx.days
+    .map(
+      (d) =>
+        `Day ${d.dayIndex + 1} (${d.date}): ${d.tempC}°C ${d.condition}${
+          d.isRainy ? " [预计有雨/建议室内方案]" : ""
+        }${d.isExtremeHeat ? " [高温避暑]" : ""}`,
+    )
+    .join("; ");
+
   return [
     "当前行程（itemId/dayId/placeId 都要引用这里的）：",
     tripSummary(trip),
+    "",
+    `目的地实时天气情报：${weatherSummary}。建议：${weatherCtx.generalAdvisory}`,
+    "",
+    `当前预算与支出状态：总预算 ¥${trip.budget}，当前预估支出 ¥${trip.estimatedSpend}`,
     "",
     "候选未加入地点：",
     candidates,
