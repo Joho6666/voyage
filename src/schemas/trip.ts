@@ -30,6 +30,7 @@ export const transportKindSchema = z.enum([
   "walk",
   "taxi",
   "bus",
+  "drive",
 ]);
 export const openingStatusSchema = z.enum(["open", "closed", "unknown"]);
 export const budgetCategorySchema = z.enum([

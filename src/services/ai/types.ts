@@ -21,6 +21,7 @@ export interface AgentProposal {
   id: string;
   summary: string;
   apply: (trip: Trip) => Trip;
+  changeSet?: import("@/types/diff").TripChangeSet;
 }
 
 export interface AgentMessage {

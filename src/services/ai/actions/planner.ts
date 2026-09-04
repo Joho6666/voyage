@@ -33,18 +33,32 @@ const SYSTEM_PROMPT = [
   '- OPTIMIZE_DAY: {"dayId"}',
   '- REDUCE_WALKING: {"dayId"?}',
   '- REDUCE_BUDGET: {"amount", "reason"?}',
-  '- CHANGE_TRANSPORT: {"itemId"?, "dayId"?, "mode": "walk"|"metro"|"taxi"|"bus"}',
+  '- CHANGE_TRANSPORT: {"itemId"?, "dayId"?, "mode": "walk"|"metro"|"taxi"|"bus"|"drive"}',
   '- RECOMMEND_FOOD: {"dayId"?}',
   '- RECOMMEND_PLACES: {"dayId"?}',
   '- CHANGE_TIME: {"itemId", "startTime": "HH:mm"}',
+  '- RAIN_PLAN: {"dayId"?}',
+  '- DELAY_DAY: {"dayId", "minutes": 60}',
+  '- START_EARLIER: {"dayId", "minutes": 30}',
+  '- SKIP_NEXT: {"dayId", "currentItemId"?}',
+  '- FIND_NEARBY_FOOD: {"dayId", "cuisine"?}',
+  '- REDUCE_TODAY_WALKING: {"dayId", "maxWalkMeters"?}',
+  '- REDUCE_TODAY_BUDGET: {"dayId", "targetSaveAmount": 100}',
+  '- CHANGE_NEXT_PLACE: {"dayId"?, "currentItemId"?, "category"?}',
+  '- CHANGE_ROUTE_MODE: {"dayId"?, "mode": "walk"|"metro"|"taxi"|"bus"|"drive"}',
+  '- MOVE_INDOOR: {"dayId"}',
+  '- EXTEND_STAY: {"itemId", "additionalMinutes"}',
+  '- SHORTEN_STAY: {"itemId", "reduceMinutes"}',
   "",
   "规则：",
   "1. 只能引用下方行程清单里存在的 itemId / dayId。",
   "2. ADD/REPLACE 的 placeId 必须来自候选地点列表；没有合适的就输出 RECOMMEND_*。",
-  "3. 用户喊累/想省力 → REDUCE_WALKING（必要时加 OPTIMIZE_DAY）。",
-  "4. 用户提预算 → REDUCE_BUDGET，amount 是具体数字。",
+  "3. 用户喊累/想省力 → REDUCE_WALKING 或 REDUCE_TODAY_WALKING（必要时加 OPTIMIZE_DAY）。",
+  "4. 用户提预算 → REDUCE_BUDGET 或 REDUCE_TODAY_BUDGET，amount 是具体数字。",
   "5. 用户指定时间 → CHANGE_TIME；用户指定某天 → MOVE_ITEM/CHANGE_DAY。",
-  "6. 不要输出 JSON 以外的任何内容。",
+  "6. 用户提到下雨/雨天预案 → RAIN_PLAN 或 MOVE_INDOOR。",
+  "7. 用户提到推迟/晚起 → DELAY_DAY；跳过当前站 → SKIP_NEXT。",
+  "8. 不要输出 JSON 以外的任何内容。",
 ].join("\n");
 
 export function isLlmConfigured() {
@@ -59,27 +73,40 @@ function extractAmount(text: string) {
 
 function ruleBasedActions(trip: Trip, message: string): TravelActionList {
   const text = message.trim();
-  const day2 = trip.days[1];
+  const day1 = trip.days[0];
+  const day2 = trip.days[1] ?? day1;
+  const currentDayId = day1?.id ?? "day-1";
   const actions: TravelAction[] = [];
-  if (text.includes("赶") || text.includes("累") || text.toLowerCase().includes("day 2")) {
+
+  if (text.includes("雨") || text.includes("下雨")) {
+    actions.push({ type: "RAIN_PLAN", payload: { dayId: day2?.id ?? currentDayId } });
+  } else if (text.includes("推迟") || text.includes("延后")) {
+    actions.push({ type: "DELAY_DAY", payload: { dayId: currentDayId, minutes: 60 } });
+  } else if (text.includes("提前") || text.includes("早点")) {
+    actions.push({ type: "START_EARLIER", payload: { dayId: currentDayId, minutes: 30 } });
+  } else if (text.includes("跳过")) {
+    actions.push({ type: "SKIP_NEXT", payload: { dayId: currentDayId } });
+  } else if (text.includes("省100") || (text.includes("省") && text.includes("100"))) {
+    actions.push({ type: "REDUCE_TODAY_BUDGET", payload: { dayId: currentDayId, targetSaveAmount: 100 } });
+  } else if (text.includes("室内")) {
+    actions.push({ type: "MOVE_INDOOR", payload: { dayId: currentDayId } });
+  } else if (text.includes("换") || text.includes("换个地方")) {
+    actions.push({ type: "CHANGE_NEXT_PLACE", payload: { dayId: currentDayId } });
+  } else if (text.includes("赶") || text.includes("累") || text.toLowerCase().includes("day 2")) {
     if (day2) actions.push({ type: "OPTIMIZE_DAY", payload: { dayId: day2.id } });
-    actions.push({ type: "REDUCE_WALKING", payload: {} });
-  }
-  if (text.includes("省") || text.includes("预算")) {
+    actions.push({ type: "REDUCE_WALKING", payload: { dayId: day2?.id } });
+  } else if (text.includes("省") || text.includes("预算")) {
     actions.push({ type: "REDUCE_BUDGET", payload: { amount: extractAmount(text) } });
+  } else if (text.includes("走") || text.includes("累")) {
+    actions.push({ type: "REDUCE_WALKING", payload: { dayId: currentDayId } });
+  } else if (text.includes("美食") || text.includes("吃")) {
+    actions.push({ type: "FIND_NEARBY_FOOD", payload: { dayId: currentDayId } });
+  } else if (text.includes("活动") || text.includes("夜")) {
+    actions.push({ type: "RECOMMEND_PLACES", payload: { dayId: currentDayId } });
+  } else {
+    actions.push({ type: "OPTIMIZE_DAY", payload: { dayId: currentDayId } });
   }
-  if (text.includes("走") || text.includes("累")) {
-    actions.push({ type: "REDUCE_WALKING", payload: {} });
-  }
-  if (text.includes("美食") || text.includes("吃")) {
-    actions.push({ type: "RECOMMEND_FOOD", payload: {} });
-  }
-  if (text.includes("活动") || text.includes("夜")) {
-    actions.push({ type: "RECOMMEND_PLACES", payload: {} });
-  }
-  if (!actions.length) {
-    actions.push({ type: "OPTIMIZE_DAY", payload: { dayId: trip.days[0]?.id ?? "" } });
-  }
+
   return { actions, summary: text };
 }
 

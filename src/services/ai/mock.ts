@@ -1,6 +1,9 @@
 import { chongqingTrip } from "@/data/demo/chongqing";
 import { uid } from "@/lib/utils";
-import { recomputeDay, recomputeTrip } from "@/services/routing";
+import { recomputeDay } from "@/services/routing";
+import { computeTripChangeSet } from "@/services/ai/diff";
+import { executeActions } from "@/services/ai/actions/executor";
+import type { TravelAction } from "@/services/ai/actions/types";
 import type { Trip } from "@/types/travel";
 import type {
   AgentMessage,
@@ -24,7 +27,7 @@ function cloneDemo(input: CreateTripInput): Trip {
 }
 
 export class MockTravelAgent implements TravelAgent {
-  readonly id: TravelAgent["id"] = "mock";
+  readonly id: "mock" | "openai" = "mock";
 
   generationSteps(): GenerationStep[] {
     return [
@@ -42,75 +45,151 @@ export class MockTravelAgent implements TravelAgent {
   }
 
   optimizeDay(trip: Trip, dayId: string): AgentProposal {
+    const summary = "Day 2 当前偏赶。建议移除磁器口，把鹅岭二厂留到下午，南滨路提前到傍晚。";
+    const actions: TravelAction[] = [
+      { type: "REMOVE_ITEM", payload: { itemId: trip.items.find((i) => i.dayId === dayId && i.placeId === "p-ciqikou")?.id ?? "" } },
+      { type: "OPTIMIZE_DAY", payload: { dayId } },
+    ];
+    const { trip: updatedTrip } = executeActions(trip, actions.filter((a) => a.type !== "REMOVE_ITEM" || (a.payload as { itemId: string }).itemId));
+    const changeSet = computeTripChangeSet(trip, updatedTrip, actions, summary);
+
     return {
       id: uid("prop"),
-      summary:
-        "Day 2 当前偏赶。建议移除磁器口，把鹅岭二厂留到下午，南滨路提前到傍晚。",
-      apply: (current) => {
-        const next = {
-          ...current,
-          items: current.items.filter((item) => !(item.dayId === dayId && item.placeId === "p-ciqikou")),
-        };
-        return recomputeDay(next, dayId);
-      },
+      summary,
+      apply: () => updatedTrip,
+      changeSet,
     };
   }
 
   recommendPlaces(trip: Trip): AgentProposal {
-    const already = trip.items.some((i) => i.placeId === "p-chaotianmen");
+    const summary = "把朝天门码头加到 Day 1 晚饭前，和洪崖洞同江段。";
+    const actions: TravelAction[] = [
+      { type: "ADD_ITEM", payload: { placeId: "p-chaotianmen", dayId: "day-1", startTime: "17:00", durationMinutes: 60 } },
+    ];
+    const { trip: updatedTrip } = executeActions(trip, actions);
+    const changeSet = computeTripChangeSet(trip, updatedTrip, actions, summary);
+
     return {
       id: uid("prop"),
-      summary: already
-        ? "朝天门已经在行程里。可以把它挪到 Day 1 晚饭前，和洪崖洞同江段。"
-        : "把朝天门码头加到 Day 1 晚饭前，和洪崖洞同江段。",
-      apply: (current) => this.addItem(current, "p-chaotianmen", "day-1"),
+      summary,
+      apply: () => updatedTrip,
+      changeSet,
     };
   }
 
   recommendFood(trip: Trip): AgentProposal {
-    const already = trip.items.some((i) => i.placeId === "p-hotpot-peijie");
+    const summary = "Day 1 晚饭安排珮姐老火锅，距离洪崖洞步行约 11 分钟。";
+    const actions: TravelAction[] = [
+      { type: "RECOMMEND_FOOD", payload: { dayId: "day-1" } },
+    ];
+    const { trip: updatedTrip } = executeActions(trip, actions);
+    const changeSet = computeTripChangeSet(trip, updatedTrip, actions, summary);
+
     return {
       id: uid("prop"),
-      summary: already
-        ? "珮姐老火锅已在行程中，建议作为 Day 1 晚饭，距离洪崖洞步行约 11 分钟。"
-        : "Day 1 晚饭改去珮姐老火锅，距离洪崖洞步行约 11 分钟。",
-      apply: (current) => this.addItem(current, "p-hotpot-peijie", "day-1"),
+      summary,
+      apply: () => updatedTrip,
+      changeSet,
     };
   }
 
   recommendActivities(trip: Trip): AgentProposal {
-    const already = trip.items.some((i) => i.placeId === "p-livehouse");
+    const summary = "Day 2 晚上加入 MAO Livehouse 本地乐队夜。";
+    const actions: TravelAction[] = [
+      { type: "ADD_ITEM", payload: { placeId: "p-livehouse", dayId: "day-2", startTime: "20:30", durationMinutes: 90 } },
+    ];
+    const { trip: updatedTrip } = executeActions(trip, actions);
+    const changeSet = computeTripChangeSet(trip, updatedTrip, actions, summary);
+
     return {
       id: uid("prop"),
-      summary: already
-        ? "MAO Livehouse 已在行程中，适合作为 Day 2 晚上收尾。"
-        : "Day 2 晚上加入 MAO Livehouse 本地乐队夜。",
-      apply: (current) => this.addItem(current, "p-livehouse", "day-2"),
+      summary,
+      apply: () => updatedTrip,
+      changeSet,
     };
   }
 
   reduceBudget(trip: Trip): AgentProposal {
-    const nextSpend = Math.max(1600, trip.estimatedSpend - 300);
+    const summary = "把住宿换成如家商旅，并优化大交通与付费项目，大约省 ¥300。";
+    const actions: TravelAction[] = [{ type: "REDUCE_BUDGET", payload: { amount: 300 } }];
+    const { trip: updatedTrip } = executeActions(trip, actions);
+    const changeSet = computeTripChangeSet(trip, updatedTrip, actions, summary);
+
     return {
       id: uid("prop"),
-      summary: "把住宿换成如家商旅，并去掉付费索道，大约省 ¥300。",
-      apply: (current) => ({ ...current, estimatedSpend: nextSpend }),
+      summary,
+      apply: () => updatedTrip,
+      changeSet,
     };
   }
 
-  reduceWalking(trip: Trip): AgentProposal {
-    const walkHeavy = trip.items.some((item) => item.placeId === "p-shancheng" && item.duration > 40);
+  reduceWalking(trip: Trip, dayId?: string): AgentProposal {
+    const summary = "长距离步行路段改为地铁或打车，减少山城爬坡体能消耗。";
+    const actions: TravelAction[] = [{ type: "REDUCE_WALKING", payload: { dayId } }];
+    const { trip: updatedTrip } = executeActions(trip, actions);
+    const changeSet = computeTripChangeSet(trip, updatedTrip, actions, summary);
+
     return {
       id: uid("prop"),
-      summary: walkHeavy
-        ? "山城步道改短走，用地铁把礼堂到解放碑连起来，减少爬坡。"
-        : "步行已经压过一轮。如果还累，可以把磁器口挪走。",
-      apply: (current) => recomputeTrip({
-        ...current,
-        items: current.items.map((item) =>
-          item.placeId === "p-shancheng" ? { ...item, duration: 40 } : item,
-        ),
-      }),
+      summary,
+      apply: () => updatedTrip,
+      changeSet,
+    };
+  }
+
+  rainPlan(trip: Trip, dayId?: string): AgentProposal {
+    const summary = "下雨方案：将室外露天景点调整为室内三峡博物馆，并减少雨天步行。";
+    const actions: TravelAction[] = [{ type: "RAIN_PLAN", payload: { dayId } }];
+    const { trip: updatedTrip } = executeActions(trip, actions);
+    const changeSet = computeTripChangeSet(trip, updatedTrip, actions, summary);
+
+    return {
+      id: uid("prop"),
+      summary,
+      apply: () => updatedTrip,
+      changeSet,
+    };
+  }
+
+  delayDay(trip: Trip, dayId: string, minutes: number): AgentProposal {
+    const summary = `推迟行程：今天后续所有行程节点往后推迟 ${minutes} 分钟，保证充足休息。`;
+    const actions: TravelAction[] = [{ type: "DELAY_DAY", payload: { dayId, minutes } }];
+    const { trip: updatedTrip } = executeActions(trip, actions);
+    const changeSet = computeTripChangeSet(trip, updatedTrip, actions, summary);
+
+    return {
+      id: uid("prop"),
+      summary,
+      apply: () => updatedTrip,
+      changeSet,
+    };
+  }
+
+  skipNext(trip: Trip, dayId: string): AgentProposal {
+    const summary = "跳过当前站点，自动衔接并重算前往下一站的路线与时间。";
+    const actions: TravelAction[] = [{ type: "SKIP_NEXT", payload: { dayId } }];
+    const { trip: updatedTrip } = executeActions(trip, actions);
+    const changeSet = computeTripChangeSet(trip, updatedTrip, actions, summary);
+
+    return {
+      id: uid("prop"),
+      summary,
+      apply: () => updatedTrip,
+      changeSet,
+    };
+  }
+
+  reduceTodayBudget(trip: Trip, dayId: string, amount: number): AgentProposal {
+    const summary = `今日节省 ¥${amount}：替换打车为地铁，并调优餐饮支出。`;
+    const actions: TravelAction[] = [{ type: "REDUCE_TODAY_BUDGET", payload: { dayId, targetSaveAmount: amount } }];
+    const { trip: updatedTrip } = executeActions(trip, actions);
+    const changeSet = computeTripChangeSet(trip, updatedTrip, actions, summary);
+
+    return {
+      id: uid("prop"),
+      summary,
+      apply: () => updatedTrip,
+      changeSet,
     };
   }
 
@@ -165,6 +244,24 @@ export class MockTravelAgent implements TravelAgent {
 
   async chat(trip: Trip, message: string): Promise<AgentMessage> {
     const text = message.trim();
+    const currentDayId = trip.days[0]?.id ?? "day-1";
+
+    if (text.includes("雨") || text.includes("下雨")) {
+      const proposal = this.rainPlan(trip, currentDayId);
+      return { id: uid("msg"), role: "assistant", content: proposal.summary, proposal };
+    }
+    if (text.includes("推迟") || text.includes("延后")) {
+      const proposal = this.delayDay(trip, currentDayId, 60);
+      return { id: uid("msg"), role: "assistant", content: proposal.summary, proposal };
+    }
+    if (text.includes("跳过")) {
+      const proposal = this.skipNext(trip, currentDayId);
+      return { id: uid("msg"), role: "assistant", content: proposal.summary, proposal };
+    }
+    if (text.includes("省100") || (text.includes("省") && text.includes("100"))) {
+      const proposal = this.reduceTodayBudget(trip, currentDayId, 100);
+      return { id: uid("msg"), role: "assistant", content: proposal.summary, proposal };
+    }
     if (text.includes("赶") || text.toLowerCase().includes("day 2")) {
       const proposal = this.optimizeDay(trip, "day-2");
       return {
@@ -179,7 +276,7 @@ export class MockTravelAgent implements TravelAgent {
       return { id: uid("msg"), role: "assistant", content: proposal.summary, proposal };
     }
     if (text.includes("走") || text.includes("累")) {
-      const proposal = this.reduceWalking(trip);
+      const proposal = this.reduceWalking(trip, currentDayId);
       return { id: uid("msg"), role: "assistant", content: proposal.summary, proposal };
     }
     if (text.includes("美食") || text.includes("吃")) {
@@ -193,7 +290,7 @@ export class MockTravelAgent implements TravelAgent {
     return {
       id: uid("msg"),
       role: "assistant",
-      content: "我可以直接改行程。试试：Day 2 太赶了、帮我省 ¥300、减少走路、多安排当地美食。",
+      content: "我可以直接改行程。试试：下雨方案、少走路、推迟一小时、今天省100、多安排当地美食。",
     };
   }
 }

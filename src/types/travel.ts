@@ -19,7 +19,7 @@ export type ItineraryItemType =
 export type ItemStatus = "planned" | "current" | "done" | "skipped";
 export type TaskStatus = "todo" | "done";
 export type BudgetCategory = "transport" | "stay" | "food" | "ticket" | "shop" | "other";
-export type TransportKind = "highspeed" | "flight" | "metro" | "walk" | "taxi" | "bus";
+export type TransportKind = "highspeed" | "flight" | "metro" | "walk" | "taxi" | "bus" | "drive";
 export type OpeningStatus = "open" | "closed" | "unknown";
 
 export interface GeoPoint {

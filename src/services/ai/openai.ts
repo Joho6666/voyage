@@ -1,4 +1,6 @@
 import { executeActions } from "@/services/ai/actions/executor";
+import type { TravelAction } from "@/services/ai/actions/types";
+import { computeTripChangeSet } from "@/services/ai/diff";
 import type { AgentMessage, CreateTripInput, TravelAgent } from "./types";
 import { MockTravelAgent } from "./mock";
 import type { Trip } from "@/types/travel";
@@ -61,6 +63,12 @@ export class OpenAITravelAgent extends MockTravelAgent implements TravelAgent {
         ? `${data.rejected.length} 个操作被拒绝。`
         : "";
       const summary = data.summary || `已执行 ${data.applied.length} 个操作。${rejectedNote}`;
+      const changeSet = computeTripChangeSet(
+        trip,
+        data.trip,
+        (data.applied as TravelAction[]) || [],
+        summary,
+      );
       return {
         id: `msg_${Date.now()}`,
         role: "assistant",
@@ -69,6 +77,7 @@ export class OpenAITravelAgent extends MockTravelAgent implements TravelAgent {
           id: `prop_${Date.now()}`,
           summary,
           apply: () => data.trip,
+          changeSet,
         },
       };
     } catch {
