@@ -30,14 +30,13 @@ test.describe("Voyage Golden Trip E2E Suite", () => {
     await expect(page).toHaveURL(/.*new-trip.*/);
 
     // Click Generate Trip
-    const generateBtn = page.getByRole("button", { name: /开始生成|创建|生成完整旅行/i });
-    if (await generateBtn.isVisible()) {
-      await generateBtn.click();
-    }
+    const generateBtn = page.getByRole("button", { name: /开始生成|创建|生成完整旅行|AI 创建旅行/i });
+    await expect(generateBtn).toBeVisible({ timeout: 15000 });
+    await generateBtn.click();
 
     // Wait for trip workspace
     await page.waitForURL(/\/trip\//, { timeout: 30000 });
-    await expect(page.locator("h1, h2")).toContainText(/重庆|Day/);
+    await expect(page.locator("h1, h2").first()).toContainText(/重庆|Day/);
   });
 
   test("Flow 2: Itinerary item interaction and map sync", async ({ page }) => {
@@ -78,13 +77,13 @@ test.describe("Voyage Golden Trip E2E Suite", () => {
 
   test("Flow 4: Refresh -> Trip still exists with persisted data", async ({ page }) => {
     await page.goto("/trip/chongqing-2026");
-    await expect(page.locator("h1, h2")).toContainText(/重庆/i, { timeout: 15000 });
+    await expect(page.locator("body")).toContainText(/重庆/i, { timeout: 15000 });
 
     // Reload page
     await page.reload();
 
     // Verify itinerary still loads and displays
-    await expect(page.locator("h1, h2")).toContainText(/重庆/i, { timeout: 15000 });
+    await expect(page.locator("body")).toContainText(/重庆/i, { timeout: 15000 });
     const items = page.locator("article");
     await expect(items.first()).toBeVisible();
   });

@@ -27,6 +27,13 @@ export interface GeoPoint {
   lng: number;
 }
 
+export interface VerticalInfo {
+  floor?: string;
+  levelDescription?: string;
+  elevationDiffMeters?: number;
+  elevatorHint?: string;
+}
+
 export interface Place {
   id: string;
   name: string;
@@ -48,6 +55,7 @@ export interface Place {
   estimatedCost?: number;
   source?: "amap" | "demo" | "llm" | "user";
   sourceId?: string;
+  vertical?: VerticalInfo;
 }
 
 export interface Day {
@@ -84,6 +92,12 @@ export interface RouteStep {
   distanceMeters: number;
   durationMinutes: number;
   polyline?: Array<[number, number]>;
+  verticalHint?: string;
+  floorTransition?: {
+    fromFloor: string;
+    toFloor: string;
+    mode: "elevator" | "escalator" | "stairs" | "walkway";
+  };
 }
 
 export interface RouteSegment {

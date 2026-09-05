@@ -27,6 +27,7 @@ export function PoiCard({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
   const selectPlace = useUiStore((s) => s.selectPlace);
   const selected = useUiStore((s) => s.selectedPlaceId === place.id);
+  const isHovered = useUiStore((s) => s.hoverPlaceId === place.id);
   const hoverPlace = useUiStore((s) => s.hoverPlace);
   const patch = useTripStore((s) => s.patchTrip);
   const color = DAY_COLORS[dayIndex % DAY_COLORS.length];
@@ -34,7 +35,7 @@ export function PoiCard({
 
   useEffect(() => {
     if (selected && cardRef.current) {
-      cardRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      cardRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   }, [selected]);
 
@@ -48,8 +49,9 @@ export function PoiCard({
       ref={setCombinedRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        "group flex gap-3 rounded-[12px] border border-transparent px-3 py-2 hover:bg-secondary/70",
-        selected && "border-primary/30 bg-accent",
+        "group flex gap-3 rounded-[12px] border border-transparent px-3 py-2 hover:bg-secondary/70 transition-all cursor-pointer",
+        selected && "border-primary/40 bg-accent ring-1 ring-primary/20",
+        isHovered && !selected && "bg-secondary/80 border-border/70",
         isDragging && "z-10 bg-surface shadow-[var(--shadow-float)]",
       )}
       onClick={() => selectPlace(place.id)}

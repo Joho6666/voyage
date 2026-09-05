@@ -1,15 +1,14 @@
 "use client";
 
-import dynamic from "next/dynamic";
-import { isAmapJsConfigured } from "@/services/map/amap-js";
-import { MockMap } from "./MockMap";
+import { JourneyMap } from "@/features/journey-map/JourneyMap";
+import type { MapMode, MapTheme } from "@/features/journey-map/models/map-state";
 
-const AMapCanvas = dynamic(() => import("./AMapCanvas").then((m) => m.AMapCanvas), {
-  ssr: false,
-  loading: () => <MockMap />,
-});
-
-export function MapCanvas() {
-  if (!isAmapJsConfigured()) return <MockMap />;
-  return <AMapCanvas />;
+export function MapCanvas({
+  mode = "PLAN",
+  theme = "light",
+}: {
+  mode?: MapMode;
+  theme?: MapTheme;
+}) {
+  return <JourneyMap mode={mode} theme={theme} />;
 }
