@@ -1,0 +1,5 @@
+{
+  "tripId": "REPLACE_WITH_TRIP_ID",
+  "instruction": "第二天太累了，少走一点。",
+  "fallbackPolicy": "estimated"
+}

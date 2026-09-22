@@ -2,6 +2,6 @@
   "schemaVersion": 1,
   "repository": "https://github.com/Joho6666/voyage.git",
   "ref": "voyage-skill-v0.1.0",
-  "commit": "__RUNTIME_COMMIT__",
+  "commit": "a992b4eb6086af799c67690f5ca24dfdacb07751",
   "node": ">=20"
 }

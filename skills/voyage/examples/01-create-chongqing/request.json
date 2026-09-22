@@ -1,0 +1,11 @@
+{
+  "origin": "桂林",
+  "destination": "重庆",
+  "startDate": "2030-05-01",
+  "days": 3,
+  "people": 2,
+  "budget": 2500,
+  "preferences": ["美食", "夜景", "少走路"],
+  "walkingTolerance": "low",
+  "fallbackPolicy": "estimated"
+}

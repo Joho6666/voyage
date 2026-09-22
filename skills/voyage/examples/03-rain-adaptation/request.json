@@ -1,0 +1,6 @@
+{
+  "tripId": "REPLACE_WITH_TRIP_ID",
+  "instruction": "今天下午下雨了，把后面的露天行程换成室内。",
+  "asOf": "2030-05-02T05:00:00.000Z",
+  "fallbackPolicy": "estimated"
+}
