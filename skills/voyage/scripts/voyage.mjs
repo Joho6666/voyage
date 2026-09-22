@@ -29,6 +29,15 @@ function run(executable, args, options = {}) {
   if (result.status !== 0) throw new Error(`${executable} exited with ${result.status ?? "unknown"}`);
 }
 
+function runNpm(args, cwd) {
+  const adjacentCli = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
+  if (process.platform === "win32" && existsSync(adjacentCli)) {
+    run(process.execPath, [adjacentCli, ...args], { cwd });
+    return;
+  }
+  run("npm", args, { cwd });
+}
+
 async function installRuntime(target) {
   if (!lock.commit || lock.commit === "__RUNTIME_COMMIT__") {
     throw new Error("Voyage runtime lock has not been finalized");
@@ -37,16 +46,24 @@ async function installRuntime(target) {
   const temporary = `${target}.install-${process.pid}`;
   if (existsSync(temporary)) rmSync(temporary, { recursive: true, force: true });
   process.stderr.write(`Installing Voyage runtime ${lock.commit.slice(0, 12)}…\n`);
-  run("git", ["clone", "--filter=blob:none", "--no-checkout", lock.repository, temporary]);
-  run("git", ["-C", temporary, "fetch", "--depth", "1", "origin", lock.commit]);
-  run("git", ["-C", temporary, "checkout", "--detach", lock.commit]);
-  run(process.platform === "win32" ? "npm.cmd" : "npm", ["ci", "--ignore-scripts"], { cwd: temporary });
-  if (existsSync(target)) rmSync(target, { recursive: true, force: true });
-  const { rename } = await import("node:fs/promises");
-  await rename(temporary, target);
+  try {
+    await mkdir(temporary, { recursive: true });
+    run("git", ["-C", temporary, "init"]);
+    run("git", ["-C", temporary, "remote", "add", "origin", lock.repository]);
+    run("git", ["-C", temporary, "fetch", "--depth", "1", "origin", lock.commit]);
+    run("git", ["-C", temporary, "checkout", "--detach", "FETCH_HEAD"]);
+    runNpm(["ci", "--ignore-scripts"], temporary);
+    if (existsSync(target)) rmSync(target, { recursive: true, force: true });
+    const { rename } = await import("node:fs/promises");
+    await rename(temporary, target);
+  } catch (error) {
+    if (existsSync(temporary)) rmSync(temporary, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 async function main() {
+  const callerCwd = process.cwd();
   const override = process.env.VOYAGE_REPO ? path.resolve(process.env.VOYAGE_REPO) : null;
   let runtime = override && isRuntime(override) ? override : findContainingRuntime();
   if (!runtime) {
@@ -57,10 +74,21 @@ async function main() {
     if (!isRuntime(runtime)) await installRuntime(runtime);
   }
   const tsxCli = path.join(runtime, "node_modules", "tsx", "dist", "cli.mjs");
-  if (!existsSync(tsxCli)) run(process.platform === "win32" ? "npm.cmd" : "npm", ["ci", "--ignore-scripts"], { cwd: runtime });
-  const result = spawnSync(process.execPath, [tsxCli, path.join(runtime, "src", "skill", "cli.ts"), ...process.argv.slice(2)], {
-    cwd: process.cwd(),
-    env: process.env,
+  if (!existsSync(tsxCli)) {
+    runNpm(["ci", "--ignore-scripts"], runtime);
+  }
+  const forwarded = process.argv.slice(2);
+  const inputIndex = forwarded.indexOf("--input");
+  if (inputIndex >= 0 && forwarded[inputIndex + 1] && forwarded[inputIndex + 1] !== "-") {
+    forwarded[inputIndex + 1] = path.resolve(callerCwd, forwarded[inputIndex + 1]);
+  }
+  const childEnv = {
+    ...process.env,
+    VOYAGE_DATA_DIR: process.env.VOYAGE_DATA_DIR || path.join(callerCwd, ".voyage"),
+  };
+  const result = spawnSync(process.execPath, [tsxCli, path.join(runtime, "src", "skill", "cli.ts"), ...forwarded], {
+    cwd: runtime,
+    env: childEnv,
     stdio: "inherit",
     shell: false,
   });
