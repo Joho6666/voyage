@@ -244,7 +244,10 @@ export class MockTravelAgent implements TravelAgent {
 
   async chat(trip: Trip, message: string): Promise<AgentMessage> {
     const text = message.trim();
-    const currentDayId = trip.days[0]?.id ?? "day-1";
+    const requestedDayId = text.match(/\[dayId:([^\]]+)\]/)?.[1];
+    const currentDayId = trip.days.some((day) => day.id === requestedDayId)
+      ? requestedDayId!
+      : trip.days[0]?.id ?? "day-1";
 
     if (text.includes("雨") || text.includes("下雨")) {
       const proposal = this.rainPlan(trip, currentDayId);

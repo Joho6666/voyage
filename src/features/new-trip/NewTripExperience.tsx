@@ -11,7 +11,6 @@ import { travelAgent } from "@/services/ai";
 import type { GenerationStep } from "@/services/ai/types";
 import { tripRepository } from "@/services/trips/repository";
 import { hydrateTrip } from "@/store/trip-store";
-import { DEMO_TRIP_ID } from "@/data/demo/chongqing";
 
 const CHIPS = ["3天2夜", "周末游", "学生穷游", "情侣", "独自旅行", "亲子", "美食", "摄影", "自然", "城市漫游", "轻松", "特种兵"];
 
@@ -30,6 +29,7 @@ export function NewTripExperience() {
   const [steps, setSteps] = useState<GenerationStep[]>([]);
   const [markers, setMarkers] = useState(0);
   const [done, setDone] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     const q = searchParams.get("q");
@@ -41,6 +41,7 @@ export function NewTripExperience() {
   const run = async () => {
     setRunning(true);
     setDone(false);
+    setError("");
     const next = preview.map((s) => ({ ...s }));
     setSteps(next);
     setMarkers(0);
@@ -50,20 +51,30 @@ export function NewTripExperience() {
       await wait(520);
     }
     setSteps((curr) => curr.map((s) => ({ ...s, status: "done" })));
-    const trip = await travelAgent.createTrip({
-      prompt,
-      origin,
-      destination,
-      startDate: dates,
-      travelers: Number(travelers) || 2,
-      budget: Number(budget) || 2500,
-      vibes,
-    });
-    await tripRepository.save(trip);
-    hydrateTrip(trip);
-    setDone(true);
-    await wait(700);
-    router.push(`/trip/${DEMO_TRIP_ID}`);
+    try {
+      const trip = await travelAgent.createTrip({
+        prompt,
+        origin,
+        destination,
+        startDate: dates,
+        travelers: Number(travelers) || 2,
+        budget: Number(budget) || 2500,
+        vibes,
+      });
+      await tripRepository.save(trip);
+      hydrateTrip(trip);
+      setDone(true);
+      await wait(700);
+      router.push(`/trip/${encodeURIComponent(trip.id)}`);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "";
+      setError(message === "NO_PROVIDER_CONFIGURED"
+        ? "尚未配置高德服务端 Key。请设置 AMAP_SERVER_KEY 后再创建真实行程。"
+        : message === "AMAP_INVALID_USER_KEY"
+          ? "高德 Web 服务 Key 无效或未开通 POI 服务，请检查控制台的 Key 类型、服务权限和安全设置。"
+          : "行程创建失败，请检查真实数据服务后重试。");
+      setRunning(false);
+    }
   };
 
   return (
@@ -114,6 +125,8 @@ export function NewTripExperience() {
           </Button>
         </div>
       </div>
+
+      {error ? <p role="alert" className="mt-4 rounded-[10px] border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
 
       {running ? (
         <div className="mt-10 grid gap-6 md:grid-cols-2">

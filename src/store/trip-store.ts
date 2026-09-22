@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { chongqingTrip } from "@/data/demo/chongqing";
 import { tripRepository } from "@/services/trips/repository";
-import { recomputeDay, recomputeTrip } from "@/services/routing";
+import { recomputeDay, recomputeDayWithRealRoutes, recomputeTrip } from "@/services/routing";
 import type { Trip } from "@/types/travel";
 
 interface TripState {
@@ -25,7 +25,12 @@ export const useTripStore = create<TripState>((set, get) => ({
       const order = orderedIds.indexOf(item.id);
       return order === -1 ? item : { ...item, order };
     });
-    set({ trip: recomputeDay({ ...trip, items }, dayId) });
+    const estimated = recomputeDay({ ...trip, items }, dayId);
+    set({ trip: estimated });
+    void recomputeDayWithRealRoutes(estimated, dayId).then(async (routed) => {
+      set({ trip: routed });
+      await tripRepository.save(routed);
+    });
   },
   persist: async () => {
     set({ saving: true });

@@ -22,6 +22,11 @@ export type BudgetCategory = "transport" | "stay" | "food" | "ticket" | "shop" |
 export type TransportKind = "highspeed" | "flight" | "metro" | "walk" | "taxi" | "bus" | "drive";
 export type OpeningStatus = "open" | "closed" | "unknown";
 
+export type DataProvenance =
+  | { source: "amap"; estimated: false }
+  | { source: "haversine" | "demo"; estimated: true }
+  | { source: "unavailable"; estimated: true; reason: string };
+
 export interface GeoPoint {
   lat: number;
   lng: number;
@@ -55,6 +60,7 @@ export interface Place {
   estimatedCost?: number;
   source?: "amap" | "demo" | "llm" | "user";
   sourceId?: string;
+  provenance?: DataProvenance;
   vertical?: VerticalInfo;
 }
 
@@ -69,6 +75,8 @@ export interface Day {
     tempC: number;
     condition: string;
     icon: "sun" | "cloud" | "rain" | "overcast";
+    provenance?: DataProvenance;
+    fetchedAt?: string;
   };
 }
 
@@ -123,6 +131,7 @@ export interface RouteSegment {
   estimated: boolean;
   estimatedCost?: number;
   updatedAt: string;
+  provenance?: DataProvenance;
 }
 
 export interface Hotel {

@@ -111,6 +111,7 @@ export function recomputeDay(trip: Trip, dayId: string): Trip {
       ],
       provider: "haversine",
       estimated: true,
+      provenance: { source: "haversine", estimated: true },
       updatedAt: new Date().toISOString(),
     });
   }
@@ -215,6 +216,9 @@ export async function recomputeDayWithRealRoutes(trip: Trip, dayId: string): Pro
       steps: realRoute.steps,
       provider: realRoute.source,
       estimated: realRoute.estimated,
+      provenance: realRoute.estimated
+        ? { source: "haversine", estimated: true }
+        : { source: "amap", estimated: false },
       updatedAt: new Date().toISOString(),
     });
   }
@@ -244,6 +248,14 @@ export async function recomputeDayWithRealRoutes(trip: Trip, dayId: string): Pro
     items: [...otherItems, ...updatedItems],
     segments: [...otherSegments, ...resolvedSegments],
   };
+}
+
+export async function recomputeTripWithRealRoutes(trip: Trip): Promise<Trip> {
+  let next = trip;
+  for (const day of trip.days) {
+    next = await recomputeDayWithRealRoutes(next, day.id);
+  }
+  return next;
 }
 
 export function dayStats(trip: Trip, dayId: string) {

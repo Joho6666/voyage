@@ -45,7 +45,7 @@ const SYSTEM_PROMPT = [
   '- REDUCE_TODAY_WALKING: {"dayId", "maxWalkMeters"?}',
   '- REDUCE_TODAY_BUDGET: {"dayId", "targetSaveAmount": 100}',
   '- CHANGE_NEXT_PLACE: {"dayId"?, "currentItemId"?, "category"?}',
-  '- CHANGE_ROUTE_MODE: {"dayId"?, "mode": "walk"|"metro"|"taxi"|"bus"|"drive"}',
+  '- CHANGE_ROUTE_MODE: {"segmentId"?, "fromItemId"?, "toItemId"?, "dayId"?, "newMode": "walk"|"metro"|"taxi"|"bus"|"drive"}',
   '- MOVE_INDOOR: {"dayId"}',
   '- EXTEND_STAY: {"itemId", "additionalMinutes"}',
   '- SHORTEN_STAY: {"itemId", "reduceMinutes"}',
@@ -75,11 +75,12 @@ function ruleBasedActions(trip: Trip, message: string): TravelActionList {
   const text = message.trim();
   const day1 = trip.days[0];
   const day2 = trip.days[1] ?? day1;
-  const currentDayId = day1?.id ?? "day-1";
+  const requestedDayId = text.match(/\[dayId:([^\]]+)\]/)?.[1];
+  const currentDayId = trip.days.some((day) => day.id === requestedDayId) ? requestedDayId! : day1?.id ?? "day-1";
   const actions: TravelAction[] = [];
 
   if (text.includes("雨") || text.includes("下雨")) {
-    actions.push({ type: "RAIN_PLAN", payload: { dayId: day2?.id ?? currentDayId } });
+    actions.push({ type: "RAIN_PLAN", payload: { dayId: currentDayId } });
   } else if (text.includes("推迟") || text.includes("延后")) {
     actions.push({ type: "DELAY_DAY", payload: { dayId: currentDayId, minutes: 60 } });
   } else if (text.includes("提前") || text.includes("早点")) {
@@ -93,8 +94,9 @@ function ruleBasedActions(trip: Trip, message: string): TravelActionList {
   } else if (text.includes("换") || text.includes("换个地方")) {
     actions.push({ type: "CHANGE_NEXT_PLACE", payload: { dayId: currentDayId } });
   } else if (text.includes("赶") || text.includes("累") || text.toLowerCase().includes("day 2")) {
-    if (day2) actions.push({ type: "OPTIMIZE_DAY", payload: { dayId: day2.id } });
-    actions.push({ type: "REDUCE_WALKING", payload: { dayId: day2?.id } });
+    const targetDayId = text.toLowerCase().includes("day 2") ? day2?.id ?? currentDayId : currentDayId;
+    actions.push({ type: "OPTIMIZE_DAY", payload: { dayId: targetDayId } });
+    actions.push({ type: "REDUCE_WALKING", payload: { dayId: targetDayId } });
   } else if (text.includes("省") || text.includes("预算")) {
     actions.push({ type: "REDUCE_BUDGET", payload: { amount: extractAmount(text) } });
   } else if (text.includes("走") || text.includes("累")) {

@@ -33,6 +33,11 @@ export const transportKindSchema = z.enum([
   "drive",
 ]);
 export const openingStatusSchema = z.enum(["open", "closed", "unknown"]);
+export const provenanceSchema = z.discriminatedUnion("source", [
+  z.object({ source: z.literal("amap"), estimated: z.literal(false) }),
+  z.object({ source: z.enum(["haversine", "demo"]), estimated: z.literal(true) }),
+  z.object({ source: z.literal("unavailable"), estimated: z.literal(true), reason: z.string() }),
+]);
 export const budgetCategorySchema = z.enum([
   "transport",
   "stay",
@@ -71,6 +76,7 @@ export const placeSchema = z.object({
   estimatedCost: z.number().optional(),
   source: z.enum(["amap", "demo", "llm", "user"]).optional(),
   sourceId: z.string().optional(),
+  provenance: provenanceSchema.optional(),
 });
 
 export const daySchema = z.object({
@@ -84,6 +90,8 @@ export const daySchema = z.object({
     tempC: z.number(),
     condition: z.string(),
     icon: z.enum(["sun", "cloud", "rain", "overcast"]),
+    provenance: provenanceSchema.optional(),
+    fetchedAt: z.string().optional(),
   }),
 });
 
@@ -130,6 +138,7 @@ export const routeSegmentSchema = z.object({
   estimated: z.boolean().optional().default(true),
   estimatedCost: z.number().optional(),
   updatedAt: z.string().optional(),
+  provenance: provenanceSchema.optional(),
 });
 
 export const budgetItemSchema = z.object({

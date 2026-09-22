@@ -4,6 +4,7 @@ import { computeTripChangeSet } from "@/services/ai/diff";
 import type { AgentMessage, CreateTripInput, TravelAgent } from "./types";
 import { MockTravelAgent } from "./mock";
 import type { Trip } from "@/types/travel";
+import { recomputeTripWithRealRoutes } from "@/services/routing";
 
 export interface PlanActionsResponse {
   source: "llm" | "mock";
@@ -40,11 +41,11 @@ export class OpenAITravelAgent extends MockTravelAgent implements TravelAgent {
       });
       const data = (await response.json()) as { trip?: Trip; error?: string };
       if (!response.ok || !data.trip) {
-        return super.createTrip(input);
+        throw new Error(data.error ?? `Trip creation failed (${response.status})`);
       }
-      return data.trip;
-    } catch {
-      return super.createTrip(input);
+      return await recomputeTripWithRealRoutes(data.trip);
+    } catch (error) {
+      throw error instanceof Error ? error : new Error("Trip creation failed");
     }
   }
 
@@ -63,9 +64,10 @@ export class OpenAITravelAgent extends MockTravelAgent implements TravelAgent {
         ? `${data.rejected.length} 个操作被拒绝。`
         : "";
       const summary = data.summary || `已执行 ${data.applied.length} 个操作。${rejectedNote}`;
+      const routedTrip = await recomputeTripWithRealRoutes(data.trip);
       const changeSet = computeTripChangeSet(
         trip,
-        data.trip,
+        routedTrip,
         (data.applied as TravelAction[]) || [],
         summary,
       );
@@ -76,7 +78,7 @@ export class OpenAITravelAgent extends MockTravelAgent implements TravelAgent {
         proposal: {
           id: `prop_${Date.now()}`,
           summary,
-          apply: () => data.trip,
+          apply: () => routedTrip,
           changeSet,
         },
       };

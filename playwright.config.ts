@@ -23,6 +23,7 @@ export default defineConfig({
     ? undefined
     : {
         command: `npx next start -p ${port}`,
+        env: { ...process.env, VOYAGE_DEMO_MODE: "true" },
         url: `http://localhost:${port}`,
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,

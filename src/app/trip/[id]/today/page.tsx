@@ -68,7 +68,7 @@ export default function TodayPage() {
     if (busy) return;
     setBusy(true);
     try {
-      const reply = await travelAgent.chat(trip, message);
+      const reply = await travelAgent.chat(trip, `[dayId:${day?.id ?? "day-1"}] ${message}`);
       if (reply.proposal?.changeSet) {
         setActiveDiff(reply.proposal.changeSet);
         setDiffOpen(true);

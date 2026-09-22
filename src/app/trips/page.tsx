@@ -81,13 +81,18 @@ export default function TripsPage() {
     }
   };
 
-  const handleDelete = (tripId: string) => {
+  const handleDelete = async (tripId: string) => {
     if (trips.length <= 1) {
       toast.error("保留至少一个行程项目");
       return;
     }
-    setTrips((prev) => prev.filter((t) => t.id !== tripId));
-    toast.success("行程已移除");
+    try {
+      await tripRepository.delete?.(tripId);
+      setTrips((prev) => prev.filter((t) => t.id !== tripId));
+      toast.success("行程已移除");
+    } catch {
+      toast.error("删除失败，行程仍保留");
+    }
   };
 
   const handleArchive = async (summary: TripSummary) => {
@@ -221,7 +226,7 @@ export default function TripsPage() {
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-rose-600 focus:text-rose-600"
-                              onSelect={() => handleDelete(tripItem.id)}
+                              onSelect={() => void handleDelete(tripItem.id)}
                             >
                               <Trash2 className="size-3.5 mr-1.5" />
                               删除

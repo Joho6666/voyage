@@ -28,6 +28,11 @@ export class SupabaseTripRepository implements TripRepository {
     });
   }
 
+  async hasAuthenticatedUser() {
+    const { data, error } = await this.client.auth.getUser();
+    return !error && Boolean(data.user);
+  }
+
   async list(): Promise<TripSummary[]> {
     const { data, error } = await this.client
       .from("trips")
@@ -152,6 +157,10 @@ export class SupabaseTripRepository implements TripRepository {
       duration_minutes: segment.minutes,
       polyline: segment.polyline ?? null,
       estimated_cost: segment.estimatedCost ?? null,
+      provider: segment.provider,
+      estimated: segment.estimated,
+      provider_route_id: segment.providerRouteId ?? null,
+      steps: segment.steps ?? null,
     }));
     const budgetItems = trip.budgetItems.map((item) => ({
       id: item.id,

@@ -54,13 +54,8 @@ export async function POST(request: Request) {
         } else if (mode === "taxi" || mode === "drive") {
           result = await amapDrivingRoute(origin, destination);
         } else if (mode === "metro" || mode === "bus") {
-          try {
-            result = await amapTransitRoute(origin, destination, city);
-          } catch {
-            // If transit is unavailable (e.g. late night or short distance), fall back to driving/walking
-            const meters = haversineMeters(origin, destination);
-            result = meters < 1000 ? await amapWalkingRoute(origin, destination) : await amapDrivingRoute(origin, destination);
-          }
+          // Do not relabel a driving/walking fallback as an authoritative transit route.
+          result = await amapTransitRoute(origin, destination, city);
         } else {
           result = await amapWalkingRoute(origin, destination);
         }

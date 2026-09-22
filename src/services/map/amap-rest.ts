@@ -29,7 +29,7 @@ export interface AmapRouteResult {
 }
 
 function serverKey() {
-  return process.env.AMAP_SERVER_KEY ?? process.env.NEXT_PUBLIC_AMAP_KEY ?? "";
+  return process.env.AMAP_SERVER_KEY ?? "";
 }
 
 export function isAmapConfigured() {
