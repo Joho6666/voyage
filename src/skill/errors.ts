@@ -2,6 +2,7 @@ export type SkillErrorCode =
   | "INVALID_INPUT"
   | "TRIP_NOT_FOUND"
   | "NO_PROVIDER_CONFIGURED"
+  | "PROVIDER_AUTH_FAILED"
   | "NO_POI_RESULTS"
   | "WEATHER_UNAVAILABLE"
   | "ROUTE_PROVIDER_UNAVAILABLE"
@@ -26,6 +27,9 @@ export class SkillError extends Error {
 export function normalizeProviderError(error: unknown, fallback: SkillErrorCode): SkillError {
   if (error instanceof SkillError) return error;
   const message = error instanceof Error ? error.message : String(error);
+  if (/INVALID_USER_KEY|USERKEY_PLAT_NOMATCH|INVALID_USER_SCODE/.test(message)) {
+    return new SkillError("PROVIDER_AUTH_FAILED", "AMap rejected AMAP_SERVER_KEY");
+  }
   if (message === "NO_PROVIDER_CONFIGURED") return new SkillError("NO_PROVIDER_CONFIGURED", message);
   if (message === "NO_POI_RESULTS") return new SkillError("NO_POI_RESULTS", message);
   return new SkillError(fallback, message);

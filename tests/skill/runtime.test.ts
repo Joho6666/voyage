@@ -158,6 +158,15 @@ describe("Voyage Skill runtime", () => {
     }
   });
 
+  it("normalizes provider authentication failures", async () => {
+    const rejected = new VoyageSkillRuntime(repository, async () => ({
+      ...provider,
+      kind: "amap" as const,
+      searchPlaces: async () => { throw new Error("AMap search failed: INVALID_USER_KEY"); },
+    }));
+    await expect(rejected.searchPlaces({ destination: "重庆", query: "景点" })).rejects.toMatchObject({ code: "PROVIDER_AUTH_FAILED" });
+  });
+
   it("emits one JSON envelope from the cross-platform CLI", async () => {
     const inputFile = path.join(dataDir, "input.json");
     await writeFile(inputFile, JSON.stringify({ destination: "重庆", query: "景点", limit: 3 }), "utf8");

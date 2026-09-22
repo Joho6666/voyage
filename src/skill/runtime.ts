@@ -196,7 +196,9 @@ export class VoyageSkillRuntime {
     const input = createTripInputSchema.parse(raw);
     const provider = await this.providerFactory();
     const finish = input.endDate ?? endDate(input.startDate, input.days ?? 1);
-    const candidates = await collectCandidates(provider, input.destination);
+    const candidates = await collectCandidates(provider, input.destination).catch((error) => {
+      throw normalizeProviderError(error, "NO_POI_RESULTS");
+    });
     const forecasts = await provider.getWeather(input.destination).catch((error) => {
       if (input.fallbackPolicy !== "estimated") throw normalizeProviderError(error, "WEATHER_UNAVAILABLE");
       return [];
@@ -260,7 +262,9 @@ export class VoyageSkillRuntime {
   async searchPlaces(raw: unknown) {
     const input = searchPlacesInputSchema.parse(raw);
     const provider = await this.providerFactory();
-    const places = uniquePlaces(await provider.searchPlaces(input));
+    const places = uniquePlaces(await provider.searchPlaces(input).catch((error) => {
+      throw normalizeProviderError(error, "NO_POI_RESULTS");
+    }));
     if (!places.length) throw new SkillError("NO_POI_RESULTS", "No matching places found");
     return successEnvelope({ places }, status(placeLevel(provider), "UNKNOWN", "UNKNOWN"));
   }
