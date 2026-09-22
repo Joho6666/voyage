@@ -39,8 +39,11 @@ test.describe("Voyage Journey Map E2E Suite", () => {
     const markerPins = page.locator('[data-testid="place-marker"]:visible');
     await expect(markerPins.first()).toBeVisible({ timeout: 15000 });
 
-    // Click on a visible marker
-    await markerPins.first().click();
+    // AMap replaces marker DOM nodes while its overlay settles. Dispatch on the
+    // current semantic marker so the test exercises selection without racing a detached node.
+    const firstPlaceId = await markerPins.first().getAttribute("data-place-id");
+    expect(firstPlaceId).toBeTruthy();
+    await page.locator(`[data-testid="place-marker"][data-place-id="${firstPlaceId}"]:visible`).last().dispatchEvent("click");
 
     // Map popover opens
     await expect(page.locator('[data-testid="map-popover"]:visible')).toBeVisible({ timeout: 5000 });
