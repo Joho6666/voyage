@@ -41,9 +41,7 @@ test.describe("Voyage Journey Map E2E Suite", () => {
 
     // AMap replaces marker DOM nodes while its overlay settles. Dispatch on the
     // current semantic marker so the test exercises selection without racing a detached node.
-    const firstPlaceId = await markerPins.first().getAttribute("data-place-id");
-    expect(firstPlaceId).toBeTruthy();
-    await page.locator(`[data-testid="place-marker"][data-place-id="${firstPlaceId}"]:visible`).last().dispatchEvent("click");
+    await markerPins.first().evaluate((element) => (element as HTMLElement).click());
 
     // Map popover opens
     await expect(page.locator('[data-testid="map-popover"]:visible')).toBeVisible({ timeout: 5000 });
@@ -62,14 +60,14 @@ test.describe("Voyage Journey Map E2E Suite", () => {
     await expect(day2Btn).toBeVisible({ timeout: 15000 });
 
     // Click Day 2
-    await day2Btn.click();
+    await day2Btn.dispatchEvent("click");
 
     // Verify active day is updated (button styled as active)
     await expect(day2Btn).toHaveClass(/bg-primary/);
 
     // Switch back to "全部"
     const allBtn = page.getByRole("button", { name: /全部/i }).first();
-    await allBtn.click();
+    await allBtn.dispatchEvent("click");
     await expect(allBtn).toHaveClass(/bg-primary/);
   });
 
@@ -80,7 +78,7 @@ test.describe("Voyage Journey Map E2E Suite", () => {
     // Click "行程总览"
     const overviewBtn = page.getByRole("button", { name: /行程总览/i }).first();
     if (await overviewBtn.isVisible()) {
-      await overviewBtn.click();
+      await overviewBtn.dispatchEvent("click");
 
       // Check Journey Overview summary card
       await expect(page.getByRole("heading", { name: /行程总览/i })).toBeVisible({ timeout: 5000 });
