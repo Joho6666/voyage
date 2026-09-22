@@ -2,7 +2,7 @@ import "server-only";
 import type { Trip } from "@/types/travel";
 import { chatJson, getLlmConfig } from "../llm";
 import { travelActionListSchema, type TravelActionList } from "./schemas";
-import type { TravelAction } from "./types";
+import { planActionsWithRules } from "./rule-planner";
 
 function tripSummary(trip: Trip) {
   const lines: string[] = [];
@@ -65,51 +65,8 @@ export function isLlmConfigured() {
   return Boolean(getLlmConfig());
 }
 
-function extractAmount(text: string) {
-  const matched = text.match(/(\d{3,5})/);
-  const value = matched ? Number(matched[1]) : NaN;
-  return Number.isFinite(value) && value >= 100 ? value : 300;
-}
-
 function ruleBasedActions(trip: Trip, message: string): TravelActionList {
-  const text = message.trim();
-  const day1 = trip.days[0];
-  const day2 = trip.days[1] ?? day1;
-  const requestedDayId = text.match(/\[dayId:([^\]]+)\]/)?.[1];
-  const currentDayId = trip.days.some((day) => day.id === requestedDayId) ? requestedDayId! : day1?.id ?? "day-1";
-  const actions: TravelAction[] = [];
-
-  if (text.includes("雨") || text.includes("下雨")) {
-    actions.push({ type: "RAIN_PLAN", payload: { dayId: currentDayId } });
-  } else if (text.includes("推迟") || text.includes("延后")) {
-    actions.push({ type: "DELAY_DAY", payload: { dayId: currentDayId, minutes: 60 } });
-  } else if (text.includes("提前") || text.includes("早点")) {
-    actions.push({ type: "START_EARLIER", payload: { dayId: currentDayId, minutes: 30 } });
-  } else if (text.includes("跳过")) {
-    actions.push({ type: "SKIP_NEXT", payload: { dayId: currentDayId } });
-  } else if (text.includes("省100") || (text.includes("省") && text.includes("100"))) {
-    actions.push({ type: "REDUCE_TODAY_BUDGET", payload: { dayId: currentDayId, targetSaveAmount: 100 } });
-  } else if (text.includes("室内")) {
-    actions.push({ type: "MOVE_INDOOR", payload: { dayId: currentDayId } });
-  } else if (text.includes("换") || text.includes("换个地方")) {
-    actions.push({ type: "CHANGE_NEXT_PLACE", payload: { dayId: currentDayId } });
-  } else if (text.includes("赶") || text.includes("累") || text.toLowerCase().includes("day 2")) {
-    const targetDayId = text.toLowerCase().includes("day 2") ? day2?.id ?? currentDayId : currentDayId;
-    actions.push({ type: "OPTIMIZE_DAY", payload: { dayId: targetDayId } });
-    actions.push({ type: "REDUCE_WALKING", payload: { dayId: targetDayId } });
-  } else if (text.includes("省") || text.includes("预算")) {
-    actions.push({ type: "REDUCE_BUDGET", payload: { amount: extractAmount(text) } });
-  } else if (text.includes("走") || text.includes("累")) {
-    actions.push({ type: "REDUCE_WALKING", payload: { dayId: currentDayId } });
-  } else if (text.includes("美食") || text.includes("吃")) {
-    actions.push({ type: "FIND_NEARBY_FOOD", payload: { dayId: currentDayId } });
-  } else if (text.includes("活动") || text.includes("夜")) {
-    actions.push({ type: "RECOMMEND_PLACES", payload: { dayId: currentDayId } });
-  } else {
-    actions.push({ type: "OPTIMIZE_DAY", payload: { dayId: currentDayId } });
-  }
-
-  return { actions, summary: text };
+  return planActionsWithRules(trip, message);
 }
 
 import { buildWeatherContext } from "@/services/weather/context";

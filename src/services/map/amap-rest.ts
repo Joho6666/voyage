@@ -1,5 +1,3 @@
-import "server-only";
-
 const AMAP_HOST = "restapi.amap.com";
 
 export interface AmapPoi {

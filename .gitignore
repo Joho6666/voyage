@@ -10,3 +10,4 @@ next-env.d.ts
 .mimosa
 test-results/
 playwright-report/
+.voyage/

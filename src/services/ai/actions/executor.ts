@@ -298,7 +298,7 @@ export function executeActions(trip: Trip, actions: TravelAction[]): ActionExecu
           );
 
           // Find outdoor items in this day
-          const dayItems = current.items.filter((i) => i.dayId === targetDayId);
+          const dayItems = current.items.filter((i) => i.dayId === targetDayId && i.status === "planned");
           const outdoorItem = dayItems.find((i) => {
             const p = current.places.find((pl) => pl.id === i.placeId);
             return (
