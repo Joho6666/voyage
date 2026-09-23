@@ -35,12 +35,12 @@ export class OpenAITravelAgent extends MockTravelAgent implements TravelAgent {
           budget: input.budget ?? 2500,
           vibes: input.vibes ?? [], preferences: input.vibes ?? [],
           includeExternalOffers: input.includeExternalOffers ?? false,
-          offerCategories: input.offerCategories, fallbackPolicy: "deny",
+          offerCategories: input.offerCategories, fallbackPolicy: "estimated",
         } }),
       });
-      const envelope = await response.json() as { ok?: boolean; data?: { trip?: Trip }; error?: { code?: string } };
+      const envelope = await response.json() as { ok?: boolean; data?: { trip?: Trip }; error?: { code?: string; message?: string } };
       if (!response.ok || !envelope.ok || !envelope.data?.trip) {
-        throw new Error(envelope.error?.code ?? `Trip creation failed (${response.status})`);
+        throw new Error(envelope.error?.code ? `${envelope.error.code}${envelope.error.message ? `: ${envelope.error.message}` : ""}` : `Trip creation failed (${response.status})`);
       }
       return envelope.data.trip;
     } catch (error) {
