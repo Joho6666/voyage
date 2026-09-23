@@ -45,6 +45,10 @@ export function mapJsonOffers(raw: unknown, input: MeituanQueryInput, fetchedAt:
     const title = textValue(item.title ?? item.name ?? item.trainName ?? item.flightNo ?? item.hotelName);
     if (!title) return [];
     const url = textValue(item.bookingUrl ?? item.url ?? item.link ?? item.deepLink);
+    const availabilityValue = item.availability ?? item.status;
+    const inventoryValue = item.inventory ?? item.remaining ?? item.seatCount ?? item.roomCount;
+    const available = typeof inventoryValue === "number" ? inventoryValue > 0 : availabilityValue === "available" || availabilityValue === "可预订";
+    const unavailable = typeof inventoryValue === "number" ? inventoryValue === 0 : availabilityValue === "unavailable" || availabilityValue === "售罄";
     return [{
       id: textValue(item.id ?? item.sourceId) ?? `meituan-${index}-${randomUUID()}`,
       kind: (textValue(item.kind) as OfferKind | undefined) ?? kindFor(`${title} ${JSON.stringify(item)}`),
@@ -55,7 +59,8 @@ export function mapJsonOffers(raw: unknown, input: MeituanQueryInput, fetchedAt:
       destination: input.destination,
       date: input.startDate,
       priceLabel: textValue(item.priceLabel ?? item.price ?? item.cost),
-      availability: textValue(item.availability ?? item.status) ? "available" as const : "unknown" as const,
+      availability: available ? "available" as const : unavailable ? "unavailable" as const : "unknown" as const,
+      inventoryLabel: typeof inventoryValue === "number" ? `剩余 ${inventoryValue}` : undefined,
       ratingLabel: textValue(item.ratingLabel ?? item.rating),
       description: textValue(item.description ?? item.summary ?? item.reason),
       ...(url && /^https?:\/\//.test(url) ? { bookingUrl: url } : {}),

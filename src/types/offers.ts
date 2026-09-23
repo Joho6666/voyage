@@ -1,4 +1,5 @@
 export type OfferKind = "hotel" | "flight" | "train" | "ticket" | "restaurant" | "coupon";
+export type OfferProvider = "amap" | "fliggy" | "meituan";
 
 export type OfferAvailability = "available" | "unknown" | "unavailable";
 
@@ -6,13 +7,16 @@ export interface TravelOffer {
   id: string;
   kind: OfferKind;
   title: string;
-  provider: "meituan";
+  provider: OfferProvider;
   city?: string;
   origin?: string;
   destination?: string;
   date?: string;
+  checkIn?: string;
+  checkOut?: string;
   priceLabel?: string;
   availability?: OfferAvailability;
+  inventoryLabel?: string;
   ratingLabel?: string;
   description?: string;
   bookingUrl?: string;
@@ -23,10 +27,17 @@ export interface TravelOffer {
   rawJson?: unknown;
 }
 
-export type OfferProviderLevel = "REAL" | "UNAVAILABLE" | "UNKNOWN" | "UNSTRUCTURED";
+export type OfferProviderLevel = "REAL" | "UNAVAILABLE" | "UNKNOWN" | "UNSTRUCTURED" | "ESTIMATED";
 
 export interface OfferProviderStatus {
   overall: OfferProviderLevel;
+  hotel?: OfferProviderLevel;
+  train?: OfferProviderLevel;
+  flight?: OfferProviderLevel;
+  ticket?: OfferProviderLevel;
+  restaurant?: OfferProviderLevel;
+  coupon?: OfferProviderLevel;
+  weather?: OfferProviderLevel;
   fetchedAt?: string;
   warnings?: string[];
 }

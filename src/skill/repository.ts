@@ -85,11 +85,12 @@ export class JsonSkillRepository {
     return record;
   }
 
-  async replaceOffers(input: { tripId: string; expectedRevision: number; offers: TravelOffer[]; status: OfferProviderStatus }): Promise<StoredTrip> {
+  async replaceOffers(input: { tripId: string; expectedRevision: number; offers: TravelOffer[]; status: OfferProviderStatus; weatherByDate?: Record<string, Trip["days"][number]["weather"]> }): Promise<StoredTrip> {
     const current = await this.getTrip(input.tripId);
     if (!current) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
     if (current.revision !== input.expectedRevision) throw new SkillError("REVISION_CONFLICT", "Trip revision does not match expectedTripRevision");
-    const valid = validateTrip({ ...current.trip, offers: input.offers, offerProviderStatus: input.status, updatedAt: new Date().toISOString() });
+    const days = input.weatherByDate ? current.trip.days.map((day) => input.weatherByDate?.[day.date] ? { ...day, weather: input.weatherByDate[day.date] } : day) : current.trip.days;
+    const valid = validateTrip({ ...current.trip, days, offers: input.offers, offerProviderStatus: input.status, updatedAt: new Date().toISOString() });
     if (!valid.success) throw new SkillError("INVALID_INPUT", "Trip failed schema validation", valid.error.flatten());
     const trip = valid.data as Trip;
     const next: StoredTrip = { trip, revision: current.revision + 1, hash: digest(trip), updatedAt: new Date().toISOString() };

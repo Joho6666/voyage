@@ -29,6 +29,8 @@ import { providerFromEnvironment, type ProviderForecast, type ProviderRoute, typ
 import { JsonSkillRepository } from "./repository";
 import { createFliggyTopClient } from "@/services/booking/fliggy-top";
 import { queryMeituan } from "@/services/meituan/runner";
+import { queryFliggyOffers } from "@/services/booking/fliggy-offers";
+import type { OfferKind, OfferProviderLevel, OfferProviderStatus, TravelOffer } from "@/types/offers";
 
 const DAY_MS = 86_400_000;
 
@@ -371,17 +373,39 @@ export class VoyageSkillRuntime {
 
   async refreshTravelOffers(raw: unknown) {
     const input = refreshTravelOffersInputSchema.parse(raw);
-    const result = await queryMeituan(input);
+    const categories = input.categories;
+    const provider = await this.providerFactory();
+    const existing = await this.repository.getTrip(input.tripId);
+    if (!existing) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+    const dates = existing.trip.days.map((day) => day.date);
+    const [meituanResult, fliggyResult, weatherResult] = await Promise.all([
+      queryMeituan(input).catch((error) => ({ offers: [] as TravelOffer[], rawText: undefined, rawJson: undefined, status: { overall: "UNAVAILABLE" as const, warnings: [error instanceof SkillError ? error.message : "美团查询失败"] } })),
+      queryFliggyOffers({ ...input, categories }).catch((error) => ({ offers: [] as TravelOffer[], status: "UNAVAILABLE" as OfferProviderLevel, warnings: [error instanceof Error ? error.message : "飞猪查询失败"] })),
+      dates.length ? provider.getWeather(input.destination).then((forecasts) => ({ forecasts, level: forecasts.length ? "REAL" as const : "UNKNOWN" as const, warnings: [] as string[] })).catch(() => ({ forecasts: [], level: "UNAVAILABLE" as const, warnings: ["天气查询失败"] })) : Promise.resolve({ forecasts: [], level: "UNKNOWN" as const, warnings: ["未提供天气日期"] }),
+    ]);
+    const offers = [...meituanResult.offers, ...fliggyResult.offers];
+    const categoryStatus = (kind: OfferKind): OfferProviderLevel => {
+      if (offers.some((offer) => offer.kind === kind)) return "REAL";
+      if (kind === "hotel" || kind === "flight") return fliggyResult.status === "UNAVAILABLE" && meituanResult.status.overall === "UNAVAILABLE" ? "UNAVAILABLE" : "UNKNOWN";
+      if (categories.includes(kind)) return meituanResult.status.overall;
+      return "UNKNOWN";
+    };
+    const statusByKind: OfferProviderStatus = {
+      overall: offers.length ? "REAL" : (meituanResult.status.overall === "UNSTRUCTURED" ? "UNSTRUCTURED" : "UNAVAILABLE"),
+      hotel: categoryStatus("hotel"), train: categoryStatus("train"), flight: categoryStatus("flight"), ticket: categoryStatus("ticket"), restaurant: categoryStatus("restaurant"), coupon: categoryStatus("coupon"), weather: weatherResult.level,
+      fetchedAt: new Date().toISOString(), warnings: [...(meituanResult.status.warnings ?? []), ...fliggyResult.warnings, ...weatherResult.warnings],
+    };
     const stored = await this.repository.replaceOffers({
       tripId: input.tripId,
       expectedRevision: input.expectedTripRevision,
-      offers: result.offers,
-      status: result.status,
+      offers,
+      status: statusByKind,
+      weatherByDate: input.destination === existing.trip.destination ? Object.fromEntries(dates.map((date) => [date, weatherForDate(weatherResult.forecasts, date)])) : undefined,
     });
     return successEnvelope(
       { tripId: input.tripId, trip: stored.trip, revision: stored.revision, tripHash: stored.hash },
-      status("UNKNOWN", "UNKNOWN", "UNKNOWN", result.status.overall),
-      result.status.warnings,
+      status(provider.kind === "amap" ? "REAL" : "MOCK", "UNKNOWN", weatherResult.level, statusByKind.overall),
+      statusByKind.warnings ?? [],
     );
   }
 
