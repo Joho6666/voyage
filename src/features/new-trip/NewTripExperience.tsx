@@ -13,6 +13,20 @@ import { hydrateTrip } from "@/store/trip-store";
 
 const CHIPS = ["3天2夜", "周末游", "学生穷游", "情侣", "独自旅行", "亲子", "美食", "摄影", "自然", "城市漫游", "轻松", "特种兵"];
 
+function inferPromptFields(text: string) {
+  const route = text.match(/从\s*([^，,。\s]{2,20})\s*(?:去|到)\s*([^，,。\s]{2,20})/);
+  const days = text.match(/(\d+)\s*天/);
+  const people = text.match(/(\d+)\s*(?:人|位)/);
+  const budget = text.match(/预算\s*[¥￥]?\s*(\d+)/i);
+  return {
+    origin: route?.[1] ?? undefined,
+    destination: route?.[2]?.replace(/玩.*$/, "") ?? undefined,
+    days: days ? Number(days[1]) : undefined,
+    travelers: people ? Number(people[1]) : undefined,
+    budget: budget ? Number(budget[1]) : undefined,
+  };
+}
+
 export function NewTripExperience() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -40,6 +54,19 @@ export function NewTripExperience() {
   const preview = useMemo(() => travelAgent.generationSteps({ prompt }), [prompt]);
 
   const run = async () => {
+    const inferred = inferPromptFields(prompt);
+    const requestOrigin = inferred.origin ?? origin;
+    const requestDestination = inferred.destination ?? destination;
+    const requestTravelers = inferred.travelers ?? (Number(travelers) || 2);
+    const requestBudget = inferred.budget ?? (Number(budget) || 2500);
+    const requestEndDate = inferred.days
+      ? new Date(new Date(`${dates}T12:00:00`).getTime() + (inferred.days - 1) * 86_400_000).toISOString().slice(0, 10)
+      : endDate;
+    setOrigin(requestOrigin);
+    setDestination(requestDestination);
+    setTravelers(String(requestTravelers));
+    setBudget(String(requestBudget));
+    if (inferred.days) setEndDate(requestEndDate);
     setRunning(true);
     setDone(false);
     setError("");
@@ -55,12 +82,12 @@ export function NewTripExperience() {
     try {
       const trip = await travelAgent.createTrip({
         prompt,
-        origin,
-        destination,
+        origin: requestOrigin,
+        destination: requestDestination,
         startDate: dates,
-        endDate,
-        travelers: Number(travelers) || 2,
-        budget: Number(budget) || 2500,
+        endDate: requestEndDate,
+        travelers: requestTravelers,
+        budget: requestBudget,
         vibes,
         includeExternalOffers: includeOffers,
       });

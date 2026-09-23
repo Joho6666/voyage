@@ -29,7 +29,7 @@ export function JourneyMap({
   const trip = useTripStore((s) => s.trip);
 
   if (!isAmapJsConfigured()) {
-    return <JourneyMockMap trip={trip} mode={mode} />;
+    return <JourneyMockMap trip={trip} mode={mode} fallbackReason="NEXT_PUBLIC_AMAP_KEY 未配置" />;
   }
 
   return <JourneyAMapCanvas trip={trip} mode={mode} theme={theme} />;

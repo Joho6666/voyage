@@ -218,7 +218,7 @@ export function JourneyAMapCanvas({
   }, [selectedPlaceId, trip.places]);
 
   if (failed) {
-    return <JourneyMockMap trip={trip} mode={mode} />;
+    return <JourneyMockMap trip={trip} mode={mode} fallbackReason="高德 JS 地图加载失败，请检查 JS Key、localhost:3003 域名白名单和安全密钥" />;
   }
 
   const selectedPlace = trip.places.find((p) => p.id === selectedPlaceId) ?? null;
