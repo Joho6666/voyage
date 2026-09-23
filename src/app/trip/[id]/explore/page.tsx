@@ -84,7 +84,7 @@ export default function ExplorePage() {
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("全部");
   const [q, setQ] = useState("");
   const [remote, setRemote] = useState<Place[]>([]);
-  const [source, setSource] = useState<"amap" | "mock">("mock");
+  const [source, setSource] = useState<"amap" | "unknown">("unknown");
   const center = trip.places.find((p) => p.id === "p-jiefangbei") ?? trip.places[0];
 
   useEffect(() => {
@@ -103,7 +103,7 @@ export default function ExplorePage() {
       })
         .then((res) => res.json() as Promise<{ source?: "amap" | "mock"; pois?: RemotePoi[] }>)
         .then((data) => {
-          setSource(data.source === "amap" ? "amap" : "mock");
+          setSource(data.source === "amap" ? "amap" : "unknown");
           const mapped = (data.pois ?? []).map(toPlace);
           setRemote(mapped);
           if (mapped.length) {
@@ -122,7 +122,8 @@ export default function ExplorePage() {
   }, [q, tab, trip.destination, patch]);
 
   const places = useMemo(() => {
-    const pool = source === "amap" && remote.length ? remote : trip.places;
+    const verifiedTripPlaces = trip.places.filter((place) => place.provenance?.source === "amap" || place.source === "amap");
+    const pool = source === "amap" && remote.length ? remote : verifiedTripPlaces;
     let filtered = pool.filter((p) => {
       if (tab === "museum" && !p.name.includes("博物馆") && !p.name.includes("美术馆")) return false;
       if (tab === "park" && !p.name.includes("公园")) return false;
@@ -156,7 +157,7 @@ export default function ExplorePage() {
       <div>
         <h1 className="text-xl font-semibold tracking-tight text-foreground">真实 POI 探索</h1>
         <p className="mt-0.5 text-[12px] text-muted-foreground">
-          {source === "amap" ? "高德实时 POI 数据 · 真实坐标与营业状态" : "未配置高德 Key，显示精选真实地点库"}
+          {source === "amap" ? "高德实时 POI 数据 · 真实坐标与营业状态" : "尚未获得本次搜索的高德结果 · 不展示虚构地点"}
         </p>
       </div>
 
@@ -167,7 +168,7 @@ export default function ExplorePage() {
           className="pl-9 bg-surface"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="搜索重庆美食、咖啡、博物馆、夜景..."
+          placeholder={`搜索${trip.destination}美食、咖啡、博物馆、夜景...`}
         />
       </div>
 

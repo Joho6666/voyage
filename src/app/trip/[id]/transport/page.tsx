@@ -5,6 +5,7 @@ import { useTripStore } from "@/store/trip-store";
 import { formatCny } from "@/lib/utils";
 import { ExternalLink, Train, Compass, Car, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
+import Link from "next/link";
 
 export default function TransportPage() {
   const trip = useTripStore((s) => s.trip);
@@ -20,7 +21,7 @@ export default function TransportPage() {
       <div>
         <h1 className="text-xl font-semibold tracking-tight text-foreground">交通规划与出行建议</h1>
         <p className="mt-0.5 text-[12px] text-muted-foreground">
-          城市间大交通与山城特色市内交通建议 · 支持一键跳转铁路服务商
+          {trip.origin} → {trip.destination} · 车次与票价以外部服务商实时结果为准
         </p>
       </div>
 
@@ -31,6 +32,13 @@ export default function TransportPage() {
           <span>城市间大交通（高铁往返）</span>
         </div>
 
+        {trip.transports.length === 0 ? (
+          <div className="rounded-[14px] border border-dashed border-border p-7 text-center">
+            <h2 className="text-sm font-semibold">暂无实时车次或票价</h2>
+            <p className="mx-auto mt-1 max-w-[360px] text-[12px] leading-5 text-muted-foreground">当前页面不会展示虚构车次、余票或价格。请开启美团外部推荐，或使用推荐中心查询 {trip.origin} 到 {trip.destination} 的交通。</p>
+            <Button asChild size="sm" className="mt-3"><Link href="../offers">查询外部交通</Link></Button>
+          </div>
+        ) : null}
         <div className="space-y-3">
           {trip.transports.map((t) => (
             <article key={t.id} className="rounded-[14px] border border-border bg-surface p-4 shadow-xs">
@@ -76,7 +84,7 @@ export default function TransportPage() {
         </div>
       </section>
 
-      {/* Intra-city Urban Transit Guidelines (Golden Trip Chongqing) */}
+      {/* Intra-city Urban Transit Guidelines */}
       <section className="mt-6 space-y-3">
         <div className="flex items-center gap-1.5 text-[13px] font-medium text-foreground">
           <Compass className="size-4 text-primary" />
@@ -90,7 +98,7 @@ export default function TransportPage() {
               1. 轨道交通（最推荐）
             </h3>
             <p className="text-muted-foreground leading-relaxed mt-1">
-              重庆主城拥堵严重且单行道繁多，轨道交通是最准时经济的工具。单轨 2 号线（李子坝/牛角沱段）临江穿行，本身就是城市景观；1 号线连接解放碑、大坪与磁器口，横贯渝中与沙坪坝。
+              优先查看 {trip.destination} 的官方轨道交通和公交线路；具体站点、运营时间和票价以当地交通服务为准。
             </p>
           </div>
 
@@ -100,7 +108,7 @@ export default function TransportPage() {
               2. 出租车与网约车（爬坡与夜间补充）
             </h3>
             <p className="text-muted-foreground leading-relaxed mt-1">
-              起步价 ¥10 元。山城步道垂直高差巨大（如从解放碑到鹅岭文创园），步行向上消耗体力极大。系统在【少走路】模式下会自动将高爬坡、长距离路段切换为出租车，直达景点高处观景台。
+              对跨片区、夜间或携带行李的路段，优先使用高德路线结果或官方打车服务。系统只会在路线提供方返回后展示预计时间，不虚构固定起步价。
             </p>
           </div>
 
@@ -110,7 +118,7 @@ export default function TransportPage() {
               3. 避坑与特种兵防耗提醒
             </h3>
             <p className="text-muted-foreground leading-relaxed mt-1">
-              导航直线距离 500 米可能需要爬 20 层楼梯！长江索道排队通常在 60 分钟以上，建议避开周末傍晚高峰，优先在早上 9 点或晚上 9 点后体验。
+              直线距离不等于实际步行距离，山区和大型景区尤其如此。出发前请核对实时导航、开放时间、预约和天气提示。
             </p>
           </div>
         </div>
