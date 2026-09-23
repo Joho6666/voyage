@@ -5,6 +5,7 @@ export const offerSchema = z.object({
   id: z.string().min(1),
   kind: offerKindSchema,
   title: z.string().min(1),
+  imageUrl: z.string().url().optional(),
   provider: z.enum(["amap", "fliggy", "meituan"]),
   city: z.string().optional(),
   origin: z.string().optional(),

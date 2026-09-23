@@ -82,7 +82,7 @@ export class AmapTravelProvider implements TravelDataProvider {
           lng: poi.lng,
           rating: poi.rating ?? 0,
           reviewCount: 0,
-          image: "",
+          image: poi.image ?? "",
           priceLevel: priceLevel as Place["priceLevel"],
           priceLabel: poi.cost === undefined ? undefined : poi.cost === 0 ? "免费" : `¥${Math.round(poi.cost)} / 人`,
           address: poi.address,

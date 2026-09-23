@@ -53,6 +53,7 @@ export function mapJsonOffers(raw: unknown, input: MeituanQueryInput, fetchedAt:
       id: textValue(item.id ?? item.sourceId) ?? `meituan-${index}-${randomUUID()}`,
       kind: (textValue(item.kind) as OfferKind | undefined) ?? kindFor(`${title} ${JSON.stringify(item)}`),
       title,
+      ...(textValue(item.imageUrl ?? item.image ?? item.cover) && /^https:\/\//.test(textValue(item.imageUrl ?? item.image ?? item.cover)!) ? { imageUrl: textValue(item.imageUrl ?? item.image ?? item.cover) } : {}),
       provider: "meituan" as const,
       city: input.city ?? input.destination,
       origin: input.origin,

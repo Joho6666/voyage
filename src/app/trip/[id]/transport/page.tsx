@@ -6,9 +6,12 @@ import { formatCny } from "@/lib/utils";
 import { ExternalLink, Train, Compass, Car, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 
 export default function TransportPage() {
   const trip = useTripStore((s) => s.trip);
+  const { id } = useParams<{ id: string }>();
+  const offers = (trip.offers ?? []).filter((offer) => offer.kind === "train" || offer.kind === "flight");
 
   const handleTrainBooking = (from: string, to: string) => {
     const url = `https://trains.ctrip.com/trainbooking/search?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
@@ -24,6 +27,7 @@ export default function TransportPage() {
           {trip.origin} → {trip.destination} · 车次与票价以外部服务商实时结果为准
         </p>
       </div>
+      <Button asChild size="sm" className="mt-3"><Link href={`/trip/${encodeURIComponent(id)}/offers`}>查询高铁和机票</Link></Button>
 
       {/* Inter-city High-Speed Rail Section */}
       <section className="mt-4">
@@ -32,14 +36,21 @@ export default function TransportPage() {
           <span>城市间大交通（高铁往返）</span>
         </div>
 
-        {trip.transports.length === 0 ? (
+        {trip.transports.length === 0 && offers.length === 0 ? (
           <div className="rounded-[14px] border border-dashed border-border p-7 text-center">
             <h2 className="text-sm font-semibold">暂无实时车次或票价</h2>
-            <p className="mx-auto mt-1 max-w-[360px] text-[12px] leading-5 text-muted-foreground">当前页面不会展示虚构车次、余票或价格。请开启美团外部推荐，或使用推荐中心查询 {trip.origin} 到 {trip.destination} 的交通。</p>
-            <Button asChild size="sm" className="mt-3"><Link href="../offers">查询外部交通</Link></Button>
+            <p className="mx-auto mt-1 max-w-[360px] text-[12px] leading-5 text-muted-foreground">当前环境没有可用的实时车次/库存数据源。前往推荐中心查询 {trip.origin} 到 {trip.destination}；若供应商未配置或无铁路库存权限，页面会显示具体状态。</p>
+            <Button asChild size="sm" className="mt-3"><Link href={`/trip/${encodeURIComponent(id)}/offers`}>查询外部交通</Link></Button>
           </div>
         ) : null}
         <div className="space-y-3">
+          {offers.map((offer) => (
+            <article key={offer.id} className="rounded-[14px] border border-border bg-surface p-4 shadow-xs">
+              <div className="flex items-center justify-between gap-2"><div><p className="text-[10px] text-muted-foreground">{offer.provider === "fliggy" ? "飞猪" : offer.provider === "meituan" ? "美团" : "高德"} · {offer.kind === "train" ? "高铁/火车" : "航班"}</p><h3 className="mt-1 text-sm font-semibold">{offer.title}</h3></div>{offer.priceLabel ? <strong>{offer.priceLabel}</strong> : <span className="text-xs text-muted-foreground">价格未知</span>}</div>
+              <p className="mt-2 text-xs text-muted-foreground">{offer.inventoryLabel ?? (offer.availability === "available" ? "供应商已返回可用状态" : "车次/余票状态未知")} · 查询于 {new Date(offer.fetchedAt).toLocaleString("zh-CN")}</p>
+              <div className="mt-3">{offer.bookingUrl ? <Button asChild size="sm"><a href={offer.bookingUrl} target="_blank" rel="noreferrer">查看供应商结果 <ExternalLink className="ml-1 size-3" /></a></Button> : <Button size="sm" variant="outline" onClick={() => handleTrainBooking(offer.origin ?? trip.origin, offer.destination ?? trip.destination)}>在携程查询 <ExternalLink className="ml-1 size-3" /></Button>}</div>
+            </article>
+          ))}
           {trip.transports.map((t) => (
             <article key={t.id} className="rounded-[14px] border border-border bg-surface p-4 shadow-xs">
               <div className="flex items-center justify-between text-sm font-medium">

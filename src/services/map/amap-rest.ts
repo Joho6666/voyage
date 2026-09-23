@@ -10,6 +10,7 @@ export interface AmapPoi {
   tel?: string;
   rating?: number;
   cost?: number;
+  image?: string;
 }
 
 export interface AmapRouteStep {
@@ -79,6 +80,8 @@ export async function amapSearchPois(params: {
     const location = parseLocation(record.location);
     if (!location) continue;
     const biz = record.biz_ext as Record<string, unknown> | undefined;
+    const photos = Array.isArray(record.photos) ? record.photos as Record<string, unknown>[] : [];
+    const image = photos.map((photo) => photo.url).find((url): url is string => typeof url === "string" && /^https:\/\//.test(url));
     const ratingRaw = biz && typeof biz.rating === "string" ? Number(biz.rating) : NaN;
     const costRaw = biz && typeof biz.cost === "string" ? Number(biz.cost) : NaN;
     results.push({
@@ -91,6 +94,7 @@ export async function amapSearchPois(params: {
       tel: typeof record.tel === "string" ? record.tel : undefined,
       rating: Number.isFinite(ratingRaw) ? ratingRaw : undefined,
       cost: Number.isFinite(costRaw) ? costRaw : undefined,
+      image,
     });
   }
   return results;

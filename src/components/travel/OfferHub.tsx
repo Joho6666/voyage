@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useTripStore } from "@/store/trip-store";
 import type { OfferKind, TravelOffer } from "@/types/offers";
+import { TravelImage } from "@/components/travel/TravelImage";
 
 const groups: Array<{ kind: OfferKind; label: string; icon: typeof Hotel }> = [
   { kind: "hotel", label: "酒店", icon: Hotel }, { kind: "train", label: "高铁", icon: TrainFront },
@@ -17,6 +18,7 @@ const groups: Array<{ kind: OfferKind; label: string; icon: typeof Hotel }> = [
 function OfferCard({ offer }: { offer: TravelOffer }) {
   return (
     <article className="rounded-[16px] border border-border bg-surface p-4 shadow-xs">
+      {offer.imageUrl ? <TravelImage src={offer.imageUrl} alt={offer.title} className="mb-3 h-40 w-full rounded-lg object-cover" /> : null}
       <div className="flex items-start justify-between gap-3"><div><div className="mb-2 flex items-center gap-2"><Badge variant="outline" className="text-[10px]">{offer.provider === "fliggy" ? "飞猪" : offer.provider === "amap" ? "高德" : "美团"}</Badge><span className="text-[10px] text-muted-foreground">{offer.structured ? "结构化结果" : "原文推荐"}</span></div><h3 className="text-[14px] font-semibold">{offer.title}</h3></div>{offer.priceLabel ? <span className="shrink-0 text-sm font-semibold">{offer.priceLabel}</span> : null}</div>
       {offer.description ? <p className="mt-2 text-[12px] text-muted-foreground">{offer.description}</p> : null}
       <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground"><span>{offer.inventoryLabel ?? (offer.availability === "available" ? "可售状态已返回" : "库存未知")}</span><span>来源 ID：{offer.sourceId ?? "未提供"}</span><span>查询于 {new Date(offer.fetchedAt).toLocaleString("zh-CN")}</span></div>

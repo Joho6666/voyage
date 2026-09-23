@@ -38,7 +38,9 @@ export function TopBar() {
           {weather ? (
             <span className="inline-flex items-center gap-1 text-muted-foreground">
               <CloudRain className="size-3.5" />
-              {weather.tempC}°C {weather.condition}
+              {weather.provenance?.source === "unavailable" || weather.condition === "天气未知"
+                ? `${weather.condition} · ${trip.days[0]?.date ?? ""}`
+                : `${weather.tempC}°C ${weather.condition}`}
             </span>
           ) : null}
           <span className="text-muted-foreground">预算 {formatCny(trip.budget)}</span>

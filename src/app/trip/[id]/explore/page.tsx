@@ -32,6 +32,7 @@ interface RemotePoi {
   type: string;
   rating?: number;
   cost?: number;
+  image?: string;
 }
 
 function categorize(type: string, name: string): PlaceCategory {
@@ -63,7 +64,7 @@ function toPlace(poi: RemotePoi): Place {
     lng: poi.lng,
     rating: typeof poi.rating === "number" && poi.rating > 0 ? poi.rating : 0,
     reviewCount: 0,
-    image: "",
+    image: poi.image ?? "",
     priceLevel: poi.cost && poi.cost > 150 ? 3 : poi.cost && poi.cost > 60 ? 2 : 1,
     priceLabel: poi.cost ? `约 ¥${Math.round(poi.cost)}` : "免费",
     address: poi.address,
@@ -108,8 +109,16 @@ export default function ExplorePage() {
           setRemote(mapped);
           if (mapped.length) {
             patch((current) => {
-              const extra = mapped.filter((p) => !current.places.some((x) => x.id === p.id));
-              return extra.length ? { ...current, places: [...current.places, ...extra] } : current;
+              const liveById = new Map(mapped.map((place) => [place.id, place]));
+              let changed = false;
+              const enriched = current.places.map((place) => {
+                const live = liveById.get(place.id);
+                if (live?.image && !place.image) { changed = true; return { ...place, image: live.image }; }
+                return place;
+              });
+              const extra = mapped.filter((place) => !current.places.some((existing) => existing.id === place.id));
+              if (!changed && !extra.length) return current;
+              return { ...current, places: [...enriched, ...extra] };
             });
           }
         })

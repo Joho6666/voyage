@@ -32,8 +32,8 @@ function flatten(value: unknown): Record<string, unknown>[] {
   return [record, ...Object.values(record).flatMap(flatten)];
 }
 
-function offer(input: { kind: OfferKind; title: string; fetchedAt: string; sourceId?: string; priceLabel?: string; availability?: "available" | "unknown"; inventoryLabel?: string; rawJson?: unknown; }): TravelOffer {
-  return { id: `fliggy-${input.kind}-${input.sourceId ?? randomUUID()}`, kind: input.kind, provider: "fliggy", title: input.title, city: undefined, date: undefined, priceLabel: input.priceLabel, availability: input.availability ?? "unknown", inventoryLabel: input.inventoryLabel, sourceId: input.sourceId, fetchedAt: input.fetchedAt, structured: true, rawJson: input.rawJson };
+function offer(input: { kind: OfferKind; title: string; fetchedAt: string; sourceId?: string; imageUrl?: string; priceLabel?: string; availability?: "available" | "unknown"; inventoryLabel?: string; rawJson?: unknown; }): TravelOffer {
+  return { id: `fliggy-${input.kind}-${input.sourceId ?? randomUUID()}`, kind: input.kind, provider: "fliggy", title: input.title, city: undefined, date: undefined, imageUrl: input.imageUrl, priceLabel: input.priceLabel, availability: input.availability ?? "unknown", inventoryLabel: input.inventoryLabel, sourceId: input.sourceId, fetchedAt: input.fetchedAt, structured: true, rawJson: input.rawJson };
 }
 
 function airportCode(city?: string) {
@@ -66,7 +66,8 @@ function mapHotels(raw: unknown, input: FliggyOffersInput, fetchedAt: string) {
     const id = text(row.hotel_id ?? row.hotelId ?? row.shid ?? row.id);
     const city = text(row.city_name ?? row.cityName ?? row.city);
     if (!title || !id || !city || !city.includes(input.destination)) return [];
-    return [offer({ kind: "hotel", title, fetchedAt, sourceId: id, availability: "unknown", inventoryLabel: "房态未知", rawJson: row })];
+    const imageUrl = text(row.image_url ?? row.imageUrl ?? row.pic_url ?? row.cover);
+    return [offer({ kind: "hotel", title, fetchedAt, sourceId: id, imageUrl: imageUrl && /^https:\/\//.test(imageUrl) ? imageUrl : undefined, availability: "unknown", inventoryLabel: "房态未知", rawJson: row })];
   }).slice(0, 30);
 }
 

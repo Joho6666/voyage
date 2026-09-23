@@ -12,6 +12,17 @@ import type { GenerationStep } from "@/services/ai/types";
 import { hydrateTrip } from "@/store/trip-store";
 
 const CHIPS = ["3天2夜", "周末游", "学生穷游", "情侣", "独自旅行", "亲子", "美食", "摄影", "自然", "城市漫游", "轻松", "特种兵"];
+const CHINA_CITIES = ["北京", "上海", "广州", "深圳", "成都", "重庆", "贵阳", "桂林", "西安", "昆明", "杭州", "南京", "厦门", "武汉", "长沙", "海口", "三亚", "郑州", "济南", "青岛", "福州", "南宁", "乌鲁木齐", "拉萨", "苏州", "天津", "大理", "丽江", "黄山", "张家界"];
+function defaultStartDate() {
+  const date = new Date();
+  date.setDate(date.getDate() + 1);
+  return date.toLocaleDateString("en-CA");
+}
+function defaultEndDate() {
+  const date = new Date(`${defaultStartDate()}T12:00:00`);
+  date.setDate(date.getDate() + 2);
+  return date.toLocaleDateString("en-CA");
+}
 
 function inferPromptFields(text: string) {
   const route = text.match(/从\s*([^，,。\s]{2,20})\s*(?:去|到)\s*([^，,。\s]{2,20})/);
@@ -30,16 +41,15 @@ function inferPromptFields(text: string) {
 export function NewTripExperience() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [prompt, setPrompt] = useState("从桂林去重庆玩 3 天，2 人，预算 2500，喜欢美食和夜景。");
+  const [prompt, setPrompt] = useState("喜欢美食和夜景，安排轻松一点。");
   const [origin, setOrigin] = useState("桂林");
   const [destination, setDestination] = useState("重庆");
-  const [dates, setDates] = useState("2026-09-20");
-  const [endDate, setEndDate] = useState("2026-09-22");
+  const [dates, setDates] = useState(defaultStartDate);
+  const [endDate, setEndDate] = useState(defaultEndDate);
   const [travelers, setTravelers] = useState("2");
   const [budget, setBudget] = useState("2500");
   const [vibes, setVibes] = useState<string[]>(["美食", "轻松"]);
   const [includeOffers, setIncludeOffers] = useState(false);
-  const [advanced, setAdvanced] = useState(false);
   const [running, setRunning] = useState(false);
   const [steps, setSteps] = useState<GenerationStep[]>([]);
   const [markers, setMarkers] = useState(0);
@@ -55,8 +65,10 @@ export function NewTripExperience() {
 
   const run = async () => {
     const inferred = inferPromptFields(prompt);
-    const requestOrigin = inferred.origin ?? origin;
-    const requestDestination = inferred.destination ?? destination;
+    // Structured city fields are the user's explicit selections and must not
+    // be overwritten by an older destination mentioned in the free-text prompt.
+    const requestOrigin = origin.trim() || inferred.origin || "桂林";
+    const requestDestination = destination.trim() || inferred.destination || "";
     const requestTravelers = inferred.travelers ?? (Number(travelers) || 2);
     const requestBudget = inferred.budget ?? (Number(budget) || 2500);
     const requestEndDate = inferred.days
@@ -67,9 +79,13 @@ export function NewTripExperience() {
     setTravelers(String(requestTravelers));
     setBudget(String(requestBudget));
     if (inferred.days) setEndDate(requestEndDate);
+    setError("");
+    if (!requestDestination) {
+      setError("请先选择或输入目的地。");
+      return;
+    }
     setRunning(true);
     setDone(false);
-    setError("");
     const next = preview.map((s) => ({ ...s }));
     setSteps(next);
     setMarkers(0);
@@ -138,19 +154,18 @@ export function NewTripExperience() {
             );
           })}
         </div>
-        <button type="button" className="px-2 text-[12px] text-muted-foreground" onClick={() => setAdvanced((v) => !v)}>
-          {advanced ? "收起结构化字段" : "展开出发地 / 日期 / 人数"}
-        </button>
-        {advanced ? (
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            <Input value={origin} onChange={(e) => setOrigin(e.target.value)} placeholder="出发地" />
-            <Input value={destination} onChange={(e) => setDestination(e.target.value)} placeholder="目的地" />
+        <div className="mt-3 rounded-xl border border-border bg-background/60 p-3">
+          <p className="mb-2 text-xs font-medium">行程信息</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className="text-[11px] text-muted-foreground">出发地<Input list="voyage-china-cities" value={origin} onChange={(e) => setOrigin(e.target.value)} placeholder="例如：桂林" className="mt-1 text-foreground" /></label>
+            <label className="text-[11px] text-muted-foreground">目的地<Input list="voyage-china-cities" value={destination} onChange={(e) => setDestination(e.target.value)} placeholder="输入或选择城市" className="mt-1 text-foreground" required /></label>
+            <datalist id="voyage-china-cities">{CHINA_CITIES.map((city) => <option key={city} value={city} />)}</datalist>
             <Input type="date" value={dates} onChange={(e) => setDates(e.target.value)} />
             <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
             <Input value={travelers} onChange={(e) => setTravelers(e.target.value)} placeholder="人数" />
             <Input value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="预算" className="sm:col-span-2" />
           </div>
-        ) : null}
+        </div>
         <div className="mt-3 flex justify-end">
           <label className="mr-auto flex items-center gap-2 text-[12px] text-muted-foreground">
             <input type="checkbox" checked={includeOffers} onChange={(e) => setIncludeOffers(e.target.checked)} />
@@ -167,7 +182,7 @@ export function NewTripExperience() {
       {running ? (
         <div className="mt-10 grid gap-6 md:grid-cols-2">
           <ul className="space-y-2.5">
-            <p className="text-sm font-medium">正在研究{destination}……</p>
+            <p className="text-sm font-medium">正在研究{destination || "目的地"}……</p>
             {steps.map((step) => (
               <li key={step.id} className="flex items-center gap-2 text-sm">
                 <span className="grid size-4 place-items-center text-[12px]">

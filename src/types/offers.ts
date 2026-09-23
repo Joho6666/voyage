@@ -7,6 +7,7 @@ export interface TravelOffer {
   id: string;
   kind: OfferKind;
   title: string;
+  imageUrl?: string;
   provider: OfferProvider;
   city?: string;
   origin?: string;
