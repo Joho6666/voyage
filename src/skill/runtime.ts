@@ -12,9 +12,13 @@ import {
   createTripInputSchema,
   getTripInputSchema,
   getWeatherInputSchema,
+  searchFlightsInputSchema,
+  searchTravelOffersInputSchema,
+  refreshTravelOffersInputSchema,
   planRouteInputSchema,
   proposeChangeInputSchema,
   searchPlacesInputSchema,
+  reorderDayInputSchema,
   successEnvelope,
   type ProviderLevel,
   type ProviderStatus,
@@ -23,6 +27,8 @@ import {
 import { normalizeProviderError, SkillError } from "./errors";
 import { providerFromEnvironment, type ProviderForecast, type ProviderRoute, type TravelDataProvider } from "./providers";
 import { JsonSkillRepository } from "./repository";
+import { createFliggyTopClient } from "@/services/booking/fliggy-top";
+import { queryMeituan } from "@/services/meituan/runner";
 
 const DAY_MS = 86_400_000;
 
@@ -35,14 +41,16 @@ function daysBetween(startDate: string, finishDate: string) {
 }
 
 function overall(levels: ProviderLevel[]): ProviderLevel {
+  if (levels.includes("UNAVAILABLE")) return "UNAVAILABLE";
+  if (levels.includes("UNSTRUCTURED")) return "UNSTRUCTURED";
   if (levels.includes("MOCK")) return "MOCK";
   if (levels.includes("UNKNOWN")) return "UNKNOWN";
   if (levels.includes("ESTIMATED")) return "ESTIMATED";
   return "REAL";
 }
 
-function status(places: ProviderLevel, routes: ProviderLevel, weather: ProviderLevel): ProviderStatus {
-  return { overall: overall([places, routes, weather]), places, routes, weather };
+function status(places: ProviderLevel, routes: ProviderLevel, weather: ProviderLevel, travelOffers?: ProviderLevel): ProviderStatus {
+  return { overall: overall([places, routes, weather, ...(travelOffers ? [travelOffers] : [])]), places, routes, weather, travelOffers: travelOffers ?? "UNKNOWN" };
 }
 
 function routeLevel(route: ProviderRoute | undefined): ProviderLevel {
@@ -148,7 +156,14 @@ async function collectCandidates(provider: TravelDataProvider, destination: stri
   const groups: Array<[string, Place["category"]]> = [
     ["景点", "attraction"], ["美食", "food"], ["咖啡", "cafe"], ["酒店", "hotel"], ["购物", "shopping"], ["展览 室内", "activity"],
   ];
-  const results = await Promise.all(groups.map(([query, category]) => provider.searchPlaces({ destination, query, category, limit: 12 })));
+  // AMap Web Service keys commonly have a low QPS limit. Avoid firing all
+  // category searches concurrently during trip creation; this also keeps the
+  // provider boundary predictable for other rate-limited implementations.
+  const results: Place[][] = [];
+  for (const [index, [query, category]] of groups.entries()) {
+    if (provider.kind === "amap" && index > 0) await new Promise((resolve) => setTimeout(resolve, 500));
+    results.push(await provider.searchPlaces({ destination, query, category, limit: 12 }));
+  }
   const candidates = uniquePlaces(results.flat());
   if (candidates.length < 4) throw new SkillError("NO_POI_RESULTS", `Only ${candidates.length} valid POIs were returned`);
   return candidates;
@@ -245,11 +260,42 @@ export class VoyageSkillRuntime {
       segments: [], places: candidates, hotels: [], restaurants: [], activities: [], transports: [], tasks: [], budgetItems: [],
     };
     trip = estimateBudgetItems(trip);
-    const routed = await enrichRoutes(trip, provider, input.fallbackPolicy === "estimated");
-    const stored = await this.repository.createTrip(routed.trip);
+    const routePromise = enrichRoutes(trip, provider, input.fallbackPolicy === "estimated");
+    const offerPromise = input.includeExternalOffers
+      ? queryMeituan({
+          origin: input.origin,
+          destination: input.destination,
+          startDate: input.startDate,
+          endDate: finish,
+          travelers: input.travelers ?? input.people,
+          budget: input.budget,
+          query: input.prompt || `推荐${input.destination}的交通、酒店、景点门票、美食和优惠`,
+          city: input.destination,
+          categories: input.offerCategories,
+        }).then((result) => ({ result })).catch((error: unknown) => ({ error }))
+      : Promise.resolve({ result: null as Awaited<ReturnType<typeof queryMeituan>> | null });
+    const [routed, offerOutcome] = await Promise.all([routePromise, offerPromise]);
+    let finalTrip = routed.trip;
+    let offerLevel: ProviderLevel = "UNKNOWN";
+    const offerWarnings: string[] = [];
+    if (input.includeExternalOffers) {
+      if ("result" in offerOutcome && offerOutcome.result) {
+        const offerResult = offerOutcome.result;
+        finalTrip = { ...finalTrip, offers: offerResult.offers, offerProviderStatus: offerResult.status };
+        offerLevel = offerResult.status.overall;
+        offerWarnings.push(...(offerResult.status.warnings ?? []));
+      } else {
+        const error = "error" in offerOutcome ? offerOutcome.error : undefined;
+        const message = error instanceof SkillError ? error.message : error instanceof Error ? error.message.replace(/([A-Za-z0-9_-]{24,})/g, "[REDACTED]") : "Meituan offers are unavailable";
+        finalTrip = { ...finalTrip, offers: [], offerProviderStatus: { overall: "UNAVAILABLE", warnings: [message] } };
+        offerLevel = "UNAVAILABLE";
+        offerWarnings.push(message);
+      }
+    }
+    const stored = await this.repository.createTrip(finalTrip);
     const missingWeather = days.some((day) => day.weather.provenance?.source === "unavailable");
-    const providerStatus = status(placeLevel(provider), routed.level, weatherLevel(provider, missingWeather));
-    return successEnvelope({ tripId, trip: stored.trip, revision: stored.revision, tripHash: stored.hash }, providerStatus, routed.warnings);
+    const providerStatus = status(placeLevel(provider), routed.level, weatherLevel(provider, missingWeather), input.includeExternalOffers ? offerLevel : undefined);
+    return successEnvelope({ tripId, trip: stored.trip, revision: stored.revision, tripHash: stored.hash }, providerStatus, [...routed.warnings, ...offerWarnings]);
   }
 
   async getTrip(raw: unknown) {
@@ -295,6 +341,59 @@ export class VoyageSkillRuntime {
     const weather = input.dates.map((date) => ({ date, ...weatherForDate(forecasts, date) }));
     const missing = weather.some((item) => item.provenance.source === "unavailable");
     return successEnvelope({ weather }, status("UNKNOWN", "UNKNOWN", weatherLevel(provider, missing)), missing ? ["Weather unavailable for one or more dates"] : []);
+  }
+
+  async searchFlights(raw: unknown) {
+    const input = searchFlightsInputSchema.parse(raw);
+    const client = createFliggyTopClient();
+    if (!client) throw new SkillError("NO_PROVIDER_CONFIGURED", "FLIGGY_APP_KEY and FLIGGY_APP_SECRET are required");
+
+    try {
+      const data = await client.flightSearch(input);
+      return successEnvelope(
+        { flights: data, provenance: { source: "fliggy", estimated: false } },
+        status("UNKNOWN", "UNKNOWN", "UNKNOWN"),
+      );
+    } catch (error) {
+      throw normalizeProviderError(error, "TICKET_PROVIDER_UNAVAILABLE");
+    }
+  }
+
+  async searchTravelOffers(raw: unknown) {
+    const input = searchTravelOffersInputSchema.parse(raw);
+    const result = await queryMeituan(input);
+    return successEnvelope(
+      { offers: result.offers, rawText: result.rawText, rawJson: result.rawJson },
+      status("UNKNOWN", "UNKNOWN", "UNKNOWN", result.status.overall),
+      result.status.warnings,
+    );
+  }
+
+  async refreshTravelOffers(raw: unknown) {
+    const input = refreshTravelOffersInputSchema.parse(raw);
+    const result = await queryMeituan(input);
+    const stored = await this.repository.replaceOffers({
+      tripId: input.tripId,
+      expectedRevision: input.expectedTripRevision,
+      offers: result.offers,
+      status: result.status,
+    });
+    return successEnvelope(
+      { tripId: input.tripId, trip: stored.trip, revision: stored.revision, tripHash: stored.hash },
+      status("UNKNOWN", "UNKNOWN", "UNKNOWN", result.status.overall),
+      result.status.warnings,
+    );
+  }
+
+  async reorderDay(raw: unknown) {
+    const input = reorderDayInputSchema.parse(raw);
+    const stored = await this.repository.getTrip(input.tripId);
+    if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+    if (stored.revision !== input.expectedTripRevision) throw new SkillError("REVISION_CONFLICT", "Trip revision does not match expectedTripRevision");
+    const rank = new Map(input.orderedItemIds.map((id, index) => [id, index]));
+    const trip = recomputeDay({ ...stored.trip, items: stored.trip.items.map((item) => item.dayId === input.dayId && rank.has(item.id) ? { ...item, order: rank.get(item.id)! } : item) }, input.dayId);
+    const saved = await this.repository.updateTrip({ tripId: input.tripId, expectedRevision: stored.revision, trip });
+    return successEnvelope({ tripId: input.tripId, trip: saved.trip, revision: saved.revision, tripHash: saved.hash });
   }
 
   async proposeChange(raw: unknown) {
@@ -371,6 +470,10 @@ export class VoyageSkillRuntime {
       case "search-places": return this.searchPlaces(input);
       case "plan-route": return this.planRoute(input);
       case "get-weather": return this.getWeather(input);
+      case "search-flights": return this.searchFlights(input);
+      case "search-travel-offers": return this.searchTravelOffers(input);
+      case "refresh-travel-offers": return this.refreshTravelOffers(input);
+      case "reorder-day": return this.reorderDay(input);
       case "propose-change": return this.proposeChange(input);
       case "apply-change": return this.applyChange(input);
     }

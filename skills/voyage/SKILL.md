@@ -16,4 +16,6 @@ Choose one workflow:
 
 Real AMap data is authoritative. Estimated, mock, unknown, and unavailable values must remain labeled in the response. A missing server key is an explicit provider error unless the request opts into `fallbackPolicy: "estimated"`; never silently turn a fallback into real data.
 
+When a request asks for hotels, trains, flights, tickets, food, or coupons, use `search-travel-offers` or `create-trip` with `includeExternalOffers: true`. Meituan offers are read-only recommendations with source links and timestamps; do not place orders or treat them as AMap coordinates, routes, or weather. Use `refresh-travel-offers` only when the user explicitly asks for fresh results.
+
 Read [references/runtime-api.md](references/runtime-api.md) for command contracts, [references/workflows.md](references/workflows.md) for routing rules, and [references/schemas.md](references/schemas.md) when validating structured output.

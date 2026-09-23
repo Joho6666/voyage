@@ -12,6 +12,14 @@ export function TopBar() {
   const trip = useTripStore((s) => s.trip);
   const setAssistantOpen = useUiStore((s) => s.setAssistantOpen);
   const weather = trip.days[1]?.weather ?? trip.days[0]?.weather;
+  const share = async () => {
+    const response = await fetch("/api/voyage/share", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tripId: trip.id }) });
+    const data = await response.json() as { token?: string };
+    if (!data.token) { toast.error("分享链接生成失败"); return; }
+    const url = `${window.location.origin}/share/${data.token}`;
+    await navigator.clipboard?.writeText(url);
+    toast.success("只读分享链接已复制");
+  };
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-surface px-4">
@@ -37,10 +45,10 @@ export function TopBar() {
         </div>
       </div>
       <div className="hidden items-center gap-1 sm:flex">
-        <Button variant="ghost" size="sm" onClick={() => toast.message("邀请链接已复制（Demo）")}>
+        <Button variant="ghost" size="sm" onClick={() => void share()}>
           邀请好友
         </Button>
-        <Button variant="ghost" size="sm" onClick={() => toast.message("分享卡片已生成（Demo）")}>
+        <Button variant="ghost" size="sm" onClick={() => void share()}>
           <Share2 className="size-3.5" />
           分享
         </Button>

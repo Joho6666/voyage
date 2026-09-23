@@ -9,6 +9,7 @@ import {
   Hotel,
   Sparkles,
   Bus,
+  Ticket,
   CheckSquare,
   Wallet,
   Settings,
@@ -36,6 +37,7 @@ export function tripNav(tripId: string): NavItem[] {
     { href: `${base}/food`, label: "美食", icon: Utensils },
     { href: `${base}/activities`, label: "活动", icon: Sparkles },
     { href: `${base}/transport`, label: "交通", icon: Bus },
+    { href: `${base}/offers`, label: "预订推荐", icon: Ticket },
     { href: `${base}/tasks`, label: "任务", icon: CheckSquare },
     { href: `${base}/budget`, label: "预算", icon: Wallet },
   ];

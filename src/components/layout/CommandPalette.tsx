@@ -39,6 +39,7 @@ export function CommandPalette() {
   const [busy, setBusy] = useState(false);
   const [activeDiff, setActiveDiff] = useState<TripChangeSet | null>(null);
   const [diffOpen, setDiffOpen] = useState(false);
+  const [activeRemote, setActiveRemote] = useState<{ tripId: string; proposalId: string; baseRevision: number } | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -66,6 +67,7 @@ export function CommandPalette() {
       toast.dismiss("cmd-planner");
       if (reply.proposal?.changeSet) {
         setActiveDiff(reply.proposal.changeSet);
+        setActiveRemote(reply.proposal.remote ?? null);
         setDiffOpen(true);
       } else if (reply.proposal) {
         pushHistory(trip);
@@ -84,10 +86,13 @@ export function CommandPalette() {
   };
 
   const handleApplyDiff = (changeSet: TripChangeSet) => {
-    pushHistory(trip);
-    setTrip(changeSet.proposedTrip);
-    void persist();
-    toast.success(`已应用：${changeSet.summary}`);
+    void (async () => {
+      if (!activeRemote) { pushHistory(trip); setTrip(changeSet.proposedTrip); void persist(); toast.success(`已应用：${changeSet.summary}`); return; }
+      const response = await fetch("/api/voyage/command", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ command: "apply-change", input: { ...activeRemote, expectedTripRevision: activeRemote.baseRevision, confirmed: true } }) });
+      const envelope = await response.json() as { ok?: boolean; data?: { trip?: import("@/types/travel").Trip; revision?: number }; error?: { message?: string } };
+      if (!response.ok || !envelope.ok || !envelope.data?.trip) { toast.error(envelope.error?.message ?? "方案已过期，请重新生成"); return; }
+      pushHistory(trip); setTrip(envelope.data.trip, envelope.data.revision); toast.success(`已应用：${changeSet.summary}`);
+    })().catch(() => toast.error("应用修改失败，请重试"));
   };
 
   if (!open && !diffOpen) return null;

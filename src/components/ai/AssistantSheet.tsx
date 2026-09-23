@@ -52,9 +52,15 @@ export function AssistantSheet() {
   };
 
   const applyProposal = (proposal: NonNullable<AgentMessage["proposal"]>) => {
-    pushHistory(trip);
-    patch(proposal.apply);
-    toast.success("行程已更新");
+    void (async () => {
+      if (!proposal.remote) {
+        pushHistory(trip); patch(proposal.apply); toast.success("行程已更新"); return;
+      }
+      const response = await fetch("/api/voyage/command", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ command: "apply-change", input: { tripId: proposal.remote.tripId, proposalId: proposal.remote.proposalId, expectedTripRevision: proposal.remote.baseRevision, confirmed: true } }) });
+      const envelope = await response.json() as { ok?: boolean; data?: { trip?: import("@/types/travel").Trip; revision?: number }; error?: { message?: string } };
+      if (!response.ok || !envelope.ok || !envelope.data?.trip) { toast.error(envelope.error?.message ?? "方案已过期，请重新生成"); return; }
+      pushHistory(trip); setTrip(envelope.data.trip, envelope.data.revision); toast.success("行程已确认并保存");
+    })().catch(() => toast.error("应用修改失败，请重试"));
   };
 
   const onUndo = () => {

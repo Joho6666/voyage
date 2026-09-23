@@ -9,7 +9,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { brand } from "@/lib/brand";
 import { travelAgent } from "@/services/ai";
 import type { GenerationStep } from "@/services/ai/types";
-import { tripRepository } from "@/services/trips/repository";
 import { hydrateTrip } from "@/store/trip-store";
 
 const CHIPS = ["3天2夜", "周末游", "学生穷游", "情侣", "独自旅行", "亲子", "美食", "摄影", "自然", "城市漫游", "轻松", "特种兵"];
@@ -21,9 +20,11 @@ export function NewTripExperience() {
   const [origin, setOrigin] = useState("桂林");
   const [destination, setDestination] = useState("重庆");
   const [dates, setDates] = useState("2026-09-20");
+  const [endDate, setEndDate] = useState("2026-09-22");
   const [travelers, setTravelers] = useState("2");
   const [budget, setBudget] = useState("2500");
   const [vibes, setVibes] = useState<string[]>(["美食", "轻松"]);
+  const [includeOffers, setIncludeOffers] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [running, setRunning] = useState(false);
   const [steps, setSteps] = useState<GenerationStep[]>([]);
@@ -57,11 +58,12 @@ export function NewTripExperience() {
         origin,
         destination,
         startDate: dates,
+        endDate,
         travelers: Number(travelers) || 2,
         budget: Number(budget) || 2500,
         vibes,
+        includeExternalOffers: includeOffers,
       });
-      await tripRepository.save(trip);
       hydrateTrip(trip);
       setDone(true);
       await wait(700);
@@ -115,11 +117,16 @@ export function NewTripExperience() {
             <Input value={origin} onChange={(e) => setOrigin(e.target.value)} placeholder="出发地" />
             <Input value={destination} onChange={(e) => setDestination(e.target.value)} placeholder="目的地" />
             <Input type="date" value={dates} onChange={(e) => setDates(e.target.value)} />
+            <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
             <Input value={travelers} onChange={(e) => setTravelers(e.target.value)} placeholder="人数" />
             <Input value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="预算" className="sm:col-span-2" />
           </div>
         ) : null}
         <div className="mt-3 flex justify-end">
+          <label className="mr-auto flex items-center gap-2 text-[12px] text-muted-foreground">
+            <input type="checkbox" checked={includeOffers} onChange={(e) => setIncludeOffers(e.target.checked)} />
+            同步酒店 / 交通 / 门票 / 美食推荐
+          </label>
           <Button size="lg" disabled={running} onClick={() => void run()}>
             AI 创建旅行
           </Button>

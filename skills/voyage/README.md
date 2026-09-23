@@ -15,6 +15,10 @@ The launcher prefers `VOYAGE_REPO`, then a containing Voyage checkout, and other
 ## Environment
 
 - `AMAP_SERVER_KEY`: server-side AMap Web Service key for real POI, routes, geocoding, and weather.
+- `FLIGGY_APP_KEY` and `FLIGGY_APP_SECRET`: server-side TOP credentials for the optional flight search adapter.
+- `FLIGGY_SESSION` and `FLIGGY_DISTRIBUTOR`: optional partner values required by some Fliggy products.
+- `MEITUAN_HT_TOKEN`: server-side token for the official Meituan Travel Skill; never commit or expose it.
+- `MEITUAN_RAW_JSON=1`: request raw JSON from the Meituan CLI when available.
 - `VOYAGE_DATA_DIR`: optional directory for authoritative Trips and proposals; default is `.voyage/` in the calling workspace.
 - `VOYAGE_REPO`: optional existing Voyage checkout.
 - `VOYAGE_SKILL_CACHE`: optional runtime cache directory.
@@ -28,10 +32,21 @@ The launcher prefers `VOYAGE_REPO`, then a containing Voyage checkout, and other
 
 ## Commands
 
-The seven commands are `create-trip`, `get-trip`, `search-places`, `plan-route`, `get-weather`, `propose-change`, and `apply-change`. Every successful response is JSON on stdout with `schemaVersion: "voyage.skill.v1"`, warnings, and provider status. Logs are on stderr; fatal commands exit non-zero.
+The commands are `create-trip`, `get-trip`, `search-places`, `plan-route`, `get-weather`, `search-flights`, `search-travel-offers`, `refresh-travel-offers`, `propose-change`, and `apply-change`. Every successful response is JSON on stdout with `schemaVersion: "voyage.skill.v1"`, warnings, and provider status. Logs are on stderr; fatal commands exit non-zero.
 
 See the references and examples for complete request/response shapes.
 
 ## Current limits and roadmap
 
-The MVP targets mainland China and uses AMap as its real provider. Hotel, rail, flight, payment, and OTA order fulfillment are outside scope. MCP is intentionally not included; the stable command contracts are designed for future one-to-one `voyage_*` MCP tools.
+The MVP targets mainland China and uses AMap as its real place, route, and weather provider. Flight search is available only when an approved Fliggy TOP application has the `alitrip.flight.service.search` permission. Train timetable and seat availability are not provided by the current Fliggy API catalog; payment and OTA order fulfillment remain outside scope. MCP is intentionally not included; the stable command contracts are designed for future one-to-one `voyage_*` MCP tools.
+## External travel offers
+
+Voyage can optionally query the official Meituan Travel Skill from the server-side JSON runtime. AMap remains authoritative for places, routes, and weather; Meituan results are stored as read-only `trip.offers` snapshots with provider, fetched time, raw response, and booking links.
+
+Set `MEITUAN_HT_TOKEN` in the process environment (never commit it) and use:
+
+```bash
+node skills/voyage/scripts/voyage.mjs search-travel-offers --input request.json
+```
+
+Add `includeExternalOffers: true` to `create-trip` to query offers alongside the AMap plan. Use `refresh-travel-offers` with `tripId` and `expectedTripRevision` for an explicit refresh. These commands only recommend and link out; they never place or pay for orders.

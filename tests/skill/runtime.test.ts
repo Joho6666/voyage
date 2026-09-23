@@ -167,6 +167,23 @@ describe("Voyage Skill runtime", () => {
     await expect(rejected.searchPlaces({ destination: "重庆", query: "景点" })).rejects.toMatchObject({ code: "PROVIDER_AUTH_FAILED" });
   });
 
+  it("keeps the AMap trip usable when Meituan is not configured", async () => {
+    const previous = process.env.MEITUAN_HT_TOKEN;
+    delete process.env.MEITUAN_HT_TOKEN;
+    try {
+      const response = await runtime.createTrip({
+        origin: "桂林", destination: "重庆", startDate: "2030-05-01", days: 3, people: 2, budget: 2500,
+        preferences: ["美食"], fallbackPolicy: "deny", includeExternalOffers: true,
+      }) as any;
+      expect(response.ok).toBe(true);
+      expect(response.providerStatus.travelOffers).toBe("UNAVAILABLE");
+      expect(response.data.trip.offers).toEqual([]);
+      expect(response.data.trip.places.every((place: Place) => place.source === "amap")).toBe(true);
+    } finally {
+      if (previous !== undefined) process.env.MEITUAN_HT_TOKEN = previous;
+    }
+  });
+
   it("emits one JSON envelope from the cross-platform CLI", async () => {
     const inputFile = path.join(dataDir, "input.json");
     await writeFile(inputFile, JSON.stringify({ destination: "重庆", query: "景点", limit: 3 }), "utf8");

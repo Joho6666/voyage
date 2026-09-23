@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { TravelAction } from "@/services/ai/actions/types";
 import type { TripChangeSet } from "@/types/diff";
 import type { Trip } from "@/types/travel";
+import type { OfferProviderStatus, TravelOffer } from "@/types/offers";
 import { validateTrip } from "@/schemas/trip";
 import { SkillError } from "./errors";
 
@@ -61,6 +62,20 @@ export class JsonSkillRepository {
     return this.readJson<StoredTrip>(this.tripPath(id));
   }
 
+  async listTrips(): Promise<StoredTrip[]> {
+    let files: string[];
+    try { files = await readdir(path.join(this.root, "trips")); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
+    const records = await Promise.all(files.filter((file) => file.endsWith(".json")).map((file) => this.readJson<StoredTrip>(path.join(this.root, "trips", file))));
+    return records.filter((record): record is StoredTrip => Boolean(record?.trip?.id));
+  }
+
+  async deleteTrip(id: string) {
+    const current = await this.getTrip(id);
+    if (!current) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+    await unlink(this.tripPath(id));
+  }
+
   async createTrip(trip: Trip): Promise<StoredTrip> {
     const valid = validateTrip(trip);
     if (!valid.success) throw new SkillError("INVALID_INPUT", "Trip failed schema validation", valid.error.flatten());
@@ -68,6 +83,30 @@ export class JsonSkillRepository {
     const record: StoredTrip = { trip: parsedTrip, revision: 1, hash: digest(parsedTrip), updatedAt: new Date().toISOString() };
     await this.atomicWrite(this.tripPath(trip.id), record);
     return record;
+  }
+
+  async replaceOffers(input: { tripId: string; expectedRevision: number; offers: TravelOffer[]; status: OfferProviderStatus }): Promise<StoredTrip> {
+    const current = await this.getTrip(input.tripId);
+    if (!current) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+    if (current.revision !== input.expectedRevision) throw new SkillError("REVISION_CONFLICT", "Trip revision does not match expectedTripRevision");
+    const valid = validateTrip({ ...current.trip, offers: input.offers, offerProviderStatus: input.status, updatedAt: new Date().toISOString() });
+    if (!valid.success) throw new SkillError("INVALID_INPUT", "Trip failed schema validation", valid.error.flatten());
+    const trip = valid.data as Trip;
+    const next: StoredTrip = { trip, revision: current.revision + 1, hash: digest(trip), updatedAt: new Date().toISOString() };
+    await this.atomicWrite(this.tripPath(input.tripId), next);
+    return next;
+  }
+
+  async updateTrip(input: { tripId: string; expectedRevision: number; trip: Trip }): Promise<StoredTrip> {
+    const current = await this.getTrip(input.tripId);
+    if (!current) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+    if (current.revision !== input.expectedRevision) throw new SkillError("REVISION_CONFLICT", "Trip revision does not match expectedTripRevision");
+    const valid = validateTrip(input.trip);
+    if (!valid.success) throw new SkillError("INVALID_INPUT", "Trip failed schema validation", valid.error.flatten());
+    const trip = valid.data as Trip;
+    const next: StoredTrip = { trip, revision: current.revision + 1, hash: digest(trip), updatedAt: new Date().toISOString() };
+    await this.atomicWrite(this.tripPath(input.tripId), next);
+    return next;
   }
 
   async saveProposal(input: Omit<ProposalRecord, "id" | "createdAt">): Promise<ProposalRecord> {

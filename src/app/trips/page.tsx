@@ -6,7 +6,6 @@ import { AppFrame } from "@/components/layout/AppFrame";
 import { TravelImage } from "@/components/travel/TravelImage";
 import { Button } from "@/components/ui/button";
 import { tripRepository } from "@/services/trips/repository";
-import { chongqingTrip } from "@/data/demo/chongqing";
 import { formatMonthDay, tripDurationLabel, uid } from "@/lib/utils";
 import type { Trip, TripStatus, TripSummary } from "@/types/travel";
 import { Plus, MoreHorizontal, Copy, Archive, Trash2, Calendar, Users, Wallet, Compass } from "lucide-react";
@@ -48,16 +47,10 @@ export default function TripsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    void tripRepository
-      .list()
-      .then((items) => {
-        if (!items || items.length === 0) {
-          setTrips([toSummary(chongqingTrip)]);
-        } else {
-          setTrips(items);
-        }
-      })
-      .catch(() => setTrips([toSummary(chongqingTrip)]))
+    void fetch("/api/voyage/trips", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((result: { trips?: Trip[] }) => setTrips((result.trips ?? []).map(toSummary)))
+      .catch(() => setTrips([]))
       .finally(() => setLoading(false));
   }, []);
 
@@ -87,7 +80,8 @@ export default function TripsPage() {
       return;
     }
     try {
-      await tripRepository.delete?.(tripId);
+      const response = await fetch("/api/voyage/trips", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ tripId }) });
+      if (!response.ok) throw new Error("Delete failed");
       setTrips((prev) => prev.filter((t) => t.id !== tripId));
       toast.success("行程已移除");
     } catch {

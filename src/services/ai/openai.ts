@@ -1,10 +1,7 @@
 import { executeActions } from "@/services/ai/actions/executor";
-import type { TravelAction } from "@/services/ai/actions/types";
-import { computeTripChangeSet } from "@/services/ai/diff";
 import type { AgentMessage, CreateTripInput, TravelAgent } from "./types";
 import { MockTravelAgent } from "./mock";
 import type { Trip } from "@/types/travel";
-import { recomputeTripWithRealRoutes } from "@/services/routing";
 
 export interface PlanActionsResponse {
   source: "llm" | "mock";
@@ -25,10 +22,10 @@ export class OpenAITravelAgent extends MockTravelAgent implements TravelAgent {
 
   override async createTrip(input: CreateTripInput): Promise<Trip> {
     try {
-      const response = await fetch("/api/agent/create", {
+      const response = await fetch("/api/voyage/command", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
+        body: JSON.stringify({ command: "create-trip", input: {
           prompt: input.prompt,
           origin: input.origin,
           destination: input.destination ?? "重庆",
@@ -36,14 +33,16 @@ export class OpenAITravelAgent extends MockTravelAgent implements TravelAgent {
           endDate: input.endDate ?? "2026-09-22",
           travelers: input.travelers ?? 2,
           budget: input.budget ?? 2500,
-          vibes: input.vibes ?? [],
-        }),
+          vibes: input.vibes ?? [], preferences: input.vibes ?? [],
+          includeExternalOffers: input.includeExternalOffers ?? false,
+          offerCategories: input.offerCategories, fallbackPolicy: "deny",
+        } }),
       });
-      const data = (await response.json()) as { trip?: Trip; error?: string };
-      if (!response.ok || !data.trip) {
-        throw new Error(data.error ?? `Trip creation failed (${response.status})`);
+      const envelope = await response.json() as { ok?: boolean; data?: { trip?: Trip }; error?: { code?: string } };
+      if (!response.ok || !envelope.ok || !envelope.data?.trip) {
+        throw new Error(envelope.error?.code ?? `Trip creation failed (${response.status})`);
       }
-      return await recomputeTripWithRealRoutes(data.trip);
+      return envelope.data.trip;
     } catch (error) {
       throw error instanceof Error ? error : new Error("Trip creation failed");
     }
@@ -51,39 +50,33 @@ export class OpenAITravelAgent extends MockTravelAgent implements TravelAgent {
 
   override async chat(trip: Trip, message: string): Promise<AgentMessage> {
     try {
-      const response = await fetch("/api/agent/plan-actions", {
+      const marker = /^\[dayId:([^\]]+)\]\s*/.exec(message);
+      const instruction = marker ? message.slice(marker[0].length) : message;
+      const response = await fetch("/api/voyage/command", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ trip, message, persist: true }),
+        body: JSON.stringify({ command: "propose-change", input: { tripId: trip.id, instruction, dayId: marker?.[1], fallbackPolicy: "estimated" } }),
       });
-      const data = (await response.json()) as PlanActionsResponse;
-      if (!response.ok || !data.trip) {
-        return super.chat(trip, message);
+      const envelope = await response.json() as { ok?: boolean; data?: { proposalId?: string; tripId?: string; baseRevision?: number; changes?: import("@/types/diff").TripChangeSet; summary?: string } };
+      const data = envelope.data;
+      if (!response.ok || !envelope.ok || !data?.proposalId || !data.changes) {
+        throw new Error("无法生成真实行程提案，请检查服务状态");
       }
-      const rejectedNote = data.rejected.length
-        ? `${data.rejected.length} 个操作被拒绝。`
-        : "";
-      const summary = data.summary || `已执行 ${data.applied.length} 个操作。${rejectedNote}`;
-      const routedTrip = await recomputeTripWithRealRoutes(data.trip);
-      const changeSet = computeTripChangeSet(
-        trip,
-        routedTrip,
-        (data.applied as TravelAction[]) || [],
-        summary,
-      );
+      const summary = data.summary || "已生成行程修改建议";
       return {
         id: `msg_${Date.now()}`,
         role: "assistant",
-        content: `${summary}（来源：${data.source === "llm" ? "LLM" : "规则引擎"}）`,
+        content: `${summary}（已生成待确认方案，尚未修改行程）`,
         proposal: {
           id: `prop_${Date.now()}`,
           summary,
-          apply: () => routedTrip,
-          changeSet,
+          apply: (current) => current,
+          changeSet: data.changes,
+          remote: { tripId: data.tripId!, proposalId: data.proposalId, baseRevision: data.baseRevision! },
         },
       };
-    } catch {
-      return super.chat(trip, message);
+    } catch (error) {
+      throw error instanceof Error ? error : new Error("无法生成真实行程提案");
     }
   }
 }

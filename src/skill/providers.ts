@@ -1,3 +1,4 @@
+import path from "node:path";
 import { readFile } from "node:fs/promises";
 import {
   amapDrivingRoute,
@@ -159,6 +160,9 @@ export async function providerFromEnvironment() {
       throw new SkillError("NO_PROVIDER_CONFIGURED", "VOYAGE_ALLOW_MOCK=1 is required for fixture mode");
     }
     return FixtureTravelProvider.fromFile(fixture);
+  }
+  if (process.env.VOYAGE_DEMO_MODE === "true") {
+    return FixtureTravelProvider.fromFile(path.join(process.cwd(), "tests", "fixtures", "voyage-provider.json"));
   }
   return new AmapTravelProvider();
 }

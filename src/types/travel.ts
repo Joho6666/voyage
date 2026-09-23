@@ -1,3 +1,5 @@
+import type { OfferProviderStatus, TravelOffer } from "./offers";
+
 export type PlaceCategory =
   | "attraction"
   | "food"
@@ -258,6 +260,8 @@ export interface Trip {
   transports: Transport[];
   tasks: Task[];
   budgetItems: BudgetItem[];
+  offers?: TravelOffer[];
+  offerProviderStatus?: OfferProviderStatus;
 }
 
 export interface TripSummary {

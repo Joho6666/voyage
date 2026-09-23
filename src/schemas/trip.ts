@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { offerProviderStatusSchema, offerSchema } from "./offers";
 
 export const placeCategorySchema = z.enum([
   "attraction",
@@ -192,6 +193,8 @@ export const tripSchema = z
     transports: z.array(z.any()).default([]),
     tasks: z.array(taskSchema),
     budgetItems: z.array(budgetItemSchema),
+    offers: z.array(offerSchema).optional(),
+    offerProviderStatus: offerProviderStatusSchema.optional(),
   })
   .superRefine((trip, ctx) => {
     const placeIds = new Set(trip.places.map((p) => p.id));

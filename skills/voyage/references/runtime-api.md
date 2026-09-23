@@ -4,18 +4,27 @@ Invoke with `node skills/voyage/scripts/voyage.mjs <command> --input request.jso
 
 Commands:
 
-- `create-trip`: `{origin, destination, startDate, endDate|days, people, budget, preferences, walkingTolerance, fallbackPolicy}`
+- `create-trip`: `{origin, destination, startDate, endDate|days, people, budget, preferences, walkingTolerance, fallbackPolicy, includeExternalOffers?, offerCategories?}`
 - `get-trip`: `{tripId}`
 - `search-places`: `{destination, query, category?, limit?}`
 - `plan-route`: `{origin:{lat,lng}, destination:{lat,lng}, mode, city, fallbackPolicy}`
 - `get-weather`: `{destination, dates, fallbackPolicy}`
+- `search-travel-offers`: `{origin?, destination, startDate?, endDate?, travelers?, budget?, query, city?, categories?}`
+- `refresh-travel-offers`: `{tripId, expectedTripRevision, origin?, destination, startDate?, endDate?, travelers?, budget?, query, city?, categories?}`
 - `propose-change`: `{tripId, instruction, dayId?, asOf?, fallbackPolicy}`
 - `apply-change`: `{tripId, proposalId, expectedTripRevision, confirmed:true}`
 
 Successful output:
 
 ```json
-{"schemaVersion":"voyage.skill.v1","ok":true,"data":{},"warnings":[],"providerStatus":{"overall":"REAL","places":"REAL","routes":"REAL","weather":"REAL"}}
+{"schemaVersion":"voyage.skill.v1","ok":true,"data":{},"warnings":[],"providerStatus":{"overall":"REAL","places":"REAL","routes":"REAL","weather":"REAL","travelOffers":"UNKNOWN"}}
 ```
 
 Errors include `ok:false`, a stable `error.code`, and a non-zero exit code. Important codes include `NO_PROVIDER_CONFIGURED`, `PROVIDER_AUTH_FAILED`, `NO_POI_RESULTS`, `WEATHER_UNAVAILABLE`, `ROUTE_PROVIDER_UNAVAILABLE`, `CONFIRMATION_REQUIRED`, and `PROPOSAL_STALE`.
+## Meituan offers
+
+`search-travel-offers` accepts `origin`, `destination`, optional dates, `travelers`, `budget`, `query`, and `categories` (`train`, `hotel`, `flight`, `ticket`, `restaurant`, `coupon`). It returns `offers` plus raw response data and a `travelOffers` provider status.
+
+`create-trip` accepts `includeExternalOffers: true` and `offerCategories`. It creates the AMap-backed Trip even when Meituan is unavailable; unavailable or unstructured results are reported in warnings and `trip.offerProviderStatus`.
+
+`refresh-travel-offers` requires `tripId` and `expectedTripRevision`. It atomically replaces the saved offer snapshot and increments the Trip revision. It never runs automatically during `get-trip`.

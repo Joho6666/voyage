@@ -9,6 +9,8 @@ export interface CreateTripInput {
   travelers?: number;
   budget?: number;
   vibes?: string[];
+  includeExternalOffers?: boolean;
+  offerCategories?: import("@/types/offers").OfferKind[];
 }
 
 export interface GenerationStep {
@@ -22,6 +24,7 @@ export interface AgentProposal {
   summary: string;
   apply: (trip: Trip) => Trip;
   changeSet?: import("@/types/diff").TripChangeSet;
+  remote?: { tripId: string; proposalId: string; baseRevision: number };
 }
 
 export interface AgentMessage {

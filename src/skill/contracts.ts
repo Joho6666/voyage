@@ -1,13 +1,15 @@
 import { z } from "zod";
+import { offerKindSchema } from "@/schemas/offers";
 
 export const SCHEMA_VERSION = "voyage.skill.v1" as const;
-export type ProviderLevel = "REAL" | "ESTIMATED" | "MOCK" | "UNKNOWN";
+export type ProviderLevel = "REAL" | "ESTIMATED" | "MOCK" | "UNKNOWN" | "UNAVAILABLE" | "UNSTRUCTURED";
 
 export interface ProviderStatus {
   overall: ProviderLevel;
   places: ProviderLevel;
   routes: ProviderLevel;
   weather: ProviderLevel;
+  travelOffers: ProviderLevel;
 }
 
 export const fallbackPolicySchema = z.enum(["deny", "estimated"]).default("deny");
@@ -30,6 +32,8 @@ export const createTripInputSchema = z
     walkingTolerance: z.enum(["low", "medium", "high"]).default("medium"),
     prompt: z.string().max(2000).default(""),
     fallbackPolicy: fallbackPolicySchema,
+    includeExternalOffers: z.boolean().default(false),
+    offerCategories: z.array(offerKindSchema).max(6).default(["train", "hotel", "ticket", "restaurant", "coupon"]),
   })
   .refine((value) => value.endDate || value.days, { message: "endDate or days is required" });
 
@@ -56,6 +60,43 @@ export const getWeatherInputSchema = z.object({
   fallbackPolicy: fallbackPolicySchema,
 });
 
+export const searchFlightsInputSchema = z.object({
+  departureCityCode: z.string().regex(/^[A-Z]{3}$/),
+  arrivalCityCode: z.string().regex(/^[A-Z]{3}$/),
+  departureDate: isoDate,
+  returnDate: isoDate.optional(),
+  tripType: z.union([z.literal(1), z.literal(2)]).default(1),
+  cabinClass: z.enum(["ALL_CABIN", "Y", "FC", "F", "C"]).default("ALL_CABIN"),
+  externalAgentName: z.string().min(1).max(80),
+  searchMode: z.union([z.literal(0), z.literal(2)]).default(2),
+  hasChild: z.boolean().default(false),
+  hasInfant: z.boolean().default(false),
+});
+
+export const searchTravelOffersInputSchema = z.object({
+  origin: z.string().max(80).optional(),
+  destination: z.string().min(1).max(80),
+  startDate: isoDate.optional(),
+  endDate: isoDate.optional(),
+  travelers: z.number().int().min(1).max(20).default(1),
+  budget: z.number().min(0).max(1_000_000).optional(),
+  query: z.string().min(1).max(2000),
+  city: z.string().max(80).optional(),
+  categories: z.array(offerKindSchema).max(6).default(["train", "hotel", "ticket", "restaurant", "coupon"]),
+});
+
+export const refreshTravelOffersInputSchema = searchTravelOffersInputSchema.extend({
+  tripId: z.string().min(1),
+  expectedTripRevision: z.number().int().min(1),
+});
+
+export const reorderDayInputSchema = z.object({
+  tripId: z.string().min(1),
+  dayId: z.string().min(1),
+  orderedItemIds: z.array(z.string().min(1)).min(1).max(30),
+  expectedTripRevision: z.number().int().min(1),
+});
+
 export const proposeChangeInputSchema = z.object({
   tripId: z.string().min(1),
   instruction: z.string().min(1).max(2000),
@@ -77,6 +118,10 @@ export const commandSchemas = {
   "search-places": searchPlacesInputSchema,
   "plan-route": planRouteInputSchema,
   "get-weather": getWeatherInputSchema,
+  "search-flights": searchFlightsInputSchema,
+  "search-travel-offers": searchTravelOffersInputSchema,
+  "refresh-travel-offers": refreshTravelOffersInputSchema,
+  "reorder-day": reorderDayInputSchema,
   "propose-change": proposeChangeInputSchema,
   "apply-change": applyChangeInputSchema,
 } as const;
