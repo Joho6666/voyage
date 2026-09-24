@@ -35,12 +35,13 @@ export function createKnowledgeAdminClient(): SupabaseClient | null {
 export class SupabaseKnowledgeRepository {
   constructor(private readonly client: SupabaseClient) {}
 
-  async findDocumentBySourceKey(sourceKey: string) {
-    const { data, error } = await this.client
+  async findDocumentBySourceKey(sourceKey: string, ownerId: string | null = null) {
+    let query = this.client
       .from("knowledge_documents")
       .select("id,source_key,content_hash,updated_at")
-      .eq("source_key", sourceKey)
-      .maybeSingle();
+      .eq("source_key", sourceKey);
+    query = ownerId ? query.eq("owner_id", ownerId) : query.is("owner_id", null);
+    const { data, error } = await query.maybeSingle();
     if (error) throw new Error(`knowledge document lookup failed: ${error.message}`);
     return data as { id: string; source_key: string; content_hash: string; updated_at: string } | null;
   }
@@ -68,7 +69,7 @@ export class SupabaseKnowledgeRepository {
     };
     const { data, error } = await this.client
       .from("knowledge_documents")
-      .upsert(row, { onConflict: "source_key" })
+      .upsert(row, { onConflict: "owner_id,source_key" })
       .select("id")
       .single();
     if (error) throw new Error(`knowledge document upsert failed: ${error.message}`);
