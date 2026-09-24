@@ -1,5 +1,6 @@
 import "server-only";
 import { assertPublicHttpUrl } from "@/lib/safe-url";
+import { runtimeConfigSync } from "@/services/config/local-credentials";
 
 export interface LlmConfig {
   baseUrl: string;
@@ -8,10 +9,10 @@ export interface LlmConfig {
 }
 
 export function getLlmConfig(): LlmConfig | null {
-  const baseUrl = process.env.LLM_BASE_URL;
+  const baseUrl = runtimeConfigSync("LLM_BASE_URL");
   if (!baseUrl) return null;
-  const model = process.env.LLM_MODEL || "gpt-4o-mini";
-  return { baseUrl, apiKey: process.env.LLM_API_KEY, model };
+  const model = runtimeConfigSync("LLM_MODEL") || "gpt-4o-mini";
+  return { baseUrl, apiKey: runtimeConfigSync("LLM_API_KEY"), model };
 }
 
 export interface ChatMessage {

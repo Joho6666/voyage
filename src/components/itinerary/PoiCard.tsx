@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, MoreHorizontal, Star } from "lucide-react";
@@ -8,7 +9,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { PLACE_CATEGORY_LABEL, type ItineraryItem, type Place } from "@/types/travel";
 import { DAY_COLORS } from "@/types/travel";
 import { cn } from "@/lib/utils";
-import { travelAgent } from "@/services/ai/mock";
+import { travelAgent } from "@/services/ai";
 import { useTripStore } from "@/store/trip-store";
 import { useUiStore } from "@/store/ui-store";
 
@@ -26,17 +27,31 @@ export function PoiCard({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
   const selectPlace = useUiStore((s) => s.selectPlace);
   const selected = useUiStore((s) => s.selectedPlaceId === place.id);
+  const isHovered = useUiStore((s) => s.hoverPlaceId === place.id);
   const hoverPlace = useUiStore((s) => s.hoverPlace);
   const patch = useTripStore((s) => s.patchTrip);
   const color = DAY_COLORS[dayIndex % DAY_COLORS.length];
+  const cardRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (selected && cardRef.current) {
+      cardRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [selected]);
+
+  const setCombinedRef = (node: HTMLElement | null) => {
+    setNodeRef(node);
+    cardRef.current = node;
+  };
 
   return (
     <article
-      ref={setNodeRef}
+      ref={setCombinedRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        "group flex gap-3 rounded-[12px] border border-transparent px-3 py-2 hover:bg-secondary/70",
-        selected && "border-primary/30 bg-accent",
+        "group flex gap-3 rounded-[12px] border border-transparent px-3 py-2 hover:bg-secondary/70 transition-all cursor-pointer",
+        selected && "border-primary/40 bg-accent ring-1 ring-primary/20",
+        isHovered && !selected && "bg-secondary/80 border-border/70",
         isDragging && "z-10 bg-surface shadow-[var(--shadow-float)]",
       )}
       onClick={() => selectPlace(place.id)}

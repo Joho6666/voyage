@@ -1,13 +1,15 @@
 import "server-only";
 
 import { z } from "zod";
-import { chongqingTrip, DEMO_TRIP_ID } from "@/data/demo/chongqing";
+import { chongqingTrip } from "@/data/demo/chongqing";
 import { uid } from "@/lib/utils";
 import { estimateBudgetItems } from "@/services/ai/actions/executor";
 import { recomputeTrip } from "@/services/routing";
-import { amapSearchPois, isAmapConfigured } from "@/services/map/amap-rest";
+import { amapSearchPois, isAmapConfigured, amapGeocode, amapWeather } from "@/services/map/amap-rest";
 import { tripRepository } from "@/services/trips/repository";
 import type { Day, Place, Trip } from "@/types/travel";
+import { createTripId, planWithRules } from "@/services/planning/rule-planner";
+import { weatherForDate } from "@/services/weather/merge";
 
 export const dynamic = "force-dynamic";
 
@@ -77,8 +79,12 @@ async function amapCandidates(destination: string): Promise<Candidate[]> {
   const groups: Array<{ keywords: string; category: Place["category"] }> = [
     { keywords: "景点", category: "attraction" },
     { keywords: "美食", category: "food" },
+    { keywords: "咖啡", category: "cafe" },
     { keywords: "酒店", category: "hotel" },
+    { keywords: "购物", category: "shopping" },
+    { keywords: "展览 演出", category: "activity" },
   ];
+  const failures: string[] = [];
   const results = await Promise.all(
     groups.map(async ({ keywords, category }) => {
       try {
@@ -86,12 +92,15 @@ async function amapCandidates(destination: string): Promise<Candidate[]> {
         return pois.map((poi) =>
           toCandidate(poi, category === "food" ? categorize(poi.type) : category),
         );
-      } catch {
+      } catch (error) {
+        failures.push(error instanceof Error ? error.message : "AMap POI request failed");
         return [] as Candidate[];
       }
     }),
   );
-  return results.flat();
+  const candidates = results.flat();
+  if (!candidates.length && failures.length) throw new Error(failures[0]);
+  return candidates;
 }
 
 function toCandidate(poi: { sourceId: string; name: string; address: string; lng: number; lat: number; rating?: number; cost?: number; type: string }, category: Place["category"]): Candidate {
@@ -115,44 +124,66 @@ function toCandidate(poi: { sourceId: string; name: string; address: string; lng
     district: "",
     source: "amap",
     sourceId: poi.sourceId,
+    provenance: { source: "amap", estimated: false },
   };
 }
 
 function demoCandidates(): Candidate[] {
-  return structuredClone(chongqingTrip.places).map((place) => ({ ...place, source: "demo" as const }));
+  return structuredClone(chongqingTrip.places).map((place) => ({ ...place, source: "demo" as const, provenance: { source: "demo" as const, estimated: true as const } }));
 }
 
 async function buildCandidates(destination: string): Promise<{ places: Candidate[]; provider: "amap" | "demo" }> {
   if (isAmapConfigured()) {
     const places = await amapCandidates(destination);
-    if (places.length >= 8) return { places, provider: "amap" };
+    const unique = [...new Map(places.filter((p) => p.sourceId && Number.isFinite(p.lat) && Number.isFinite(p.lng)).map((p) => [p.sourceId, p])).values()];
+    if (unique.length >= 4) return { places: unique, provider: "amap" };
+    throw new Error("NO_POI_RESULTS");
   }
-  if (destination.includes("重庆")) {
+  if (process.env.VOYAGE_DEMO_MODE === "true" && destination.includes("重庆")) {
     return { places: demoCandidates(), provider: "demo" };
   }
-  throw new Error("NO_CANDIDATES: configure AMAP_SERVER_KEY to plan destinations outside the built-in demo");
+  throw new Error("NO_PROVIDER_CONFIGURED");
 }
 
-function buildDays(startDate: string, endDate: string, tripId: string): Day[] {
+async function buildDays(startDate: string, endDate: string, tripId: string, destination: string): Promise<Day[]> {
   const start = new Date(`${startDate}T12:00:00`);
   const end = new Date(`${endDate}T12:00:00`);
   const dayCount = Math.max(1, Math.min(7, Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1));
-  const weathers = [
-    { tempC: 24, condition: "多云", icon: "cloud" as const },
-    { tempC: 18, condition: "小雨", icon: "rain" as const },
-    { tempC: 22, condition: "晴", icon: "sun" as const },
-  ];
+
+  let forecasts: Array<{ date: string; tempC: number; condition: string; icon: "sun" | "cloud" | "rain" | "overcast" }> = [];
+  if (isAmapConfigured()) {
+    try {
+      const geo = await amapGeocode(destination, destination);
+      const casts = await amapWeather(geo.adcode || destination);
+      forecasts = casts.map((c) => ({
+        date: c.date,
+        tempC: Math.round((c.dayTemp + c.nightTemp) / 2) || c.dayTemp,
+        condition: c.dayWeather,
+        icon: c.dayWeather.includes("雨")
+          ? ("rain" as const)
+          : c.dayWeather.includes("云")
+            ? ("cloud" as const)
+            : c.dayWeather.includes("阴")
+              ? ("overcast" as const)
+              : ("sun" as const),
+      }));
+    } catch {
+      // ignore
+    }
+  }
+
   return Array.from({ length: dayCount }, (_, index) => {
     const date = new Date(start.getTime() + index * 86_400_000);
     const iso = date.toISOString().slice(0, 10);
+    const weather = weatherForDate(forecasts, iso);
     return {
-      id: `day-${index + 1}`,
+      id: `${tripId}-day-${index + 1}`,
       tripId,
       index,
       date: iso,
       title: "",
       summary: "",
-      weather: weathers[index % weathers.length],
+      weather,
     };
   });
 }
@@ -194,14 +225,14 @@ async function llmOutline(input: { prompt: string; candidates: Candidate[]; dayC
   return parsed.data;
 }
 
-function assembleTrip(input: {
-  outline?: Outline;
+async function assembleTrip(input: {
+  outline: Outline;
   body: z.output<typeof bodySchema>;
   candidates: Candidate[];
-}): Trip {
+}): Promise<Trip> {
   const { body, candidates } = input;
-  const tripId = `${body.destination}-${body.startDate}`.replace(/\s+/g, "");
-  const days = buildDays(body.startDate, body.endDate, tripId);
+  const tripId = createTripId();
+  const days = await buildDays(body.startDate, body.endDate, tripId, body.destination);
   const outline = input.outline;
   const places: Place[] = [];
   const items: Trip["items"] = [];
@@ -237,8 +268,7 @@ function assembleTrip(input: {
 
   const estimatedSpend = Math.round((body.budget ?? 2500) * 0.85);
   const trip: Trip = {
-    id: tripId || DEMO_TRIP_ID,
-    ownerId: "demo-user",
+    id: tripId,
     title: outline?.title ?? `${body.destination} · ${days.length} 天`,
     destination: body.destination,
     origin: body.origin ?? "",
@@ -249,7 +279,7 @@ function assembleTrip(input: {
     currency: "CNY",
     status: "ready",
     estimatedSpend,
-    coverImage: candidates[0]?.image || chongqingTrip.coverImage,
+    coverImage: candidates[0]?.image || "",
     vibe: body.vibes ?? [],
     prompt: body.prompt ?? "",
     createdAt: new Date().toISOString(),
@@ -262,9 +292,9 @@ function assembleTrip(input: {
     restaurants: [],
     activities: [],
     transports: [],
-    tasks: (outline?.tasks ?? chongqingTrip.tasks).map((task, index) => ({
+    tasks: (outline.tasks ?? []).map((task, index) => ({
       id: `tk-${index + 1}`,
-      tripId: tripId || DEMO_TRIP_ID,
+      tripId,
       title: task.title,
       group: task.group,
       status: "todo" as const,
@@ -275,12 +305,26 @@ function assembleTrip(input: {
   return recomputeTrip(withBudget);
 }
 
+function ruleOutline(body: z.output<typeof bodySchema>, candidates: Candidate[]): Outline {
+  const plan = planWithRules({
+    destination: body.destination,
+    startDate: body.startDate,
+    endDate: body.endDate,
+    travelers: body.travelers ?? 2,
+    budget: body.budget ?? 2500,
+    vibes: body.vibes ?? [],
+    candidates,
+  });
+  return { ...plan, tasks: [] };
+}
+
 async function llmOutlineSafe(body: z.output<typeof bodySchema>, candidates: Candidate[]): Promise<Outline | undefined> {
   try {
+    const dayCount = Math.max(1, Math.min(7, Math.floor((new Date(`${body.endDate}T12:00:00`).getTime() - new Date(`${body.startDate}T12:00:00`).getTime()) / 86_400_000) + 1));
     return await llmOutline({
       prompt: body.prompt ?? "",
       candidates,
-      dayCount: 3,
+      dayCount,
       budget: body.budget ?? 2500,
       travelers: body.travelers ?? 2,
       vibes: body.vibes ?? [],
@@ -304,27 +348,29 @@ export async function POST(request: Request) {
     candidates = built.places;
     provider = built.provider;
   } catch (error) {
+    const message = error instanceof Error ? error.message : "candidate lookup failed";
+    const errorCode = /INVALID_USER_KEY|USERKEY_PLAT_NOMATCH/.test(message)
+      ? "AMAP_INVALID_USER_KEY"
+      : message === "NO_POI_RESULTS"
+        ? "NO_POI_RESULTS"
+        : message === "NO_PROVIDER_CONFIGURED"
+          ? "NO_PROVIDER_CONFIGURED"
+          : "AMAP_PROVIDER_ERROR";
     return Response.json(
-      { error: error instanceof Error ? error.message : "candidate lookup failed" },
-      { status: 501 },
+      { error: errorCode, detail: errorCode === "AMAP_INVALID_USER_KEY" ? "AMAP_SERVER_KEY 无效、未开通 Web 服务或 Key 与平台类型不匹配" : message },
+      { status: 503 },
     );
   }
 
-  const fallbackTrip = () => {
-    const trip = structuredClone(chongqingTrip);
-    trip.prompt = body.data.prompt ?? trip.prompt;
-    return trip;
-  };
-
   const outline = llmEnv ? await llmOutlineSafe(body.data, candidates) : undefined;
-  const trip = outline ? assembleTrip({ outline, body: body.data, candidates }) : fallbackTrip();
+  const trip = await assembleTrip({ outline: outline ?? ruleOutline(body.data, candidates), body: body.data, candidates });
   try {
     const saved = await tripRepository.save(trip);
-    return Response.json({ source: outline ? "llm" : "mock", mapProvider: provider, trip: saved });
+    return Response.json({ source: outline ? "llm" : "rules", mapProvider: provider, trip: saved });
   } catch (error) {
     return Response.json(
       {
-        source: outline ? "llm" : "mock",
+        source: outline ? "llm" : "rules",
         mapProvider: provider,
         trip,
         persistError: error instanceof Error ? error.message : "persist failed",

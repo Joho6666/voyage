@@ -1,0 +1,29 @@
+{
+  "places": [
+    {"id":"p-hongya","name":"洪崖洞民俗风貌区","category":"attraction","lat":29.5627,"lng":106.5791,"rating":4.6,"reviewCount":1200,"image":"","priceLevel":0,"address":"渝中区嘉陵江滨江路","openingStatus":"unknown","stayMinutes":90,"description":"山城夜景","tags":["户外","夜景"],"district":"渝中区","source":"amap","sourceId":"h1","provenance":{"source":"amap","estimated":false}},
+    {"id":"p-liziba","name":"李子坝观景平台","category":"viewpoint","lat":29.5525,"lng":106.5475,"rating":4.5,"reviewCount":800,"image":"","priceLevel":0,"address":"渝中区李子坝","openingStatus":"unknown","stayMinutes":60,"description":"轻轨穿楼","tags":["户外","观景"],"district":"渝中区","source":"amap","sourceId":"h2","provenance":{"source":"amap","estimated":false}},
+    {"id":"p-nanshan","name":"南山一棵树观景台","category":"viewpoint","lat":29.527,"lng":106.596,"rating":4.5,"reviewCount":900,"image":"","priceLevel":1,"address":"南岸区南山","openingStatus":"unknown","stayMinutes":80,"description":"重庆夜景","tags":["户外","夜景"],"district":"南岸区","source":"amap","sourceId":"h3","provenance":{"source":"amap","estimated":false}},
+    {"id":"p-ciqikou","name":"磁器口古镇","category":"attraction","lat":29.579,"lng":106.448,"rating":4.4,"reviewCount":1500,"image":"","priceLevel":0,"address":"沙坪坝区磁器口","openingStatus":"unknown","stayMinutes":120,"description":"古镇步行","tags":["户外","古镇"],"district":"沙坪坝区","source":"amap","sourceId":"h4","provenance":{"source":"amap","estimated":false}},
+    {"id":"p-rail","name":"山城步道","category":"attraction","lat":29.553,"lng":106.568,"rating":4.4,"reviewCount":700,"image":"","priceLevel":0,"address":"渝中区","openingStatus":"unknown","stayMinutes":90,"description":"山城步道","tags":["户外","步道"],"district":"渝中区","source":"amap","sourceId":"h5","provenance":{"source":"amap","estimated":false}},
+    {"id":"p-museum","name":"重庆中国三峡博物馆","category":"activity","lat":29.565,"lng":106.551,"rating":4.8,"reviewCount":1600,"image":"","priceLevel":0,"address":"渝中区人民路","openingStatus":"unknown","stayMinutes":150,"description":"大型室内博物馆","tags":["室内","文化"],"district":"渝中区","source":"amap","sourceId":"i1","provenance":{"source":"amap","estimated":false}},
+    {"id":"p-art","name":"重庆美术馆","category":"activity","lat":29.56,"lng":106.575,"rating":4.6,"reviewCount":500,"image":"","priceLevel":0,"address":"渝中区临江路","openingStatus":"unknown","stayMinutes":100,"description":"室内美术展览","tags":["室内","展览"],"district":"渝中区","source":"amap","sourceId":"i2","provenance":{"source":"amap","estimated":false}},
+    {"id":"p-science","name":"重庆科技馆","category":"activity","lat":29.581,"lng":106.572,"rating":4.6,"reviewCount":600,"image":"","priceLevel":0,"address":"江北区江北城","openingStatus":"unknown","stayMinutes":120,"description":"室内科技展览","tags":["室内","亲子"],"district":"江北区","source":"amap","sourceId":"i3","provenance":{"source":"amap","estimated":false}},
+    {"id":"p-hotpot","name":"山城老火锅","category":"food","lat":29.558,"lng":106.573,"rating":4.5,"reviewCount":1000,"image":"","priceLevel":2,"address":"渝中区","openingStatus":"unknown","stayMinutes":80,"description":"重庆火锅","tags":["美食","室内"],"district":"渝中区","estimatedCost":120,"source":"amap","sourceId":"f1","provenance":{"source":"amap","estimated":false}},
+    {"id":"p-noodle","name":"重庆小面馆","category":"food","lat":29.561,"lng":106.57,"rating":4.4,"reviewCount":700,"image":"","priceLevel":1,"address":"渝中区","openingStatus":"unknown","stayMinutes":50,"description":"重庆小面","tags":["美食","室内"],"district":"渝中区","estimatedCost":25,"source":"amap","sourceId":"f2","provenance":{"source":"amap","estimated":false}},
+    {"id":"p-jianghu","name":"江湖菜馆","category":"food","lat":29.57,"lng":106.566,"rating":4.5,"reviewCount":650,"image":"","priceLevel":2,"address":"江北区","openingStatus":"unknown","stayMinutes":70,"description":"重庆江湖菜","tags":["美食","室内"],"district":"江北区","estimatedCost":90,"source":"amap","sourceId":"f3","provenance":{"source":"amap","estimated":false}},
+    {"id":"p-tea","name":"山城茶馆","category":"cafe","lat":29.564,"lng":106.56,"rating":4.3,"reviewCount":300,"image":"","priceLevel":1,"address":"渝中区","openingStatus":"unknown","stayMinutes":60,"description":"室内茶馆","tags":["室内","休息"],"district":"渝中区","estimatedCost":45,"source":"amap","sourceId":"c1","provenance":{"source":"amap","estimated":false}},
+    {"id":"p-mall","name":"来福士购物中心","category":"shopping","lat":29.568,"lng":106.585,"rating":4.6,"reviewCount":900,"image":"","priceLevel":2,"address":"渝中区朝天门","openingStatus":"unknown","stayMinutes":100,"description":"室内商场","tags":["室内","购物"],"district":"渝中区","source":"amap","sourceId":"s1","provenance":{"source":"amap","estimated":false}},
+    {"id":"p-hotel","name":"解放碑酒店","category":"hotel","lat":29.557,"lng":106.577,"rating":4.6,"reviewCount":500,"image":"","priceLevel":3,"address":"渝中区解放碑","openingStatus":"unknown","stayMinutes":0,"description":"酒店","tags":["住宿"],"district":"渝中区","source":"amap","sourceId":"o1","provenance":{"source":"amap","estimated":false}},
+    {"id":"p-market","name":"观音桥市场","category":"shopping","lat":29.579,"lng":106.534,"rating":4.3,"reviewCount":400,"image":"","priceLevel":1,"address":"江北区观音桥","openingStatus":"unknown","stayMinutes":80,"description":"城市市场","tags":["购物"],"district":"江北区","source":"amap","sourceId":"s2","provenance":{"source":"amap","estimated":false}}
+  ],
+  "weather": [
+    {"date":"2030-05-01","tempC":24,"condition":"多云","icon":"cloud","source":"mock"},
+    {"date":"2030-05-02","tempC":21,"condition":"中雨","icon":"rain","source":"mock"},
+    {"date":"2030-05-03","tempC":25,"condition":"晴","icon":"sun","source":"mock"}
+  ],
+  "route": {
+    "mode":"walk","distanceMeters":850,"durationMinutes":13,
+    "polyline":[[106.57,29.56],[106.575,29.565]],
+    "steps":[{"instruction":"沿道路步行","distanceMeters":850,"durationMinutes":13}]
+  }
+}

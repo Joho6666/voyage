@@ -6,8 +6,9 @@ import type { Trip } from "@/types/travel";
 
 interface TripState {
   trip: Trip;
+  revision: number;
   saving: boolean;
-  setTrip: (trip: Trip) => void;
+  setTrip: (trip: Trip, revision?: number) => void;
   patchTrip: (updater: (trip: Trip) => Trip) => void;
   reorder: (dayId: string, orderedIds: string[]) => void;
   persist: () => Promise<void>;
@@ -15,8 +16,9 @@ interface TripState {
 
 export const useTripStore = create<TripState>((set, get) => ({
   trip: structuredClone(chongqingTrip),
+  revision: 1,
   saving: false,
-  setTrip: (trip) => set({ trip }),
+  setTrip: (trip, revision) => set((state) => ({ trip, revision: revision ?? state.revision + 1 })),
   patchTrip: (updater) => set({ trip: updater(get().trip) }),
   reorder: (dayId, orderedIds) => {
     const trip = get().trip;
@@ -25,7 +27,12 @@ export const useTripStore = create<TripState>((set, get) => ({
       const order = orderedIds.indexOf(item.id);
       return order === -1 ? item : { ...item, order };
     });
-    set({ trip: recomputeDay({ ...trip, items }, dayId) });
+    const estimated = recomputeDay({ ...trip, items }, dayId);
+    set({ trip: estimated });
+    void fetch("/api/voyage/command", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ command: "reorder-day", input: { tripId: estimated.id, dayId, orderedItemIds: orderedIds, expectedTripRevision: get().revision } }) })
+      .then((response) => response.json())
+      .then((envelope: { ok?: boolean; data?: { trip?: Trip; revision?: number } }) => { if (envelope.data?.trip) set({ trip: envelope.data.trip, revision: envelope.data.revision ?? get().revision + 1 }); })
+      .catch(() => undefined);
   },
   persist: async () => {
     set({ saving: true });
@@ -34,6 +41,6 @@ export const useTripStore = create<TripState>((set, get) => ({
   },
 }));
 
-export function hydrateTrip(trip: Trip) {
-  useTripStore.setState({ trip: recomputeTrip(trip) });
+export function hydrateTrip(trip: Trip, revision = 1) {
+  useTripStore.setState({ trip: recomputeTrip(trip), revision });
 }

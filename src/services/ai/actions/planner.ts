@@ -2,7 +2,7 @@ import "server-only";
 import type { Trip } from "@/types/travel";
 import { chatJson, getLlmConfig } from "../llm";
 import { travelActionListSchema, type TravelActionList } from "./schemas";
-import type { TravelAction } from "./types";
+import { planActionsWithRules } from "./rule-planner";
 
 function tripSummary(trip: Trip) {
   const lines: string[] = [];
@@ -33,64 +33,66 @@ const SYSTEM_PROMPT = [
   '- OPTIMIZE_DAY: {"dayId"}',
   '- REDUCE_WALKING: {"dayId"?}',
   '- REDUCE_BUDGET: {"amount", "reason"?}',
-  '- CHANGE_TRANSPORT: {"itemId"?, "dayId"?, "mode": "walk"|"metro"|"taxi"|"bus"}',
+  '- CHANGE_TRANSPORT: {"itemId"?, "dayId"?, "mode": "walk"|"metro"|"taxi"|"bus"|"drive"}',
   '- RECOMMEND_FOOD: {"dayId"?}',
   '- RECOMMEND_PLACES: {"dayId"?}',
   '- CHANGE_TIME: {"itemId", "startTime": "HH:mm"}',
+  '- RAIN_PLAN: {"dayId"?}',
+  '- DELAY_DAY: {"dayId", "minutes": 60}',
+  '- START_EARLIER: {"dayId", "minutes": 30}',
+  '- SKIP_NEXT: {"dayId", "currentItemId"?}',
+  '- FIND_NEARBY_FOOD: {"dayId", "cuisine"?}',
+  '- REDUCE_TODAY_WALKING: {"dayId", "maxWalkMeters"?}',
+  '- REDUCE_TODAY_BUDGET: {"dayId", "targetSaveAmount": 100}',
+  '- CHANGE_NEXT_PLACE: {"dayId"?, "currentItemId"?, "category"?}',
+  '- CHANGE_ROUTE_MODE: {"segmentId"?, "fromItemId"?, "toItemId"?, "dayId"?, "newMode": "walk"|"metro"|"taxi"|"bus"|"drive"}',
+  '- MOVE_INDOOR: {"dayId"}',
+  '- EXTEND_STAY: {"itemId", "additionalMinutes"}',
+  '- SHORTEN_STAY: {"itemId", "reduceMinutes"}',
   "",
   "规则：",
   "1. 只能引用下方行程清单里存在的 itemId / dayId。",
   "2. ADD/REPLACE 的 placeId 必须来自候选地点列表；没有合适的就输出 RECOMMEND_*。",
-  "3. 用户喊累/想省力 → REDUCE_WALKING（必要时加 OPTIMIZE_DAY）。",
-  "4. 用户提预算 → REDUCE_BUDGET，amount 是具体数字。",
+  "3. 用户喊累/想省力 → REDUCE_WALKING 或 REDUCE_TODAY_WALKING（必要时加 OPTIMIZE_DAY）。",
+  "4. 用户提预算 → REDUCE_BUDGET 或 REDUCE_TODAY_BUDGET，amount 是具体数字。",
   "5. 用户指定时间 → CHANGE_TIME；用户指定某天 → MOVE_ITEM/CHANGE_DAY。",
-  "6. 不要输出 JSON 以外的任何内容。",
+  "6. 用户提到下雨/雨天预案 → RAIN_PLAN 或 MOVE_INDOOR。",
+  "7. 用户提到推迟/晚起 → DELAY_DAY；跳过当前站 → SKIP_NEXT。",
+  "8. 不要输出 JSON 以外的任何内容。",
 ].join("\n");
 
 export function isLlmConfigured() {
   return Boolean(getLlmConfig());
 }
 
-function extractAmount(text: string) {
-  const matched = text.match(/(\d{3,5})/);
-  const value = matched ? Number(matched[1]) : NaN;
-  return Number.isFinite(value) && value >= 100 ? value : 300;
+function ruleBasedActions(trip: Trip, message: string): TravelActionList {
+  return planActionsWithRules(trip, message);
 }
 
-function ruleBasedActions(trip: Trip, message: string): TravelActionList {
-  const text = message.trim();
-  const day2 = trip.days[1];
-  const actions: TravelAction[] = [];
-  if (text.includes("赶") || text.includes("累") || text.toLowerCase().includes("day 2")) {
-    if (day2) actions.push({ type: "OPTIMIZE_DAY", payload: { dayId: day2.id } });
-    actions.push({ type: "REDUCE_WALKING", payload: {} });
-  }
-  if (text.includes("省") || text.includes("预算")) {
-    actions.push({ type: "REDUCE_BUDGET", payload: { amount: extractAmount(text) } });
-  }
-  if (text.includes("走") || text.includes("累")) {
-    actions.push({ type: "REDUCE_WALKING", payload: {} });
-  }
-  if (text.includes("美食") || text.includes("吃")) {
-    actions.push({ type: "RECOMMEND_FOOD", payload: {} });
-  }
-  if (text.includes("活动") || text.includes("夜")) {
-    actions.push({ type: "RECOMMEND_PLACES", payload: {} });
-  }
-  if (!actions.length) {
-    actions.push({ type: "OPTIMIZE_DAY", payload: { dayId: trip.days[0]?.id ?? "" } });
-  }
-  return { actions, summary: text };
-}
+import { buildWeatherContext } from "@/services/weather/context";
 
 function buildUserMessage(trip: Trip, message: string) {
   const candidates = trip.places
     .filter((p) => !trip.items.some((i) => i.placeId === p.id))
     .map((p) => `${p.id} ${p.name}(${p.category})`)
     .join("、");
+  const weatherCtx = buildWeatherContext(trip);
+  const weatherSummary = weatherCtx.days
+    .map(
+      (d) =>
+        `Day ${d.dayIndex + 1} (${d.date}): ${d.tempC}°C ${d.condition}${
+          d.isRainy ? " [预计有雨/建议室内方案]" : ""
+        }${d.isExtremeHeat ? " [高温避暑]" : ""}`,
+    )
+    .join("; ");
+
   return [
     "当前行程（itemId/dayId/placeId 都要引用这里的）：",
     tripSummary(trip),
+    "",
+    `目的地实时天气情报：${weatherSummary}。建议：${weatherCtx.generalAdvisory}`,
+    "",
+    `当前预算与支出状态：总预算 ¥${trip.budget}，当前预估支出 ¥${trip.estimatedSpend}`,
     "",
     "候选未加入地点：",
     candidates,

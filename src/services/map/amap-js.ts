@@ -19,12 +19,19 @@ export interface AMapInstance {
   setFitView: (overlays?: unknown[], immediately?: boolean, avoid?: number[]) => void;
   destroy: () => void;
   setCenter: (lnglat: [number, number]) => void;
+  panTo: (lnglat: [number, number]) => void;
   setZoom: (zoom: number) => void;
+  getZoom?: () => number;
+  on?: (event: string, handler: (...args: unknown[]) => void) => void;
 }
 
 export interface AMapOverlay {
   setMap: (map: AMapInstance | null) => void;
   on: (event: string, handler: () => void) => void;
+  setContent?: (content: string) => void;
+  setPosition?: (pos: [number, number]) => void;
+  setzIndex?: (z: number) => void;
+  setOptions?: (opts: Record<string, unknown>) => void;
 }
 
 let loading: Promise<void> | null = null;

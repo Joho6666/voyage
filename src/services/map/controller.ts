@@ -53,18 +53,29 @@ export function buildMapModel(
   });
 
   const polylines: MapPolyline[] = trip.days.map((day) => {
+    const daySegments = trip.segments.filter((s) => s.dayId === day.id);
+    const detailedPoints: Array<{ lat: number; lng: number }> = [];
+    daySegments.forEach((seg) => {
+      if (seg.polyline && seg.polyline.length > 0) {
+        seg.polyline.forEach(([lng, lat]) => {
+          detailedPoints.push({ lng, lat });
+        });
+      }
+    });
+
     const items = trip.items
       .filter((i) => i.dayId === day.id)
       .sort((a, b) => a.order - b.order);
-    const path = items
+    const fallbackPath = items
       .map((i) => trip.places.find((p) => p.id === i.placeId))
       .filter((p): p is Place => Boolean(p))
       .map((p) => ({ lat: p.lat, lng: p.lng }));
+
     return {
       id: `line-${day.id}`,
       dayIndex: day.index,
       color: DAY_COLORS[day.index % DAY_COLORS.length],
-      path,
+      path: detailedPoints.length > 1 ? detailedPoints : fallbackPath,
     };
   });
 

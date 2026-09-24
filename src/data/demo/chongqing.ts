@@ -237,6 +237,12 @@ const corePlaces: Place[] = [
     description: "顺着 forties 梯坎往下走，比景区更像重庆。",
     tags: ["步道", "城市"],
     district: "渝中区",
+    vertical: {
+      floor: "依山栈道",
+      levelDescription: "中兴路至领事巷悬崖栈道，全程垂直落差约 70 米",
+      elevationDiffMeters: 70,
+      elevatorHint: "仁爱堂段有便民垂直升降梯可少爬 100 级台阶",
+    },
   },
   {
     id: "p-hongyadong",
@@ -256,6 +262,12 @@ const corePlaces: Place[] = [
     description: "夜景核心。建议晚饭后到，从江对岸或千厮门桥上看更完整。",
     tags: ["夜景", "必看"],
     district: "渝中区",
+    vertical: {
+      floor: "11F / 1F",
+      levelDescription: "11F 为沧白路（可直接步行往解放碑），1F 为嘉陵江滨江路（码头及江景）。高差约 50 米。",
+      elevationDiffMeters: 50,
+      elevatorHint: "楼内设 1–4 号客运直达电梯；夜间排队多时可从千厮门大桥桥头步道走台阶",
+    },
   },
   {
     id: "p-qiansimen",
@@ -294,6 +306,12 @@ const corePlaces: Place[] = [
     description: "轻轨穿楼。不必赶每一班，选 2–3 班拍完就走。",
     tags: ["轻轨", "拍照"],
     district: "渝中区",
+    vertical: {
+      floor: "8F / 1F",
+      levelDescription: "8F 为轻轨2号线站台，1F–2F 为李子坝正街商铺，地面为拍照观景平台",
+      elevationDiffMeters: 28,
+      elevatorHint: "从李子坝正街观景平台进楼乘站内扶梯至 8 楼乘车",
+    },
   },
   {
     id: "p-eling",
@@ -313,6 +331,12 @@ const corePlaces: Place[] = [
     description: "印厂改造，咖啡、展览和江景阳台，节奏比磁器口松。",
     tags: ["文创", "咖啡"],
     district: "渝中区",
+    vertical: {
+      floor: "山顶天台",
+      levelDescription: "建在鹅岭山脊，临空步道与印厂天台可俯瞰两江，阶梯坡度较大",
+      elevationDiffMeters: 35,
+      elevatorHint: "沿厂区景观木栈道步道缓坡上升",
+    },
   },
   {
     id: "p-ciqikou",

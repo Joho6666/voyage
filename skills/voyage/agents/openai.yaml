@@ -1,0 +1,6 @@
+interface:
+  display_name: "Voyage Travel Skill"
+  short_description: "Real-data travel planning and safe itinerary changes"
+  default_prompt: "Use $voyage to plan or safely adapt a real travel itinerary."
+policy:
+  allow_implicit_invocation: true

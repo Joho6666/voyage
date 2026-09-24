@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { offerProviderStatusSchema, offerSchema } from "./offers";
 
 export const placeCategorySchema = z.enum([
   "attraction",
@@ -30,8 +31,14 @@ export const transportKindSchema = z.enum([
   "walk",
   "taxi",
   "bus",
+  "drive",
 ]);
 export const openingStatusSchema = z.enum(["open", "closed", "unknown"]);
+export const provenanceSchema = z.discriminatedUnion("source", [
+  z.object({ source: z.literal("amap"), estimated: z.literal(false) }),
+  z.object({ source: z.enum(["haversine", "demo"]), estimated: z.literal(true) }),
+  z.object({ source: z.literal("unavailable"), estimated: z.literal(true), reason: z.string() }),
+]);
 export const budgetCategorySchema = z.enum([
   "transport",
   "stay",
@@ -70,6 +77,7 @@ export const placeSchema = z.object({
   estimatedCost: z.number().optional(),
   source: z.enum(["amap", "demo", "llm", "user"]).optional(),
   sourceId: z.string().optional(),
+  provenance: provenanceSchema.optional(),
 });
 
 export const daySchema = z.object({
@@ -83,6 +91,8 @@ export const daySchema = z.object({
     tempC: z.number(),
     condition: z.string(),
     icon: z.enum(["sun", "cloud", "rain", "overcast"]),
+    provenance: provenanceSchema.optional(),
+    fetchedAt: z.string().optional(),
   }),
 });
 
@@ -101,17 +111,35 @@ export const itineraryItemSchema = z.object({
   reservationId: z.string().optional(),
 });
 
+export const routeStepSchema = z.object({
+  instruction: z.string(),
+  distanceMeters: z.number().min(0),
+  durationMinutes: z.number().min(0),
+  polyline: z.array(z.tuple([z.number(), z.number()])).optional(),
+});
+
 export const routeSegmentSchema = z.object({
   id: z.string().min(1),
+  tripId: z.string().optional(),
   dayId: z.string().min(1),
   fromItemId: z.string().min(1),
   toItemId: z.string().min(1),
+  fromPlaceId: z.string().optional().default(""),
+  toPlaceId: z.string().optional().default(""),
   mode: transportKindSchema,
+  distanceMeters: z.number().min(0).optional(),
+  durationMinutes: z.number().min(0).optional(),
   meters: z.number().min(0),
   minutes: z.number().min(0),
-  label: z.string(),
+  label: z.string().optional().default(""),
   polyline: z.array(z.tuple([z.number(), z.number()])).optional(),
+  steps: z.array(routeStepSchema).optional(),
+  provider: z.enum(["amap", "haversine", "mock"]).optional().default("haversine"),
+  providerRouteId: z.string().optional(),
+  estimated: z.boolean().optional().default(true),
   estimatedCost: z.number().optional(),
+  updatedAt: z.string().optional(),
+  provenance: provenanceSchema.optional(),
 });
 
 export const budgetItemSchema = z.object({
@@ -165,6 +193,8 @@ export const tripSchema = z
     transports: z.array(z.any()).default([]),
     tasks: z.array(taskSchema),
     budgetItems: z.array(budgetItemSchema),
+    offers: z.array(offerSchema).optional(),
+    offerProviderStatus: offerProviderStatusSchema.optional(),
   })
   .superRefine((trip, ctx) => {
     const placeIds = new Set(trip.places.map((p) => p.id));

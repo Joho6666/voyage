@@ -1,3 +1,5 @@
+import type { OfferProviderStatus, TravelOffer } from "./offers";
+
 export type PlaceCategory =
   | "attraction"
   | "food"
@@ -19,12 +21,24 @@ export type ItineraryItemType =
 export type ItemStatus = "planned" | "current" | "done" | "skipped";
 export type TaskStatus = "todo" | "done";
 export type BudgetCategory = "transport" | "stay" | "food" | "ticket" | "shop" | "other";
-export type TransportKind = "highspeed" | "flight" | "metro" | "walk" | "taxi" | "bus";
+export type TransportKind = "highspeed" | "flight" | "metro" | "walk" | "taxi" | "bus" | "drive";
 export type OpeningStatus = "open" | "closed" | "unknown";
+
+export type DataProvenance =
+  | { source: "amap"; estimated: false }
+  | { source: "haversine" | "demo"; estimated: true }
+  | { source: "unavailable"; estimated: true; reason: string };
 
 export interface GeoPoint {
   lat: number;
   lng: number;
+}
+
+export interface VerticalInfo {
+  floor?: string;
+  levelDescription?: string;
+  elevationDiffMeters?: number;
+  elevatorHint?: string;
 }
 
 export interface Place {
@@ -48,6 +62,8 @@ export interface Place {
   estimatedCost?: number;
   source?: "amap" | "demo" | "llm" | "user";
   sourceId?: string;
+  provenance?: DataProvenance;
+  vertical?: VerticalInfo;
 }
 
 export interface Day {
@@ -61,6 +77,8 @@ export interface Day {
     tempC: number;
     condition: string;
     icon: "sun" | "cloud" | "rain" | "overcast";
+    provenance?: DataProvenance;
+    fetchedAt?: string;
   };
 }
 
@@ -79,17 +97,43 @@ export interface ItineraryItem {
   reservationId?: string;
 }
 
+export interface RouteStep {
+  instruction: string;
+  distanceMeters: number;
+  durationMinutes: number;
+  polyline?: Array<[number, number]>;
+  verticalHint?: string;
+  floorTransition?: {
+    fromFloor: string;
+    toFloor: string;
+    mode: "elevator" | "escalator" | "stairs" | "walkway";
+  };
+}
+
 export interface RouteSegment {
   id: string;
+  tripId?: string;
   dayId: string;
   fromItemId: string;
   toItemId: string;
+  fromPlaceId: string;
+  toPlaceId: string;
   mode: TransportKind;
+  distanceMeters: number;
+  durationMinutes: number;
+  /** Backwards-compatible alias for distanceMeters */
   meters: number;
+  /** Backwards-compatible alias for durationMinutes */
   minutes: number;
   label: string;
   polyline?: Array<[number, number]>;
+  steps?: RouteStep[];
+  provider: "amap" | "haversine" | "mock";
+  providerRouteId?: string;
+  estimated: boolean;
   estimatedCost?: number;
+  updatedAt: string;
+  provenance?: DataProvenance;
 }
 
 export interface Hotel {
@@ -216,6 +260,8 @@ export interface Trip {
   transports: Transport[];
   tasks: Task[];
   budgetItems: BudgetItem[];
+  offers?: TravelOffer[];
+  offerProviderStatus?: OfferProviderStatus;
 }
 
 export interface TripSummary {
