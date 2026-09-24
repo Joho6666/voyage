@@ -27,6 +27,11 @@ export interface AmapRouteResult {
   durationMinutes: number;
   polyline: Array<[number, number]>;
   steps: AmapRouteStep[];
+  walkingDistanceMeters?: number;
+  transferCount?: number;
+  publicTransitCostYuan?: number;
+  taxiCostYuan?: number;
+  trafficLevel?: "low" | "medium" | "high" | "unknown";
 }
 
 function serverKey() {
@@ -199,11 +204,26 @@ export async function amapDrivingRoute(
     };
   });
   const polyline = steps.flatMap((s) => s.polyline ?? []);
+  const route = data.route as Record<string, unknown> | undefined;
+  const taxiCost = Number(route?.taxi_cost ?? 0);
+  const trafficStatuses = rawSteps.flatMap((step) => {
+    const tmcs = Array.isArray(step.tmcs) ? step.tmcs as Record<string, unknown>[] : [];
+    return tmcs.map((tmc) => String(tmc.status ?? ""));
+  });
+  const trafficLevel = trafficStatuses.some((value) => /严重拥堵|拥堵/.test(value))
+    ? "high" as const
+    : trafficStatuses.some((value) => /缓行/.test(value))
+      ? "medium" as const
+      : trafficStatuses.some((value) => /畅通/.test(value))
+        ? "low" as const
+        : "unknown" as const;
   return {
     distanceMeters: Number(path.distance ?? 0),
     durationMinutes: Math.round(Number(path.duration ?? 0) / 60),
     polyline,
     steps,
+    taxiCostYuan: Number.isFinite(taxiCost) && taxiCost > 0 ? taxiCost : undefined,
+    trafficLevel,
   };
 }
 
@@ -211,12 +231,14 @@ export async function amapTransitRoute(
   origin: { lng: number; lat: number },
   destination: { lng: number; lat: number },
   city: string,
+  strategy: "0" | "1" | "2" | "3" | "5" = "0",
 ): Promise<AmapRouteResult> {
   const data = await amapGet("/v3/direction/transit/integrated", {
     origin: `${origin.lng},${origin.lat}`,
     destination: `${destination.lng},${destination.lat}`,
     city,
-    strategy: "0",
+    strategy,
+    extensions: "all",
   });
   if (data.status !== "1") throw new Error("AMap transit route failed");
   const route = data.route as Record<string, unknown> | undefined;
@@ -256,11 +278,23 @@ export async function amapTransitRoute(
     }
   }
 
+  const walkingDistance = Number(first.walking_distance ?? route?.distance ?? 0);
+  const cost = Number(first.cost ?? 0);
+  const taxiCost = Number(route?.taxi_cost ?? 0);
+  const rideCount = segments.reduce((count, seg) => {
+    const bus = seg.bus as Record<string, unknown> | undefined;
+    const buslines = Array.isArray(bus?.buslines) ? bus?.buslines as Record<string, unknown>[] : [];
+    return count + (buslines.length ? 1 : 0);
+  }, 0);
   return {
     distanceMeters: Number(route?.distance ?? 0),
     durationMinutes: Math.round(Number(first.duration ?? 0) / 60),
     polyline,
     steps,
+    walkingDistanceMeters: Number.isFinite(walkingDistance) ? walkingDistance : undefined,
+    transferCount: Math.max(0, rideCount - 1),
+    publicTransitCostYuan: Number.isFinite(cost) && cost >= 0 ? cost : undefined,
+    taxiCostYuan: Number.isFinite(taxiCost) && taxiCost > 0 ? taxiCost : undefined,
   };
 }
 
