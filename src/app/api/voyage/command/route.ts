@@ -5,6 +5,8 @@ import { ZodError } from "zod";
 import { commandSchemas, errorEnvelope, type SkillCommand } from "@/skill/contracts";
 import { SkillError } from "@/skill/errors";
 import { createRuntime } from "@/skill/runtime";
+import { JsonSkillRepository } from "@/skill/repository";
+import { chongqingTrip, DEMO_TRIP_ID } from "@/data/demo/chongqing";
 import { guestWorkspace, setGuestCookie } from "../workspace";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +24,15 @@ export async function POST(request: NextRequest) {
     return reply(errorEnvelope("INVALID_INPUT", "Input failed command schema validation", parsed.error.flatten()), 400);
   }
   try {
+    if (process.env.VOYAGE_DEMO_MODE === "true" && parsed.data && typeof parsed.data === "object") {
+      const tripId = "tripId" in parsed.data ? (parsed.data as { tripId?: unknown }).tripId : undefined;
+      if (tripId === DEMO_TRIP_ID) {
+        const repository = new JsonSkillRepository(workspace.root);
+        if (!(await repository.getTrip(DEMO_TRIP_ID))) {
+          await repository.createTrip(structuredClone(chongqingTrip));
+        }
+      }
+    }
     const result = await createRuntime(workspace.root).execute(command, parsed.data);
     return reply(result);
   } catch (error) {
