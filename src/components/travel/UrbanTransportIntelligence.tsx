@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Bus, Car, Footprints, Loader2, Route, TrainFront } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTripStore } from "@/store/trip-store";
@@ -13,6 +13,8 @@ const MODE_LABEL: Record<UrbanTransportMode, string> = {
   taxi: "出租车/网约车",
   drive: "驾车",
 };
+
+const TRAFFIC_LABEL = { low: "道路畅通", medium: "道路缓行", high: "道路拥堵", unknown: "路况未知" } as const;
 
 function ModeIcon({ mode }: { mode: UrbanTransportMode }) {
   if (mode === "walk") return <Footprints className="size-3.5" />;
@@ -77,6 +79,16 @@ export function UrbanTransportIntelligence() {
     }
   }
 
+  // Load one comparison as soon as the page opens so the available modes are
+  // visible without requiring the traveller to discover each button first.
+  useEffect(() => {
+    const first = urbanSegments[0];
+    if (first && !results[first.id]) void analyze(first.id);
+    // The trip id and segment count are the loading boundaries; results are
+    // intentionally kept local so a route refresh does not reset the card.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trip.id, urbanSegments.length]);
+
   if (!urbanSegments.length) {
     return (
       <div className="rounded-[14px] border border-dashed border-border p-5 text-center text-xs text-muted-foreground">
@@ -126,11 +138,14 @@ export function UrbanTransportIntelligence() {
                         <span>{option.durationMinutes} 分钟</span>
                         <span>步行 {option.walkMeters} m</span>
                         <span>换乘 {option.transferCount} 次</span>
-                        <span>约 ¥{option.cost.min}{option.cost.max !== option.cost.min ? "–" + option.cost.max : ""}</span>
+                        <span>约 ¥{option.cost.min}{option.cost.max !== option.cost.min ? "–" + option.cost.max : ""}{option.cost.estimated ? "（估算）" : ""}</span>
+                        <span>{option.mode === "taxi" || option.mode === "drive" ? TRAFFIC_LABEL[option.trafficLevel] : `来源：${option.source === "amap" ? "高德" : "估算"}`}</span>
                       </div>
+                      {option.steps?.length ? <div className="mt-2 rounded-lg bg-muted/40 p-2 text-[10px] leading-4 text-muted-foreground"><p className="font-medium text-foreground">高德路线步骤</p>{option.steps.slice(0, 3).map((step, stepIndex) => <p key={`${option.id}-step-${stepIndex}`}>{stepIndex + 1}. {step.instruction}</p>)}</div> : null}
                       <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
                         {option.reasons.slice(0, 3).join(" · ")}
-                        {option.estimated ? " · 估算数据" : " · 实时路线"}
+                        {option.requestedMode !== option.mode ? ` · 高德返回${MODE_LABEL[option.mode]}主导线路` : ""}
+                        {option.estimated ? " · 估算数据" : " · 高德实时路线"}
                       </p>
                     </div>
                   ))}

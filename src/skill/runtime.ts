@@ -40,6 +40,7 @@ import { createFliggyTopClient } from "@/services/booking/fliggy-top";
 import { queryMeituan } from "@/services/meituan/runner";
 import { queryFliggyOffers } from "@/services/booking/fliggy-offers";
 import type { OfferKind, OfferProviderLevel, OfferProviderStatus, TravelOffer } from "@/types/offers";
+import { resolveCityCoverImage } from "@/services/media/city-cover";
 
 const DAY_MS = 86_400_000;
 
@@ -303,8 +304,10 @@ export class VoyageSkillRuntime {
           categories: input.offerCategories,
         }).then((result) => ({ result })).catch((error: unknown) => ({ error }))
       : Promise.resolve({ result: null as Awaited<ReturnType<typeof queryMeituan>> | null });
-    const [routed, offerOutcome] = await Promise.all([routePromise, offerPromise]);
+    const coverPromise = resolveCityCoverImage(input.destination, candidates);
+    const [routed, offerOutcome, coverImage] = await Promise.all([routePromise, offerPromise, coverPromise]);
     let finalTrip = routed.trip;
+    if (coverImage) finalTrip = { ...finalTrip, coverImage };
     let offerLevel: ProviderLevel = "UNKNOWN";
     const offerWarnings: string[] = [];
     if (input.includeExternalOffers) {

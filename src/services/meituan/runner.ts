@@ -4,6 +4,7 @@ import path from "node:path";
 import type { OfferKind, OfferProviderStatus, TravelOffer } from "@/types/offers";
 import { SkillError } from "@/skill/errors";
 import { runtimeConfigSync } from "@/services/config/local-credentials";
+import { reconcileTrainOffers } from "@/services/meituan/transport-fares";
 
 export interface MeituanQueryInput {
   origin?: string;
@@ -48,10 +49,15 @@ export function mapJsonOffers(raw: unknown, input: MeituanQueryInput, fetchedAt:
     const url = textValue(item.bookingUrl ?? item.url ?? item.link ?? item.deepLink);
     const availabilityValue = item.availability ?? item.status;
     const inventoryValue = item.inventory ?? item.remaining ?? item.seatCount ?? item.roomCount;
+    const inventoryNumber = typeof inventoryValue === "number"
+      ? inventoryValue
+      : typeof inventoryValue === "string" && /\d/.test(inventoryValue)
+        ? Number(inventoryValue.match(/\d+(?:\.\d+)?/)?.[0])
+        : undefined;
     const departureTime = textValue(item.departureTime ?? item.departure_time ?? item.departTime ?? item.departure);
     const arrivalTime = textValue(item.arrivalTime ?? item.arrival_time ?? item.arriveTime ?? item.arrival);
-    const available = typeof inventoryValue === "number" ? inventoryValue > 0 : availabilityValue === "available" || availabilityValue === "可预订";
-    const unavailable = typeof inventoryValue === "number" ? inventoryValue === 0 : availabilityValue === "unavailable" || availabilityValue === "售罄";
+    const available = inventoryNumber !== undefined ? inventoryNumber > 0 : availabilityValue === "available" || availabilityValue === "可预订";
+    const unavailable = inventoryNumber !== undefined ? inventoryNumber === 0 : availabilityValue === "unavailable" || availabilityValue === "售罄";
     return [{
       id: textValue(item.id ?? item.sourceId) ?? `meituan-${index}-${randomUUID()}`,
       kind: (textValue(item.kind) as OfferKind | undefined) ?? kindFor(`${title} ${JSON.stringify(item)}`),
@@ -66,7 +72,7 @@ export function mapJsonOffers(raw: unknown, input: MeituanQueryInput, fetchedAt:
       arrivalTime,
       priceLabel: textValue(item.priceLabel ?? item.price ?? item.cost),
       availability: available ? "available" as const : unavailable ? "unavailable" as const : "unknown" as const,
-      inventoryLabel: typeof inventoryValue === "number" ? `剩余 ${inventoryValue}` : undefined,
+      inventoryLabel: inventoryNumber !== undefined ? `余票 ${inventoryNumber}` : textValue(inventoryValue),
       ratingLabel: textValue(item.ratingLabel ?? item.rating),
       description: textValue(item.description ?? item.summary ?? item.reason),
       ...(url && /^https?:\/\//.test(url) ? { bookingUrl: url } : {}),
@@ -83,8 +89,31 @@ export function mapMarkdownOffers(rawText: string, input: MeituanQueryInput, fet
   const candidates = lines.filter((line) => /酒店|高铁|火车|航班|机票|门票|美食|餐厅|优惠/.test(line)).slice(0, 30);
   return candidates.flatMap((line, index) => {
     const kind = kindFor(line);
+    const times = line.match(/\b(?:[01]\d|2[0-3]):[0-5]\d\b/g) ?? [];
+    const hasPrice = /[¥￥]\s*\d|\d+(?:\.\d+)?\s*元/i.test(line);
+    const hasInventory = /余票|剩余|库存|可售|可预订|可预约|售罄|无票/i.test(line);
+    const hasTransportId = /\b(?:[GDCZTK]\d{1,5}|MU\d{2,4}|CZ\d{2,4}|CA\d{2,4}|HU\d{2,4}|9C\d{2,4})\b/i.test(line);
+    const hasRoute = /[\p{L}]{2,}(?:西|东|南|北)?\s*(?:→|->|到|至)\s*[\p{L}]{2,}/u.test(line);
+    // A paragraph such as “晚上出发、性价比高” is a recommendation, not a
+    // ticket result. Keep it in rawText but do not render it as a fake result
+    // card with empty schedule and inventory fields.
+    if (/预算|往返机票总价|豪华酒店|省下的钱|如果你需要|小贴士/i.test(line) && !hasTransportId && times.length === 0) return [];
+    if ((kind === "train" || kind === "flight") && !(times.length >= 2 || hasTransportId || (hasRoute && (times.length || hasPrice || hasInventory)))) return [];
+    if (kind === "hotel" && !hasPrice && !hasInventory && !/\b酒店\s*[A-Za-z\u4e00-\u9fff]{2,}/u.test(line)) return [];
     const title = line.replace(/!\[[^\]]*\]\([^)]*\)/g, "").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/[*_`]/g, "").trim().slice(0, 160);
     if (!title) return [];
+    // Markdown is not a stable schema, but travel providers commonly include
+    // these human-readable fields. Extract them conservatively and keep the
+    // original line as rawText so the UI can distinguish inferred fields.
+    const priceLabel = line.match(/[¥￥]\s*(?:<\s*)?\d+(?:\.\d+)?(?:\s*元)?(?:起)?|\d+(?:\.\d+)?\s*元(?:起)?/i)?.[0]?.replace(/\s+/g, " ");
+    const inventoryMatch = line.match(/(?:余票|剩余|库存|可售)\s*[:：]?\s*(\d+)\s*(?:张|个|间|席)?/i);
+    const positiveInventory = /有票|可预订|可预约|库存充足|余票充足|立即预订|可购买/i.test(line);
+    const soldOut = /售罄|无票|不可预订|已满|暂停售票/i.test(line);
+    const availability = soldOut ? "unavailable" as const : (inventoryMatch && Number(inventoryMatch[1]) > 0) || positiveInventory ? "available" as const : "unknown" as const;
+    const inventoryLabel = inventoryMatch
+      ? `${/余票|剩余/.test(inventoryMatch[0]) ? "余票" : "库存"} ${inventoryMatch[1]}${/间/.test(inventoryMatch[0]) ? "间" : /席/.test(inventoryMatch[0]) ? "席" : "张"}`
+      : positiveInventory ? "可预订" : soldOut ? "已售罄" : undefined;
+    const sourceUrl = line.match(/https?:\/\/[^\s)]+/)?.[0];
     return [{
     id: `meituan-text-${index}-${randomUUID()}`,
     kind,
@@ -94,9 +123,13 @@ export function mapMarkdownOffers(rawText: string, input: MeituanQueryInput, fet
     origin: input.origin,
     destination: input.destination,
     date: input.startDate,
-    priceLabel: line.match(/[¥￥]\s*(?:<\s*)?\d+(?:\.\d+)?(?:XX?|起)?|\d+(?:\.\d+)?元(?:起)?/i)?.[0],
-    availability: "unknown" as const,
-    bookingUrl: line.match(/https?:\/\/[^\s)]+/)?.[0],
+    departureTime: times[0],
+    arrivalTime: times[1],
+    priceLabel,
+    availability,
+    inventoryLabel,
+    description: "美团原文提取，时间、价格和库存请以供应商页面为准",
+    bookingUrl: sourceUrl,
     fetchedAt,
     structured: false,
     rawText,
@@ -147,7 +180,7 @@ export async function queryMeituan(input: MeituanQueryInput, execute: MeituanCom
     : envelopeText
       ? mapMarkdownOffers(envelopeText, input, fetchedAt)
       : mapJsonOffers(rawJson, input, fetchedAt);
-  const offers = input.categories?.length ? mapped.filter((offer) => input.categories!.includes(offer.kind)) : mapped;
+  const offers = reconcileTrainOffers(input.categories?.length ? mapped.filter((offer) => input.categories!.includes(offer.kind)) : mapped);
   if (rawJson !== undefined && offers.length === 0) throw new SkillError("MEITUAN_EMPTY_RESULT", "Meituan returned no matching offers");
   const structured = offers.some((offer) => offer.structured);
   return { offers, rawText, rawJson, status: { overall: structured ? "REAL" : "UNSTRUCTURED", fetchedAt, ...(structured ? {} : { warnings: ["Meituan response was retained as raw text because it could not be fully structured"] }) } };

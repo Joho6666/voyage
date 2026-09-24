@@ -11,6 +11,7 @@ export interface AmapPoi {
   type: string;
   tel?: string;
   rating?: number;
+  reviewCount?: number;
   cost?: number;
   image?: string;
 }
@@ -90,6 +91,7 @@ export async function amapSearchPois(params: {
     const photos = Array.isArray(record.photos) ? record.photos as Record<string, unknown>[] : [];
     const image = photos.map((photo) => photo.url).find((url): url is string => typeof url === "string" && /^https:\/\//.test(url));
     const ratingRaw = biz && typeof biz.rating === "string" ? Number(biz.rating) : NaN;
+    const reviewCountRaw = biz && typeof biz.review_count === "string" ? Number(biz.review_count) : NaN;
     const costRaw = biz && typeof biz.cost === "string" ? Number(biz.cost) : NaN;
     results.push({
       sourceId: String(record.id ?? ""),
@@ -100,6 +102,7 @@ export async function amapSearchPois(params: {
       type: String(record.type ?? ""),
       tel: typeof record.tel === "string" ? record.tel : undefined,
       rating: Number.isFinite(ratingRaw) ? ratingRaw : undefined,
+      reviewCount: Number.isFinite(reviewCountRaw) ? reviewCountRaw : undefined,
       cost: Number.isFinite(costRaw) ? costRaw : undefined,
       image,
     });
@@ -276,6 +279,17 @@ export async function amapTransitRoute(
         polyline: poly,
       });
     }
+    const railway = seg.railway as Record<string, unknown> | undefined;
+    const railwayName = typeof railway?.name === "string" && railway.name.trim()
+      ? railway.name.trim()
+      : typeof railway?.trip === "string" && railway.trip.trim() ? railway.trip.trim() : undefined;
+    if (railwayName) {
+      steps.push({
+        instruction: `乘坐 ${railwayName}`,
+        distanceMeters: Number(railway?.distance ?? 0),
+        durationMinutes: Math.round(Number(railway?.time ?? 0) / 60),
+      });
+    }
   }
 
   const walkingDistance = Number(first.walking_distance ?? route?.distance ?? 0);
@@ -284,7 +298,9 @@ export async function amapTransitRoute(
   const rideCount = segments.reduce((count, seg) => {
     const bus = seg.bus as Record<string, unknown> | undefined;
     const buslines = Array.isArray(bus?.buslines) ? bus?.buslines as Record<string, unknown>[] : [];
-    return count + (buslines.length ? 1 : 0);
+    const railway = seg.railway as Record<string, unknown> | undefined;
+    const hasRailway = Boolean((typeof railway?.name === "string" && railway.name.trim()) || (typeof railway?.trip === "string" && railway.trip.trim()));
+    return count + (buslines.length || hasRailway ? 1 : 0);
   }, 0);
   return {
     distanceMeters: Number(route?.distance ?? 0),
