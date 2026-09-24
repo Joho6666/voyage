@@ -11,7 +11,9 @@
     "test": "vitest run",
     "test:skill": "vitest run tests/skill",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "knowledge:ingest": "tsx scripts/knowledge-ingest.ts",
+    "knowledge:reindex": "tsx scripts/knowledge-ingest.ts --force"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
