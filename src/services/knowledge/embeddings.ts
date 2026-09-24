@@ -18,8 +18,8 @@ export function embeddingConfig() {
   const apiKey = runtimeConfigSync("EMBEDDING_API_KEY");
   const dimensions = Number(runtimeConfigSync("EMBEDDING_DIMENSIONS") || "1536");
   if (!baseUrl || !model) return null;
-  if (!Number.isInteger(dimensions) || dimensions < 8 || dimensions > 2000) {
-    throw new Error("EMBEDDING_DIMENSIONS must be an integer between 8 and 2000");
+  if (dimensions !== 1536) {
+    throw new Error("Voyage RAG v1 currently requires EMBEDDING_DIMENSIONS=1536 to match the pgvector schema");
   }
   return { baseUrl, model, apiKey, dimensions };
 }
