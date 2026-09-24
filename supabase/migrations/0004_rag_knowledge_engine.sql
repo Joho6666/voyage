@@ -8,7 +8,7 @@ create extension if not exists vector with schema extensions;
 create table if not exists knowledge_documents (
   id uuid primary key default gen_random_uuid(),
   owner_id uuid references auth.users(id) on delete cascade,
-  source_key text not null unique,
+  source_key text not null,
   kind text not null check (kind in ('city_rule', 'poi_knowledge', 'transport_rule', 'route_case')),
   city text not null default '*',
   title text not null,
@@ -22,7 +22,8 @@ create table if not exists knowledge_documents (
   content_hash text not null,
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  unique nulls not distinct (owner_id, source_key)
 );
 
 create table if not exists knowledge_chunks (
