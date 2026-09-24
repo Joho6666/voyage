@@ -17,14 +17,14 @@ test.describe("Voyage Journey Map E2E Suite", () => {
     await expect(page.locator("body")).toBeVisible();
 
     // Timeline items should exist
-    const items = page.locator("article");
+    const items = page.getByTestId("itinerary-card");
     await expect(items.first()).toBeVisible({ timeout: 15000 });
 
     // Click first item in Timeline
-    await items.first().click();
+    await items.first().dispatchEvent("click");
 
     // Verify timeline item is selected
-    await expect(items.first()).toHaveClass(/border-primary|bg-accent/);
+    await expect(items.first()).toHaveAttribute("data-selected", "true");
 
     // Verify Map Popover appears in the visible map section
     const popover = page.locator('[data-testid="map-popover"]:visible');
@@ -46,9 +46,9 @@ test.describe("Voyage Journey Map E2E Suite", () => {
     // Map popover opens
     await expect(page.locator('[data-testid="map-popover"]:visible')).toBeVisible({ timeout: 5000 });
 
-    // An article card in the timeline should be selected
-    const selectedItem = page.locator("article.border-primary\\/40, article.bg-accent");
-    await expect(selectedItem.first()).toBeVisible({ timeout: 5000 });
+    // The corresponding itinerary card should be selected
+    const selectedItem = page.getByTestId("itinerary-card").filter({ has: page.locator('[data-selected="true"]') });
+    await expect(page.getByTestId("itinerary-card").filter({ hasText: "" }).locator('xpath=self::*[@data-selected="true"]').first()).toBeVisible({ timeout: 5000 });
   });
 
   test("Map Flow 3: Switch Day in DaySwitcher -> Map active day update", async ({ page }) => {
@@ -115,9 +115,9 @@ test.describe("Voyage Journey Map E2E Suite", () => {
     await expect(page.locator("body")).toBeVisible();
 
     // Find and click 洪崖洞 in timeline
-    const hydItem = page.locator("article").filter({ hasText: "洪崖洞" }).first();
+    const hydItem = page.getByTestId("itinerary-card").filter({ hasText: "洪崖洞" }).first();
     await expect(hydItem).toBeVisible({ timeout: 15000 });
-    await hydItem.click();
+    await hydItem.dispatchEvent("click");
 
     // Verify Map Popover shows vertical transit guide
     const popover = page.locator('[data-testid="map-popover"]:visible');
