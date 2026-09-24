@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { OfferKind, OfferProviderLevel, TravelOffer } from "@/types/offers";
-import { createFliggyTopClient, FliggyTopError } from "./fliggy-top";
+import { classifyFliggyError, createFliggyTopClient } from "./fliggy-top";
 
 const CITY_AIRPORT_CODES: Record<string, string> = {
   北京: "BJS", 上海: "SHA", 广州: "CAN", 深圳: "SZX", 成都: "CTU", 重庆: "CKG", 贵阳: "KWE", 桂林: "KWL", 西安: "SIA", 昆明: "KMG", 杭州: "HGH", 南京: "NKG", 厦门: "XMN", 武汉: "WUH", 长沙: "CSX", 海口: "HAK", 三亚: "SYX", 郑州: "CGO", 济南: "TNA", 青岛: "TAO", 福州: "FOC", 南宁: "NNG", 乌鲁木齐: "URC", 拉萨: "LXA",
@@ -25,6 +25,14 @@ function text(value: unknown): string | undefined {
   return typeof value === "string" || typeof value === "number" ? String(value) : undefined;
 }
 
+function time(row: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = text(row[key]);
+    if (value) return value;
+  }
+  return undefined;
+}
+
 function flatten(value: unknown): Record<string, unknown>[] {
   if (!value || typeof value !== "object") return [];
   if (Array.isArray(value)) return value.flatMap(flatten);
@@ -32,8 +40,8 @@ function flatten(value: unknown): Record<string, unknown>[] {
   return [record, ...Object.values(record).flatMap(flatten)];
 }
 
-function offer(input: { kind: OfferKind; title: string; fetchedAt: string; sourceId?: string; imageUrl?: string; priceLabel?: string; availability?: "available" | "unknown"; inventoryLabel?: string; rawJson?: unknown; }): TravelOffer {
-  return { id: `fliggy-${input.kind}-${input.sourceId ?? randomUUID()}`, kind: input.kind, provider: "fliggy", title: input.title, city: undefined, date: undefined, imageUrl: input.imageUrl, priceLabel: input.priceLabel, availability: input.availability ?? "unknown", inventoryLabel: input.inventoryLabel, sourceId: input.sourceId, fetchedAt: input.fetchedAt, structured: true, rawJson: input.rawJson };
+function offer(input: { kind: OfferKind; title: string; fetchedAt: string; sourceId?: string; imageUrl?: string; priceLabel?: string; availability?: "available" | "unknown"; inventoryLabel?: string; departureTime?: string; arrivalTime?: string; rawJson?: unknown; }): TravelOffer {
+  return { id: `fliggy-${input.kind}-${input.sourceId ?? randomUUID()}`, kind: input.kind, provider: "fliggy", title: input.title, city: undefined, date: undefined, imageUrl: input.imageUrl, priceLabel: input.priceLabel, availability: input.availability ?? "unknown", inventoryLabel: input.inventoryLabel, departureTime: input.departureTime, arrivalTime: input.arrivalTime, sourceId: input.sourceId, fetchedAt: input.fetchedAt, structured: true, rawJson: input.rawJson };
 }
 
 function airportCode(city?: string) {
@@ -56,7 +64,7 @@ function mapFlights(raw: unknown, input: FliggyOffersInput, fetchedAt: string) {
     const price = text(row.price ?? row.total_price ?? row.lowest_price ?? row.ticket_price);
     const inventoryValue = row.remain_ticket_num ?? row.remaining ?? row.seat_count ?? row.inventory;
     const inventory = typeof inventoryValue === "number" ? inventoryValue : undefined;
-    return [offer({ kind: "flight", title, fetchedAt, sourceId: number, priceLabel: price ? `¥${price}` : undefined, availability: inventory !== undefined && inventory > 0 ? "available" : "unknown", inventoryLabel: inventory !== undefined ? `余票 ${inventory}` : "库存未知", rawJson: row })];
+    return [offer({ kind: "flight", title, fetchedAt, sourceId: number, priceLabel: price ? `¥${price}` : undefined, departureTime: time(row, ["departure_time", "departureTime", "dep_time", "depTime"]), arrivalTime: time(row, ["arrival_time", "arrivalTime", "arr_time", "arrTime"]), availability: inventory !== undefined && inventory > 0 ? "available" : "unknown", inventoryLabel: inventory !== undefined ? `余票 ${inventory}` : "库存未知", rawJson: row })];
   }).slice(0, 30);
 }
 
@@ -77,6 +85,7 @@ export async function queryFliggyOffers(input: FliggyOffersInput): Promise<Fligg
   const fetchedAt = new Date().toISOString();
   const offers: TravelOffer[] = [];
   const warnings: string[] = [];
+  let permissionRequired = false;
   const wantsFlight = input.categories.includes("flight");
   const wantsHotel = input.categories.includes("hotel");
 
@@ -90,7 +99,7 @@ export async function queryFliggyOffers(input: FliggyOffersInput): Promise<Fligg
         const raw = await client.flightSearch({ departureCityCode, arrivalCityCode, departureDate: input.startDate, returnDate: input.endDate, externalAgentName: process.env.FLIGGY_EXTERNAL_AGENT_NAME?.trim() || "voyage-web" });
         offers.push(...mapFlights(raw, input, fetchedAt));
         if (!offers.some((item) => item.kind === "flight")) warnings.push("飞猪未返回可结构化航班");
-      } catch (error) { warnings.push(error instanceof FliggyTopError ? `航班查询失败：${error.message}` : "航班查询失败"); }
+      } catch (error) { const classified = classifyFliggyError(error); permissionRequired ||= classified.status === "PERMISSION_REQUIRED"; warnings.push(`航班查询失败：${classified.message}`); }
     }
   }
 
@@ -111,9 +120,9 @@ export async function queryFliggyOffers(input: FliggyOffersInput): Promise<Fligg
       }));
       offers.push(...availability);
       if (!offers.some((item) => item.kind === "hotel")) warnings.push("飞猪未返回可结构化酒店");
-    } catch (error) { warnings.push(error instanceof FliggyTopError ? `酒店查询失败：${error.message}` : "酒店查询失败"); }
+    } catch (error) { const classified = classifyFliggyError(error); permissionRequired ||= classified.status === "PERMISSION_REQUIRED"; warnings.push(`酒店查询失败：${classified.message}`); }
   }
 
   const relevant = offers.length > 0;
-  return { offers, status: relevant ? "REAL" : "UNAVAILABLE", warnings };
+  return { offers, status: relevant ? "REAL" : permissionRequired ? "PERMISSION_REQUIRED" : "UNAVAILABLE", warnings };
 }

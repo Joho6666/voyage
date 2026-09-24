@@ -14,8 +14,8 @@ export default function TransportPage() {
   const offers = (trip.offers ?? []).filter((offer) => offer.kind === "train" || offer.kind === "flight");
 
   const handleTrainBooking = (from: string, to: string) => {
-    const url = `https://trains.ctrip.com/trainbooking/search?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
-    toast.info(`正在打开携程高铁预订：${from} ↔ ${to}`);
+    const url = "https://www.12306.cn/index/";
+    toast.info(`正在打开 12306 查询：${from} ↔ ${to}`);
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
@@ -47,8 +47,8 @@ export default function TransportPage() {
           {offers.map((offer) => (
             <article key={offer.id} className="rounded-[14px] border border-border bg-surface p-4 shadow-xs">
               <div className="flex items-center justify-between gap-2"><div><p className="text-[10px] text-muted-foreground">{offer.provider === "fliggy" ? "飞猪" : offer.provider === "meituan" ? "美团" : "高德"} · {offer.kind === "train" ? "高铁/火车" : "航班"}</p><h3 className="mt-1 text-sm font-semibold">{offer.title}</h3></div>{offer.priceLabel ? <strong>{offer.priceLabel}</strong> : <span className="text-xs text-muted-foreground">价格未知</span>}</div>
-              <p className="mt-2 text-xs text-muted-foreground">{offer.inventoryLabel ?? (offer.availability === "available" ? "供应商已返回可用状态" : "车次/余票状态未知")} · 查询于 {new Date(offer.fetchedAt).toLocaleString("zh-CN")}</p>
-              <div className="mt-3">{offer.bookingUrl ? <Button asChild size="sm"><a href={offer.bookingUrl} target="_blank" rel="noreferrer">查看供应商结果 <ExternalLink className="ml-1 size-3" /></a></Button> : <Button size="sm" variant="outline" onClick={() => handleTrainBooking(offer.origin ?? trip.origin, offer.destination ?? trip.destination)}>在携程查询 <ExternalLink className="ml-1 size-3" /></Button>}</div>
+              <p className="mt-2 text-xs text-muted-foreground">{offer.departureTime || offer.arrivalTime ? `${offer.departureTime ?? "出发时间未知"} → ${offer.arrivalTime ?? "到达时间未知"} · ` : ""}{offer.inventoryLabel ?? (offer.availability === "available" ? "供应商已返回可用状态" : "车次/余票状态未知")} · 查询于 {new Date(offer.fetchedAt).toLocaleString("zh-CN")}</p>
+              <div className="mt-3">{offer.bookingUrl ? <Button asChild size="sm"><a href={offer.bookingUrl} target="_blank" rel="noreferrer">查看供应商结果 <ExternalLink className="ml-1 size-3" /></a></Button> : <Button size="sm" variant="outline" onClick={() => handleTrainBooking(offer.origin ?? trip.origin, offer.destination ?? trip.destination)}>在 12306 查询 <ExternalLink className="ml-1 size-3" /></Button>}</div>
             </article>
           ))}
           {trip.transports.map((t) => (

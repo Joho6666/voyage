@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { OfferKind, OfferProviderStatus, TravelOffer } from "@/types/offers";
 import { SkillError } from "@/skill/errors";
+import { runtimeConfigSync } from "@/services/config/local-credentials";
 
 export interface MeituanQueryInput {
   origin?: string;
@@ -47,6 +48,8 @@ export function mapJsonOffers(raw: unknown, input: MeituanQueryInput, fetchedAt:
     const url = textValue(item.bookingUrl ?? item.url ?? item.link ?? item.deepLink);
     const availabilityValue = item.availability ?? item.status;
     const inventoryValue = item.inventory ?? item.remaining ?? item.seatCount ?? item.roomCount;
+    const departureTime = textValue(item.departureTime ?? item.departure_time ?? item.departTime ?? item.departure);
+    const arrivalTime = textValue(item.arrivalTime ?? item.arrival_time ?? item.arriveTime ?? item.arrival);
     const available = typeof inventoryValue === "number" ? inventoryValue > 0 : availabilityValue === "available" || availabilityValue === "可预订";
     const unavailable = typeof inventoryValue === "number" ? inventoryValue === 0 : availabilityValue === "unavailable" || availabilityValue === "售罄";
     return [{
@@ -59,6 +62,8 @@ export function mapJsonOffers(raw: unknown, input: MeituanQueryInput, fetchedAt:
       origin: input.origin,
       destination: input.destination,
       date: input.startDate,
+      departureTime,
+      arrivalTime,
       priceLabel: textValue(item.priceLabel ?? item.price ?? item.cost),
       availability: available ? "available" as const : unavailable ? "unavailable" as const : "unknown" as const,
       inventoryLabel: typeof inventoryValue === "number" ? `剩余 ${inventoryValue}` : undefined,
@@ -113,7 +118,7 @@ function runCommand(args: string[], timeoutMs = 120_000): Promise<{ code: number
     const commandArgs = process.platform === "win32"
       ? [path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npx-cli.js"), ...args]
       : args;
-    const child = spawn(command, commandArgs, { env: { ...process.env, MEITUAN_RAW_JSON: "1" }, shell: false });
+    const child = spawn(command, commandArgs, { env: { ...process.env, MEITUAN_HT_TOKEN: runtimeConfigSync("MEITUAN_HT_TOKEN"), MEITUAN_RAW_JSON: "1" }, shell: false });
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => { child.kill(); reject(new SkillError("MEITUAN_TIMEOUT", "Meituan query timed out")); }, timeoutMs);
@@ -125,7 +130,7 @@ function runCommand(args: string[], timeoutMs = 120_000): Promise<{ code: number
 }
 
 export async function queryMeituan(input: MeituanQueryInput, execute: MeituanCommandRunner = runCommand): Promise<MeituanQueryResult> {
-  if (!process.env.MEITUAN_HT_TOKEN) throw new SkillError("MEITUAN_PROVIDER_NOT_CONFIGURED", "MEITUAN_HT_TOKEN is not configured");
+  if (!runtimeConfigSync("MEITUAN_HT_TOKEN")) throw new SkillError("MEITUAN_PROVIDER_NOT_CONFIGURED", "MEITUAN_HT_TOKEN is not configured");
   const fetchedAt = new Date().toISOString();
   const result = await execute(["@meituan-travel/ht-ai@latest", "query", "--query", queryText(input), "--origin-query", input.query, "--channel", "meituan-developer", ...(input.city ? ["--city", input.city] : [])]);
   if (result.code === 3 || /鉴权|token|auth/i.test(result.stderr)) throw new SkillError("MEITUAN_AUTH_FAILED", "Meituan authentication failed");

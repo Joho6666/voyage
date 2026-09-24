@@ -115,8 +115,10 @@ export function NewTripExperience() {
       const message = cause instanceof Error ? cause.message : "";
       setError(message.startsWith("NO_PROVIDER_CONFIGURED")
         ? "尚未配置高德服务端 Key。请设置 AMAP_SERVER_KEY 后再创建真实行程。"
-        : message.startsWith("AMAP_INVALID_USER_KEY")
+        : message.startsWith("PROVIDER_AUTH_FAILED") || message.startsWith("AMAP_INVALID_USER_KEY")
           ? "高德 Web 服务 Key 无效或未开通 POI 服务，请检查控制台的 Key 类型、服务权限和安全设置。"
+          : message.startsWith("AMAP_NETWORK_UNAVAILABLE")
+            ? "高德服务连接失败（不是没有地点结果）。请检查本机网络/代理后重试；如果服务刚启动，请刷新页面再试。"
           : message.startsWith("ROUTE_PROVIDER_UNAVAILABLE")
             ? "高德路线服务暂时不可用；可重试，行程中的路线会明确标记为估算。"
             : message || "行程创建失败，请检查真实数据服务后重试。");

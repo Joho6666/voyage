@@ -1,4 +1,5 @@
 import { createHash, createHmac } from "node:crypto";
+import { runtimeConfigSync } from "@/services/config/local-credentials";
 
 /**
  * Minimal server-side client for the Fliggy/Taobao TOP protocol.
@@ -65,17 +66,34 @@ export class FliggyTopError extends Error {
   }
 }
 
+export function classifyFliggyError(error: unknown): { status: "PERMISSION_REQUIRED" | "UNAVAILABLE"; message: string } {
+  if (!(error instanceof FliggyTopError)) return { status: "UNAVAILABLE", message: "飞猪请求失败" };
+  const code = error.code?.toLowerCase() ?? "";
+  const message = error.message.toLowerCase();
+  if (/permission|auth|session|access|invalid[-_ ]?app|unauthorized|insufficient|isv\.missing-method/.test(`${code} ${message}`)) {
+    return { status: "PERMISSION_REQUIRED", message: "飞猪 TOP 鉴权或接口权限不足，请核对应用授权" };
+  }
+  return { status: "UNAVAILABLE", message: "飞猪接口暂不可用" };
+}
+
 export function getFliggyTopConfig(env: NodeJS.ProcessEnv = process.env): FliggyTopConfig | null {
-  const appKey = env.FLIGGY_APP_KEY?.trim();
-  const appSecret = env.FLIGGY_APP_SECRET?.trim();
+  const source = env === process.env ? { ...env,
+    FLIGGY_APP_KEY: runtimeConfigSync("FLIGGY_APP_KEY"),
+    FLIGGY_APP_SECRET: runtimeConfigSync("FLIGGY_APP_SECRET"),
+    FLIGGY_SESSION: runtimeConfigSync("FLIGGY_SESSION"),
+    FLIGGY_DISTRIBUTOR: runtimeConfigSync("FLIGGY_DISTRIBUTOR"),
+    FLIGGY_API_URL: runtimeConfigSync("FLIGGY_API_URL"),
+  } : env;
+  const appKey = source.FLIGGY_APP_KEY?.trim();
+  const appSecret = source.FLIGGY_APP_SECRET?.trim();
   if (!appKey || !appSecret) return null;
 
   return {
     appKey,
     appSecret,
-    session: env.FLIGGY_SESSION?.trim() || undefined,
-    endpoint: env.FLIGGY_API_URL?.trim() || DEFAULT_ENDPOINT,
-    distributor: env.FLIGGY_DISTRIBUTOR?.trim() || undefined,
+    session: source.FLIGGY_SESSION?.trim() || undefined,
+    endpoint: source.FLIGGY_API_URL?.trim() || DEFAULT_ENDPOINT,
+    distributor: source.FLIGGY_DISTRIBUTOR?.trim() || undefined,
   };
 }
 

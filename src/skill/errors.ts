@@ -3,6 +3,7 @@ export type SkillErrorCode =
   | "TRIP_NOT_FOUND"
   | "NO_PROVIDER_CONFIGURED"
   | "PROVIDER_AUTH_FAILED"
+  | "AMAP_NETWORK_UNAVAILABLE"
   | "NO_POI_RESULTS"
   | "WEATHER_UNAVAILABLE"
   | "ROUTE_PROVIDER_UNAVAILABLE"
@@ -40,5 +41,13 @@ export function normalizeProviderError(error: unknown, fallback: SkillErrorCode)
   }
   if (message === "NO_PROVIDER_CONFIGURED") return new SkillError("NO_PROVIDER_CONFIGURED", message);
   if (message === "NO_POI_RESULTS") return new SkillError("NO_POI_RESULTS", message);
+  // A failed fetch is not an empty POI result. Keep this distinction so the
+  // UI can tell users to retry/check connectivity instead of changing keys.
+  if (error instanceof TypeError || /fetch failed|network|timed out|timeout|ECONN|ENOTFOUND|certificate/i.test(message)) {
+    return new SkillError("AMAP_NETWORK_UNAVAILABLE", "AMap service could not be reached", {
+      retryable: true,
+      provider: "amap",
+    });
+  }
   return new SkillError(fallback, message);
 }

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { offerKindSchema } from "@/schemas/offers";
 
 export const SCHEMA_VERSION = "voyage.skill.v1" as const;
-export type ProviderLevel = "REAL" | "ESTIMATED" | "MOCK" | "UNKNOWN" | "UNAVAILABLE" | "UNSTRUCTURED";
+export type ProviderLevel = "REAL" | "ESTIMATED" | "MOCK" | "UNKNOWN" | "UNAVAILABLE" | "UNSTRUCTURED" | "PERMISSION_REQUIRED";
 
 export interface ProviderStatus {
   overall: ProviderLevel;

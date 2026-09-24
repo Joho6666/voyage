@@ -13,6 +13,8 @@ export interface TravelOffer {
   origin?: string;
   destination?: string;
   date?: string;
+  departureTime?: string;
+  arrivalTime?: string;
   checkIn?: string;
   checkOut?: string;
   priceLabel?: string;
@@ -28,7 +30,7 @@ export interface TravelOffer {
   rawJson?: unknown;
 }
 
-export type OfferProviderLevel = "REAL" | "UNAVAILABLE" | "UNKNOWN" | "UNSTRUCTURED" | "ESTIMATED";
+export type OfferProviderLevel = "REAL" | "UNAVAILABLE" | "UNKNOWN" | "UNSTRUCTURED" | "ESTIMATED" | "PERMISSION_REQUIRED";
 
 export interface OfferProviderStatus {
   overall: OfferProviderLevel;

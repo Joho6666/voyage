@@ -87,7 +87,7 @@
   --color-day-3: var(--day-3);
   --color-map-land: var(--map-land);
   --color-map-water: var(--map-water);
-  --font-sans: var(--font-geist), var(--font-noto), "PingFang SC", "Noto Sans SC", "Hiragino Sans GB", sans-serif;
+  --font-sans: "Inter", "Segoe UI", "PingFang SC", "Noto Sans SC", "Hiragino Sans GB", Arial, sans-serif;
   --radius-sm: 8px;
   --radius-md: 10px;
   --radius-lg: 14px;

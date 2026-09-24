@@ -19,6 +19,7 @@ The launcher prefers `VOYAGE_REPO`, then a containing Voyage checkout, and other
 - `FLIGGY_SESSION` and `FLIGGY_DISTRIBUTOR`: optional partner values required by some Fliggy products.
 - `MEITUAN_HT_TOKEN`: server-side token for the official Meituan Travel Skill; never commit or expose it.
 - `MEITUAN_RAW_JSON=1`: request raw JSON from the Meituan CLI when available.
+- `FLIGGY_*` values are optional and require approved Fliggy/TOP partner permissions. Missing or rejected permissions are reported as `NOT_CONFIGURED` or `PERMISSION_REQUIRED`.
 - `VOYAGE_DATA_DIR`: optional directory for authoritative Trips and proposals; default is `.voyage/` in the calling workspace.
 - `VOYAGE_REPO`: optional existing Voyage checkout.
 - `VOYAGE_SKILL_CACHE`: optional runtime cache directory.
@@ -49,4 +50,4 @@ Set `MEITUAN_HT_TOKEN` in the process environment (never commit it) and use:
 node skills/voyage/scripts/voyage.mjs search-travel-offers --input request.json
 ```
 
-Add `includeExternalOffers: true` to `create-trip` to query offers alongside the AMap plan. Use `refresh-travel-offers` with `tripId` and `expectedTripRevision` for an explicit refresh. These commands only recommend and link out; they never place or pay for orders.
+Add `includeExternalOffers: true` to `create-trip` to query offers alongside the AMap plan. Use `refresh-travel-offers` with `tripId` and `expectedTripRevision` for an explicit refresh. These commands only recommend and link out; they never place or pay for orders. When no approved OTA provider is available, the web Offers center provides official query links for 12306, flights, and hotels. Those links do not claim live prices, inventory, or ticket availability.

@@ -27,6 +27,7 @@ export default function HotelsPage() {
           <h2 className="text-sm font-semibold">暂时没有可验证的酒店结果</h2>
           <p className="mx-auto mt-1 max-w-[360px] text-[12px] leading-5 text-muted-foreground">房态和实时价格需要飞猪或美团供应商返回。若刷新后仍无结果，请在推荐中心查看凭据、权限和接口错误状态。</p>
           <Button asChild size="sm" className="mt-3"><Link href={`/trip/${encodeURIComponent(id)}/offers`}>打开推荐中心</Link></Button>
+          <Button asChild size="sm" variant="outline" className="mt-2 ml-2"><a href="https://hotels.ctrip.com/" target="_blank" rel="noreferrer">打开外部酒店查询 <ExternalLink className="ml-1 size-3" /></a></Button>
         </div>
       ) : (
         <div className="mt-4 space-y-3">

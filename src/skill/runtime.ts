@@ -385,13 +385,17 @@ export class VoyageSkillRuntime {
     ]);
     const offers = [...meituanResult.offers, ...fliggyResult.offers];
     const categoryStatus = (kind: OfferKind): OfferProviderLevel => {
-      if (offers.some((offer) => offer.kind === kind)) return "REAL";
-      if (kind === "hotel" || kind === "flight") return fliggyResult.status === "UNAVAILABLE" && meituanResult.status.overall === "UNAVAILABLE" ? "UNAVAILABLE" : "UNKNOWN";
+      if (offers.some((offer) => offer.kind === kind && offer.structured)) return "REAL";
+      if (offers.some((offer) => offer.kind === kind)) return "UNSTRUCTURED";
+      if (kind === "hotel" || kind === "flight") {
+        if (fliggyResult.status === "PERMISSION_REQUIRED") return "PERMISSION_REQUIRED";
+        return fliggyResult.status === "UNAVAILABLE" && meituanResult.status.overall === "UNAVAILABLE" ? "UNAVAILABLE" : "UNKNOWN";
+      }
       if (categories.includes(kind)) return meituanResult.status.overall;
       return "UNKNOWN";
     };
     const statusByKind: OfferProviderStatus = {
-      overall: offers.length ? "REAL" : (meituanResult.status.overall === "UNSTRUCTURED" ? "UNSTRUCTURED" : "UNAVAILABLE"),
+      overall: offers.some((offer) => offer.structured) ? "REAL" : offers.length || meituanResult.status.overall === "UNSTRUCTURED" ? "UNSTRUCTURED" : "UNAVAILABLE",
       hotel: categoryStatus("hotel"), train: categoryStatus("train"), flight: categoryStatus("flight"), ticket: categoryStatus("ticket"), restaurant: categoryStatus("restaurant"), coupon: categoryStatus("coupon"), weather: weatherResult.level,
       fetchedAt: new Date().toISOString(), warnings: [...(meituanResult.status.warnings ?? []), ...fliggyResult.warnings, ...weatherResult.warnings],
     };

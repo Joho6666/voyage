@@ -11,6 +11,8 @@ export const offerSchema = z.object({
   origin: z.string().optional(),
   destination: z.string().optional(),
   date: z.string().optional(),
+  departureTime: z.string().optional(),
+  arrivalTime: z.string().optional(),
   checkIn: z.string().optional(),
   checkOut: z.string().optional(),
   priceLabel: z.string().optional(),
@@ -27,14 +29,14 @@ export const offerSchema = z.object({
 });
 
 export const offerProviderStatusSchema = z.object({
-  overall: z.enum(["REAL", "UNAVAILABLE", "UNKNOWN", "UNSTRUCTURED", "ESTIMATED"]),
-  hotel: z.enum(["REAL", "UNAVAILABLE", "UNKNOWN", "UNSTRUCTURED", "ESTIMATED"]).optional(),
-  train: z.enum(["REAL", "UNAVAILABLE", "UNKNOWN", "UNSTRUCTURED", "ESTIMATED"]).optional(),
-  flight: z.enum(["REAL", "UNAVAILABLE", "UNKNOWN", "UNSTRUCTURED", "ESTIMATED"]).optional(),
-  ticket: z.enum(["REAL", "UNAVAILABLE", "UNKNOWN", "UNSTRUCTURED", "ESTIMATED"]).optional(),
-  restaurant: z.enum(["REAL", "UNAVAILABLE", "UNKNOWN", "UNSTRUCTURED", "ESTIMATED"]).optional(),
-  coupon: z.enum(["REAL", "UNAVAILABLE", "UNKNOWN", "UNSTRUCTURED", "ESTIMATED"]).optional(),
-  weather: z.enum(["REAL", "UNAVAILABLE", "UNKNOWN", "UNSTRUCTURED", "ESTIMATED"]).optional(),
+  overall: z.enum(["REAL", "UNAVAILABLE", "UNKNOWN", "UNSTRUCTURED", "ESTIMATED", "PERMISSION_REQUIRED"]),
+  hotel: z.enum(["REAL", "UNAVAILABLE", "UNKNOWN", "UNSTRUCTURED", "ESTIMATED", "PERMISSION_REQUIRED"]).optional(),
+  train: z.enum(["REAL", "UNAVAILABLE", "UNKNOWN", "UNSTRUCTURED", "ESTIMATED", "PERMISSION_REQUIRED"]).optional(),
+  flight: z.enum(["REAL", "UNAVAILABLE", "UNKNOWN", "UNSTRUCTURED", "ESTIMATED", "PERMISSION_REQUIRED"]).optional(),
+  ticket: z.enum(["REAL", "UNAVAILABLE", "UNKNOWN", "UNSTRUCTURED", "ESTIMATED", "PERMISSION_REQUIRED"]).optional(),
+  restaurant: z.enum(["REAL", "UNAVAILABLE", "UNKNOWN", "UNSTRUCTURED", "ESTIMATED", "PERMISSION_REQUIRED"]).optional(),
+  coupon: z.enum(["REAL", "UNAVAILABLE", "UNKNOWN", "UNSTRUCTURED", "ESTIMATED", "PERMISSION_REQUIRED"]).optional(),
+  weather: z.enum(["REAL", "UNAVAILABLE", "UNKNOWN", "UNSTRUCTURED", "ESTIMATED", "PERMISSION_REQUIRED"]).optional(),
   fetchedAt: z.string().datetime().optional(),
   warnings: z.array(z.string()).optional(),
 });

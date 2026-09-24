@@ -1,3 +1,5 @@
+import { runtimeConfigSync } from "@/services/config/local-credentials";
+
 const AMAP_HOST = "restapi.amap.com";
 
 export interface AmapPoi {
@@ -28,7 +30,7 @@ export interface AmapRouteResult {
 }
 
 function serverKey() {
-  return process.env.AMAP_SERVER_KEY ?? "";
+  return runtimeConfigSync("AMAP_SERVER_KEY");
 }
 
 export function isAmapConfigured() {
