@@ -468,7 +468,7 @@ export class VoyageSkillRuntime {
       const planningContext = await buildTransportKnowledgeContext({
         city: original.destination,
         context: baseDayContext,
-        userQuery: `${day.title} ${day.summary} 市内交通 路线优化`,
+        userQuery: [day.title, day.summary, input.instruction, "市内交通 路线优化"].filter(Boolean).join(" "),
         limit: 8,
       });
       planningContext.evidence.forEach((match) => knowledgeById.set(match.id, match));
