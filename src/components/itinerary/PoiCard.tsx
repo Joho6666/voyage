@@ -46,6 +46,8 @@ export function PoiCard({
 
   return (
     <article
+      data-testid="itinerary-card"
+      data-place-id={place.id}
       ref={setCombinedRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
