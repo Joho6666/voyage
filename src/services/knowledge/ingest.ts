@@ -208,7 +208,7 @@ export async function ingestKnowledgeDirectory(
       document.validTo ?? "",
     ].join("\n"));
 
-    const existing = await repository.findDocumentBySourceKey(document.sourceKey);
+    const existing = await repository.findDocumentBySourceKey(document.sourceKey, options.ownerId ?? null);
     if (!options.force && existing?.content_hash === contentHash) {
       summary.documentsSkipped += 1;
       summary.files.push({ sourceKey: document.sourceKey, status: "skipped", chunks: 0, embedded: 0 });
