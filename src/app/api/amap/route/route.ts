@@ -55,7 +55,7 @@ export async function POST(request: Request) {
           result = await amapDrivingRoute(origin, destination);
         } else if (mode === "metro" || mode === "bus") {
           // Do not relabel a driving/walking fallback as an authoritative transit route.
-          result = await amapTransitRoute(origin, destination, city);
+          result = await amapTransitRoute(origin, destination, city, mode === "bus" ? "5" : "0");
         } else {
           result = await amapWalkingRoute(origin, destination);
         }
@@ -68,6 +68,11 @@ export async function POST(request: Request) {
           durationMinutes: result.durationMinutes,
           polyline: result.polyline,
           steps: result.steps,
+          walkingDistanceMeters: result.walkingDistanceMeters,
+          transferCount: result.transferCount,
+          publicTransitCostYuan: result.publicTransitCostYuan,
+          taxiCostYuan: result.taxiCostYuan,
+          trafficLevel: result.trafficLevel,
         };
         routeCache.set(cacheKey, { data: payload, expiresAt: Date.now() + CACHE_TTL_MS });
         return NextResponse.json(payload);
