@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Bus, CarTaxiFront, Footprints, Loader2, Route, TrainFront } from "lucide-react";
+import { Bus, Car, Footprints, Loader2, Route, TrainFront } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTripStore } from "@/store/trip-store";
 import type { RouteOptionSet, UrbanTransportMode } from "@/types/transport-intelligence";
@@ -18,7 +18,7 @@ function ModeIcon({ mode }: { mode: UrbanTransportMode }) {
   if (mode === "walk") return <Footprints className="size-3.5" />;
   if (mode === "metro") return <TrainFront className="size-3.5" />;
   if (mode === "bus") return <Bus className="size-3.5" />;
-  return <CarTaxiFront className="size-3.5" />;
+  return <Car className="size-3.5" />;
 }
 
 export function UrbanTransportIntelligence() {
