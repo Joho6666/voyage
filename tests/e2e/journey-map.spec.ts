@@ -47,8 +47,8 @@ test.describe("Voyage Journey Map E2E Suite", () => {
     await expect(page.locator('[data-testid="map-popover"]:visible')).toBeVisible({ timeout: 5000 });
 
     // The corresponding itinerary card should be selected
-    const selectedItem = page.getByTestId("itinerary-card").filter({ has: page.locator('[data-selected="true"]') });
-    await expect(page.getByTestId("itinerary-card").filter({ hasText: "" }).locator('xpath=self::*[@data-selected="true"]').first()).toBeVisible({ timeout: 5000 });
+    const selectedItem = page.locator('[data-testid="itinerary-card"][data-selected="true"]').first();
+    await expect(selectedItem).toBeVisible({ timeout: 5000 });
   });
 
   test("Map Flow 3: Switch Day in DaySwitcher -> Map active day update", async ({ page }) => {
