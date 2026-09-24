@@ -3,10 +3,11 @@
 import { Button } from "@/components/ui/button";
 import { useTripStore } from "@/store/trip-store";
 import { formatCny } from "@/lib/utils";
-import { ExternalLink, Train, Compass, Car, AlertTriangle } from "lucide-react";
+import { ExternalLink, Train, Compass, Car, AlertTriangle, Route } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { UrbanTransportIntelligence } from "@/components/travel/UrbanTransportIntelligence";
 
 export default function TransportPage() {
   const trip = useTripStore((s) => s.trip);
@@ -93,6 +94,17 @@ export default function TransportPage() {
             </article>
           ))}
         </div>
+      </section>
+
+      <section className="mt-6 space-y-3">
+        <div className="flex items-center gap-1.5 text-[13px] font-medium text-foreground">
+          <Route className="size-4 text-primary" />
+          <span>市内多交通智能对比</span>
+        </div>
+        <p className="text-[12px] leading-5 text-muted-foreground">
+          对每段行程同时比较步行、地铁、公交、打车与驾车，综合时间、费用、步行量、换乘、天气和数据可靠性给出推荐。
+        </p>
+        <UrbanTransportIntelligence />
       </section>
 
       {/* Intra-city Urban Transit Guidelines */}
