@@ -56,6 +56,13 @@ export const geoPointSchema = z.object({
   lng: z.number().min(-180).max(180),
 });
 
+export const verticalInfoSchema = z.object({
+  floor: z.string().optional(),
+  levelDescription: z.string().optional(),
+  elevationDiffMeters: z.number().optional(),
+  elevatorHint: z.string().optional(),
+});
+
 export const placeSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -78,6 +85,7 @@ export const placeSchema = z.object({
   source: z.enum(["amap", "demo", "llm", "user"]).optional(),
   sourceId: z.string().optional(),
   provenance: provenanceSchema.optional(),
+  vertical: verticalInfoSchema.optional(),
 });
 
 export const daySchema = z.object({
@@ -116,6 +124,12 @@ export const routeStepSchema = z.object({
   distanceMeters: z.number().min(0),
   durationMinutes: z.number().min(0),
   polyline: z.array(z.tuple([z.number(), z.number()])).optional(),
+  verticalHint: z.string().optional(),
+  floorTransition: z.object({
+    fromFloor: z.string(),
+    toFloor: z.string(),
+    mode: z.enum(["elevator", "escalator", "stairs", "walkway"]),
+  }).optional(),
 });
 
 export const routeSegmentSchema = z.object({
