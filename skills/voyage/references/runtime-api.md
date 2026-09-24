@@ -11,7 +11,7 @@ Commands:
 - `get-route-options`: `{origin:{lat,lng}, destination:{lat,lng}, city, modes?, context?, fallbackPolicy}` — compare walk/metro/bus/taxi/drive and return a ranked route matrix.
 - `optimize-transport`: same input as `get-route-options`; returns the recommended option plus alternatives and scoring reasons.
 - `retrieve-travel-knowledge`: `{city, query, tags?, limit?}` — hybrid keyword + pgvector RAG when configured; otherwise curated local fallback. Results include source/confidence/freshness metadata where available. Live provider facts remain authoritative.
-- `replan-trip`: `{tripId, dayId?, context?, fallbackPolicy}` — recompute urban transport choices and create a proposal when a better route mode is found.
+- `replan-trip`: `{tripId, dayId?, instruction?, context?, fallbackPolicy}` — recompute urban transport choices with RAG-aware planning context and create a proposal when a better route mode is found.
 - `get-weather`: `{destination, dates, fallbackPolicy}`
 - `search-travel-offers`: `{origin?, destination, startDate?, endDate?, travelers?, budget?, query, city?, categories?}`
 - `refresh-travel-offers`: `{tripId, expectedTripRevision, origin?, destination, startDate?, endDate?, travelers?, budget?, query, city?, categories?}`
