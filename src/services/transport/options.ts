@@ -26,6 +26,22 @@ function estimateCost(mode: UrbanTransportMode, distanceMeters: number, traveler
   return { min: Math.round(fuel), max: Math.round(fuel + 15), currency: "CNY" as const, estimated: true };
 }
 
+function routeCost(
+  mode: UrbanTransportMode,
+  route: Awaited<ReturnType<TravelDataProvider["planRoute"]>>,
+  distanceMeters: number,
+  travelers: number,
+) {
+  if ((mode === "metro" || mode === "bus") && typeof route.publicTransitCostYuan === "number") {
+    const total = Math.max(0, route.publicTransitCostYuan * travelers);
+    return { min: total, max: total, currency: "CNY" as const, estimated: false };
+  }
+  if (mode === "taxi" && typeof route.taxiCostYuan === "number") {
+    return { min: route.taxiCostYuan, max: route.taxiCostYuan, currency: "CNY" as const, estimated: false };
+  }
+  return estimateCost(mode, distanceMeters, travelers);
+}
+
 function routeWalkMeters(
   mode: UrbanTransportMode,
   distanceMeters: number,
@@ -126,10 +142,10 @@ export async function buildRouteOptionSet(input: {
         mode,
         durationMinutes: route.durationMinutes,
         distanceMeters,
-        walkMeters: routeWalkMeters(mode, distanceMeters, route.steps),
-        transferCount: transfers(mode, route.steps),
-        cost: estimateCost(mode, distanceMeters, travelers),
-        trafficLevel: "unknown",
+        walkMeters: route.walkingDistanceMeters ?? routeWalkMeters(mode, distanceMeters, route.steps),
+        transferCount: route.transferCount ?? transfers(mode, route.steps),
+        cost: routeCost(mode, route, distanceMeters, travelers),
+        trafficLevel: route.trafficLevel ?? "unknown",
         crowdLevel: "unknown",
         rainExposure: mode === "walk" ? 1 : mode === "metro" ? 0.22 : mode === "bus" ? 0.30 : 0.10,
         confidence: input.provider.kind === "amap" ? 0.90 : 0.55,
