@@ -48,7 +48,6 @@ export function createEmbeddingProvider(): EmbeddingProvider | null {
         body: JSON.stringify({
           model: config.model,
           input: texts,
-          dimensions: config.dimensions,
         }),
       });
 
