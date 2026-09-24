@@ -716,9 +716,11 @@ export class VoyageSkillRuntime {
 
     const transportContext = transportContextFromInstruction(input.instruction, stored.trip);
     if (transportContext) {
+      const requestedTransportDay = input.dayId
+        ?? resolveRequestedDay(stored.trip, input.instruction, currentDayId(stored.trip, input.asOf));
       const replanned = await this.replanTrip({
         tripId: input.tripId,
-        dayId: input.dayId,
+        dayId: requestedTransportDay,
         instruction: input.instruction,
         context: transportContext,
         fallbackPolicy: input.fallbackPolicy,
