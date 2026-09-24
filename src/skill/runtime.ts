@@ -3,7 +3,7 @@ import { executeActions, estimateBudgetItems } from "@/services/ai/actions/execu
 import type { TravelAction } from "@/services/ai/actions/types";
 import { buildRouteOptionSet } from "@/services/transport/options";
 import { retrieveTravelKnowledge } from "@/services/knowledge/retriever";
-import type { TransportContext } from "@/types/transport-intelligence";
+import type { ScoredTransportOption, TransportContext } from "@/types/transport-intelligence";
 import { planActionsWithRules, resolveRequestedDay } from "@/services/ai/actions/rule-planner";
 import { computeTripChangeSet } from "@/services/ai/diff";
 import { haversineMeters, estimateTransit } from "@/lib/utils";
@@ -370,7 +370,18 @@ export class VoyageSkillRuntime {
 
   async optimizeTransport(raw: unknown) {
     const input = optimizeTransportInputSchema.parse(raw);
-    const envelope = await this.getRouteOptions(input) as {
+    const knowledge = retrieveTravelKnowledge({
+      city: input.city,
+      query: "城市地形 市内交通 步行 换乘 天气 疲劳 行李",
+      tags: ["transport", "walking"],
+      limit: 6,
+    });
+    const effectiveContext = {
+      ...input.context,
+      walkingTolerance: input.context.walkingTolerance ??
+        (knowledge.some((item) => item.tags.includes("terrain")) ? "low" as const : undefined),
+    };
+    const envelope = await this.getRouteOptions({ ...input, context: effectiveContext }) as {
       data: { routeOptions: Awaited<ReturnType<typeof buildRouteOptionSet>> };
       warnings: string[];
       providerStatus: ProviderStatus;
@@ -381,6 +392,7 @@ export class VoyageSkillRuntime {
         recommended: routeOptions.options[0],
         alternatives: routeOptions.options.slice(1),
         routeOptions,
+        knowledge,
       },
       envelope.providerStatus,
       envelope.warnings,
@@ -429,7 +441,8 @@ export class VoyageSkillRuntime {
       previousMode: string;
       recommendedMode: string;
       score: number;
-      alternatives: unknown[];
+      recommended: ScoredTransportOption;
+      alternatives: ScoredTransportOption[];
     }> = [];
     const warnings: string[] = [];
     const knowledge = retrieveTravelKnowledge({
@@ -443,6 +456,8 @@ export class VoyageSkillRuntime {
       const dayContext: Partial<TransportContext> = {
         ...input.context,
         travelers: input.context.travelers ?? original.travelers,
+        walkingTolerance: input.context.walkingTolerance ??
+          (knowledge.some((item) => item.tags.includes("terrain")) ? "low" : undefined),
         weather: input.context.weather ??
           (day.weather.icon === "rain" || day.weather.condition.includes("雨") ? "rain" : "unknown"),
       };
@@ -471,6 +486,7 @@ export class VoyageSkillRuntime {
           previousMode: segment.mode,
           recommendedMode: recommended.mode,
           score: recommended.score,
+          recommended,
           alternatives: optionSet.options.slice(1, 4),
         });
         if (recommended.mode !== segment.mode) {
@@ -489,7 +505,7 @@ export class VoyageSkillRuntime {
         routePlans,
         knowledge,
         summary: "当前市内交通方式已符合综合评分，无需修改。",
-      }, status("UNKNOWN", routePlans.some((plan) => plan.alternatives) ? (provider?.kind === "amap" ? "REAL" : "ESTIMATED") : "UNKNOWN", "UNKNOWN"), warnings);
+      }, status("UNKNOWN", provider?.kind === "amap" ? "REAL" : "ESTIMATED", "UNKNOWN"), warnings);
     }
 
     const execution = executeActions(original, actions);
@@ -502,6 +518,33 @@ export class VoyageSkillRuntime {
         routeStatus = routed.level;
         warnings.push(...routed.warnings);
       }
+    } else {
+      const planBySegment = new Map(routePlans.map((plan) => [plan.segmentId, plan.recommended]));
+      proposed = {
+        ...proposed,
+        segments: proposed.segments.map((segment) => {
+          const recommended = planBySegment.get(segment.id);
+          if (!recommended) return segment;
+          return {
+            ...segment,
+            mode: recommended.mode,
+            distanceMeters: recommended.distanceMeters,
+            durationMinutes: recommended.durationMinutes,
+            meters: recommended.distanceMeters,
+            minutes: recommended.durationMinutes,
+            label: recommended.mode,
+            polyline: recommended.polyline,
+            steps: recommended.steps,
+            provider: recommended.source === "amap" ? "amap" : recommended.source === "mock" ? "mock" : "haversine",
+            estimated: recommended.estimated,
+            estimatedCost: Math.round((recommended.cost.min + recommended.cost.max) / 2),
+            provenance: recommended.estimated
+              ? { source: "haversine" as const, estimated: true as const }
+              : { source: "amap" as const, estimated: false as const },
+            updatedAt: recommended.updatedAt,
+          };
+        }),
+      };
     }
 
     const summary = "已按时间、费用、步行、换乘、天气、疲劳与数据可靠性重新评估市内交通。";
