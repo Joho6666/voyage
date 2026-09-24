@@ -448,21 +448,42 @@ export class VoyageSkillRuntime {
       alternatives: ScoredTransportOption[];
     }> = [];
     const warnings: string[] = [];
-    const knowledge = retrieveTravelKnowledge({
-      city: original.destination,
-      query: "市内交通 路线 步行 换乘 天气 疲劳 行李",
-      tags: ["transport", "walking"],
-      limit: 6,
-    });
+    const knowledgeById = new Map<string, Awaited<ReturnType<typeof buildTransportKnowledgeContext>>["evidence"][number]>();
+    const knowledgeRetrievals: Array<{
+      dayId: string;
+      strategy: string;
+      vectorUsed: boolean;
+      databaseUsed: boolean;
+      query: string;
+      citations: Awaited<ReturnType<typeof buildTransportKnowledgeContext>>["citations"];
+    }> = [];
 
     for (const day of targetDays) {
-      const dayContext: Partial<TransportContext> = {
+      const baseDayContext: Partial<TransportContext> = {
         ...input.context,
         travelers: input.context.travelers ?? original.travelers,
-        walkingTolerance: input.context.walkingTolerance ??
-          (knowledge.some((item) => item.tags.includes("terrain")) ? "low" : undefined),
         weather: input.context.weather ??
           (day.weather.icon === "rain" || day.weather.condition.includes("雨") ? "rain" : "unknown"),
+      };
+      const planningContext = await buildTransportKnowledgeContext({
+        city: original.destination,
+        context: baseDayContext,
+        userQuery: `${day.title} ${day.summary} 市内交通 路线优化`,
+        limit: 8,
+      });
+      planningContext.evidence.forEach((match) => knowledgeById.set(match.id, match));
+      knowledgeRetrievals.push({
+        dayId: day.id,
+        strategy: planningContext.retrieval.strategy,
+        vectorUsed: planningContext.retrieval.vectorUsed,
+        databaseUsed: planningContext.retrieval.databaseUsed,
+        query: planningContext.query,
+        citations: planningContext.citations,
+      });
+      warnings.push(...planningContext.retrieval.warnings.map((warning) => `Knowledge: ${warning}`));
+      const dayContext: Partial<TransportContext> = {
+        ...baseDayContext,
+        ...planningContext.effectiveTransportContext,
       };
       const segments = original.segments.filter((segment) => segment.dayId === day.id);
       for (const segment of segments) {
@@ -501,12 +522,15 @@ export class VoyageSkillRuntime {
       }
     }
 
+    const knowledge = [...knowledgeById.values()];
+
     if (!actions.length) {
       return successEnvelope({
         tripId: original.id,
         proposalId: null,
         routePlans,
         knowledge,
+        knowledgeRetrievals,
         summary: "当前市内交通方式已符合综合评分，无需修改。",
       }, status("UNKNOWN", provider?.kind === "amap" ? "REAL" : "ESTIMATED", "UNKNOWN"), warnings);
     }
@@ -568,6 +592,7 @@ export class VoyageSkillRuntime {
       changes: proposal.changeSet,
       routePlans,
       knowledge,
+      knowledgeRetrievals,
       summary,
     }, status("UNKNOWN", routeStatus, "UNKNOWN"), warnings);
   }
