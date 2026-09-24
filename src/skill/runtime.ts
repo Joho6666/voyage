@@ -2,7 +2,8 @@ import path from "node:path";
 import { executeActions, estimateBudgetItems } from "@/services/ai/actions/executor";
 import type { TravelAction } from "@/services/ai/actions/types";
 import { buildRouteOptionSet } from "@/services/transport/options";
-import { retrieveTravelKnowledge } from "@/services/knowledge/retriever";
+import { retrieveTravelKnowledgeHybrid } from "@/services/knowledge/hybrid-retriever";
+import { buildTransportKnowledgeContext } from "@/services/knowledge/context-builder";
 import type { ScoredTransportOption, TransportContext } from "@/types/transport-intelligence";
 import { planActionsWithRules, resolveRequestedDay } from "@/services/ai/actions/rule-planner";
 import { computeTripChangeSet } from "@/services/ai/diff";
@@ -39,6 +40,7 @@ import { createFliggyTopClient } from "@/services/booking/fliggy-top";
 import { queryMeituan } from "@/services/meituan/runner";
 import { queryFliggyOffers } from "@/services/booking/fliggy-offers";
 import type { OfferKind, OfferProviderLevel, OfferProviderStatus, TravelOffer } from "@/types/offers";
+import { resolveCityCoverImage } from "@/services/media/city-cover";
 
 const DAY_MS = 86_400_000;
 
@@ -206,6 +208,24 @@ function lockedItemIds(trip: Trip) {
   return new Set(trip.items.filter((item) => item.status !== "planned").map((item) => item.id));
 }
 
+function transportContextFromInstruction(
+  instruction: string,
+  trip: Trip,
+): Partial<TransportContext> | null {
+  if (!/少走|走路|步行|交通|地铁|轨道|公交|打车|出租车|路线|换乘|行李|无障碍|很累|太累|疲劳/.test(instruction)) {
+    return null;
+  }
+  return {
+    travelers: trip.travelers,
+    ...( /少走|走路|步行|很累|太累|疲劳/.test(instruction)
+      ? { walkingTolerance: "low" as const, fatigue: "high" as const }
+      : {}),
+    ...( /行李/.test(instruction) ? { hasLuggage: true } : {}),
+    ...( /无障碍|老人|轮椅/.test(instruction) ? { accessibilityNeeds: true } : {}),
+    ...( /雨|下雨/.test(instruction) ? { weather: "rain" as const } : {}),
+  };
+}
+
 function restoreLockedItems(original: Trip, proposed: Trip, locked: Set<string>) {
   const originals = new Map(original.items.filter((item) => locked.has(item.id)).map((item) => [item.id, item]));
   return { ...proposed, items: proposed.items.map((item) => originals.get(item.id) ?? item) };
@@ -284,8 +304,10 @@ export class VoyageSkillRuntime {
           categories: input.offerCategories,
         }).then((result) => ({ result })).catch((error: unknown) => ({ error }))
       : Promise.resolve({ result: null as Awaited<ReturnType<typeof queryMeituan>> | null });
-    const [routed, offerOutcome] = await Promise.all([routePromise, offerPromise]);
+    const coverPromise = resolveCityCoverImage(input.destination, candidates);
+    const [routed, offerOutcome, coverImage] = await Promise.all([routePromise, offerPromise, coverPromise]);
     let finalTrip = routed.trip;
+    if (coverImage) finalTrip = { ...finalTrip, coverImage };
     let offerLevel: ProviderLevel = "UNKNOWN";
     const offerWarnings: string[] = [];
     if (input.includeExternalOffers) {
@@ -370,18 +392,16 @@ export class VoyageSkillRuntime {
 
   async optimizeTransport(raw: unknown) {
     const input = optimizeTransportInputSchema.parse(raw);
-    const knowledge = retrieveTravelKnowledge({
+    const planningContext = await buildTransportKnowledgeContext({
       city: input.city,
-      query: "城市地形 市内交通 步行 换乘 天气 疲劳 行李",
-      tags: ["transport", "walking"],
-      limit: 6,
+      context: input.context,
+      userQuery: "城市地形 市内交通 步行 换乘 天气 疲劳 行李",
+      limit: 8,
     });
-    const effectiveContext = {
-      ...input.context,
-      walkingTolerance: input.context.walkingTolerance ??
-        (knowledge.some((item) => item.tags.includes("terrain")) ? "low" as const : undefined),
-    };
-    const envelope = await this.getRouteOptions({ ...input, context: effectiveContext }) as {
+    const envelope = await this.getRouteOptions({
+      ...input,
+      context: planningContext.effectiveTransportContext,
+    }) as {
       data: { routeOptions: Awaited<ReturnType<typeof buildRouteOptionSet>> };
       warnings: string[];
       providerStatus: ProviderStatus;
@@ -392,26 +412,30 @@ export class VoyageSkillRuntime {
         recommended: routeOptions.options[0],
         alternatives: routeOptions.options.slice(1),
         routeOptions,
-        knowledge,
+        knowledge: planningContext.evidence,
+        knowledgeRetrieval: planningContext.retrieval,
+        knowledgeCitations: planningContext.citations,
+        knowledgeRationale: planningContext.rationale,
       },
       envelope.providerStatus,
-      envelope.warnings,
+      [...envelope.warnings, ...planningContext.retrieval.warnings],
     );
   }
 
   async retrieveTravelKnowledge(raw: unknown) {
     const input = retrieveTravelKnowledgeInputSchema.parse(raw);
-    const matches = retrieveTravelKnowledge(input);
+    const retrieval = await retrieveTravelKnowledgeHybrid(input);
     return successEnvelope({
       city: input.city,
       query: input.query,
-      matches,
+      matches: retrieval.matches,
       retrieval: {
-        source: "curated-local",
-        vectorReady: true,
-        note: "Supabase pgvector schema is available; live facts must still come from providers.",
+        strategy: retrieval.strategy,
+        vectorUsed: retrieval.vectorUsed,
+        databaseUsed: retrieval.databaseUsed,
+        note: "RAG knowledge supplements live providers; realtime route, weather, availability and price facts stay authoritative.",
       },
-    });
+    }, undefined, retrieval.warnings);
   }
 
   async replanTrip(raw: unknown) {
@@ -445,21 +469,42 @@ export class VoyageSkillRuntime {
       alternatives: ScoredTransportOption[];
     }> = [];
     const warnings: string[] = [];
-    const knowledge = retrieveTravelKnowledge({
-      city: original.destination,
-      query: "市内交通 路线 步行 换乘 天气 疲劳 行李",
-      tags: ["transport", "walking"],
-      limit: 6,
-    });
+    const knowledgeById = new Map<string, Awaited<ReturnType<typeof buildTransportKnowledgeContext>>["evidence"][number]>();
+    const knowledgeRetrievals: Array<{
+      dayId: string;
+      strategy: string;
+      vectorUsed: boolean;
+      databaseUsed: boolean;
+      query: string;
+      citations: Awaited<ReturnType<typeof buildTransportKnowledgeContext>>["citations"];
+    }> = [];
 
     for (const day of targetDays) {
-      const dayContext: Partial<TransportContext> = {
+      const baseDayContext: Partial<TransportContext> = {
         ...input.context,
         travelers: input.context.travelers ?? original.travelers,
-        walkingTolerance: input.context.walkingTolerance ??
-          (knowledge.some((item) => item.tags.includes("terrain")) ? "low" : undefined),
         weather: input.context.weather ??
           (day.weather.icon === "rain" || day.weather.condition.includes("雨") ? "rain" : "unknown"),
+      };
+      const planningContext = await buildTransportKnowledgeContext({
+        city: original.destination,
+        context: baseDayContext,
+        userQuery: [day.title, day.summary, input.instruction, "市内交通 路线优化"].filter(Boolean).join(" "),
+        limit: 8,
+      });
+      planningContext.evidence.forEach((match) => knowledgeById.set(match.id, match));
+      knowledgeRetrievals.push({
+        dayId: day.id,
+        strategy: planningContext.retrieval.strategy,
+        vectorUsed: planningContext.retrieval.vectorUsed,
+        databaseUsed: planningContext.retrieval.databaseUsed,
+        query: planningContext.query,
+        citations: planningContext.citations,
+      });
+      warnings.push(...planningContext.retrieval.warnings.map((warning) => `Knowledge: ${warning}`));
+      const dayContext: Partial<TransportContext> = {
+        ...baseDayContext,
+        ...planningContext.effectiveTransportContext,
       };
       const segments = original.segments.filter((segment) => segment.dayId === day.id);
       for (const segment of segments) {
@@ -498,12 +543,15 @@ export class VoyageSkillRuntime {
       }
     }
 
+    const knowledge = [...knowledgeById.values()];
+
     if (!actions.length) {
       return successEnvelope({
         tripId: original.id,
         proposalId: null,
         routePlans,
         knowledge,
+        knowledgeRetrievals,
         summary: "当前市内交通方式已符合综合评分，无需修改。",
       }, status("UNKNOWN", provider?.kind === "amap" ? "REAL" : "ESTIMATED", "UNKNOWN"), warnings);
     }
@@ -565,6 +613,7 @@ export class VoyageSkillRuntime {
       changes: proposal.changeSet,
       routePlans,
       knowledge,
+      knowledgeRetrievals,
       summary,
     }, status("UNKNOWN", routeStatus, "UNKNOWN"), warnings);
   }
@@ -667,6 +716,21 @@ export class VoyageSkillRuntime {
     const input = proposeChangeInputSchema.parse(raw);
     const stored = await this.repository.getTrip(input.tripId);
     if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+
+    const transportContext = transportContextFromInstruction(input.instruction, stored.trip);
+    if (transportContext) {
+      const requestedTransportDay = input.dayId
+        ?? resolveRequestedDay(stored.trip, input.instruction, currentDayId(stored.trip, input.asOf));
+      const replanned = await this.replanTrip({
+        tripId: input.tripId,
+        dayId: requestedTransportDay,
+        instruction: input.instruction,
+        context: transportContext,
+        fallbackPolicy: input.fallbackPolicy,
+      }) as { data?: { proposalId?: string | null } };
+      if (replanned.data?.proposalId) return replanned;
+    }
+
     const provider = await this.providerFactory();
     const original = stored.trip;
     const locked = lockedItemIds(original);

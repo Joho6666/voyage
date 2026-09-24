@@ -69,8 +69,8 @@ function inferredTransitMode(
 ): UrbanTransportMode {
   if (requested !== "metro" && requested !== "bus") return requested;
   const text = (steps ?? []).map((step) => step.instruction).join(" ");
-  if (/地铁|轨道|号线/.test(text)) return "metro";
-  if (/公交|巴士/.test(text)) return "bus";
+  if (/地铁|轨道|轻轨|metro|subway/i.test(text)) return "metro";
+  if (/乘坐|公交|巴士/.test(text)) return "bus";
   return requested;
 }
 
@@ -122,7 +122,7 @@ export async function buildRouteOptionSet(input: {
   const travelers = Math.max(1, input.context?.travelers ?? 1);
   const warnings: string[] = [];
 
-  const options = await Promise.all(modes.map(async (requestedMode): Promise<TransportOption> => {
+  const candidates = await Promise.all(modes.map(async (requestedMode): Promise<TransportOption | null> => {
     if (!input.provider) {
       if (!input.allowEstimate) throw new Error("ROUTE_PROVIDER_UNAVAILABLE");
       return fallbackOption(input.origin, input.destination, requestedMode, travelers, "No realtime route provider configured");
@@ -166,9 +166,12 @@ export async function buildRouteOptionSet(input: {
     }
   }));
 
+  const options = candidates.filter((option): option is TransportOption => option !== null);
+
   const ranked = rankTransportOptions(options, input.context);
   const deduped = ranked.filter((option, index, all) =>
     all.findIndex((candidate) =>
+      candidate.requestedMode === option.requestedMode &&
       candidate.mode === option.mode &&
       Math.abs(candidate.durationMinutes - option.durationMinutes) <= 1 &&
       Math.abs(candidate.distanceMeters - option.distanceMeters) <= 50,

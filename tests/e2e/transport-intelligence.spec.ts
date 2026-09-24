@@ -47,6 +47,8 @@ test.describe("Voyage Transport Intelligence E2E", () => {
     expect(payload.ok).toBe(true);
     expect(payload.data.matches.length).toBeGreaterThan(0);
     expect(payload.data.matches[0]).toHaveProperty("source");
-    expect(payload.data.retrieval.vectorReady).toBe(true);
+    expect(payload.data.retrieval).toHaveProperty("strategy");
+    expect(payload.data.retrieval).toHaveProperty("vectorUsed");
+    expect(payload.data.retrieval).toHaveProperty("databaseUsed");
   });
 });

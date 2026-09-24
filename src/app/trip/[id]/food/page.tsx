@@ -6,19 +6,23 @@ import { TravelImage } from "@/components/travel/TravelImage";
 import { AddToDay } from "@/components/travel/AddToDay";
 import { useTripStore } from "@/store/trip-store";
 import { Button } from "@/components/ui/button";
+import { LiveDiscovery } from "@/components/travel/LiveDiscovery";
+import { useState } from "react";
 
-const CUISINES = ["火锅", "小面", "江湖菜", "烧烤", "甜品", "夜宵", "咖啡"];
+const CUISINES = ["全部", "火锅", "小面", "江湖菜", "烧烤", "甜品", "夜宵", "咖啡"];
 
 export default function FoodPage() {
   const trip = useTripStore((s) => s.trip);
   const { id } = useParams<{ id: string }>();
+  const [cuisine, setCuisine] = useState("全部");
   const places = trip.places.filter((place) => place.category === "food" && (place.provenance?.source === "amap" || place.source === "amap"));
   const offers = (trip.offers ?? []).filter((offer) => offer.kind === "restaurant");
 
   return (
     <div className="h-full overflow-y-auto p-4 pb-20 scrollbar-thin">
       <h1 className="text-lg font-medium">{trip.destination} 美食</h1>
-      <div className="mt-3 flex flex-wrap gap-1.5">{CUISINES.map((c) => <span key={c} className="rounded-full border border-border px-3 py-1 text-[12px] text-muted-foreground">{c}</span>)}</div>
+      <div className="mt-3 flex flex-wrap gap-1.5">{CUISINES.map((c) => <button key={c} type="button" aria-pressed={cuisine === c} onClick={() => setCuisine(c)} className={`rounded-full border px-3 py-1 text-[12px] transition-colors ${cuisine === c ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:bg-secondary"}`}>{c}</button>)}</div>
+      <LiveDiscovery city={trip.destination} kind="food" query={cuisine === "全部" ? "餐厅 美食" : cuisine} title={`${trip.destination} · ${cuisine === "全部" ? "本地热门美食" : cuisine}`} />
       <div className="mt-5 space-y-4">
         {places.map((place) => (
           <article key={place.id} className="overflow-hidden rounded-[14px] border border-border bg-surface">

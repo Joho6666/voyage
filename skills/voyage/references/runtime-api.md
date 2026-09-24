@@ -10,8 +10,8 @@ Commands:
 - `plan-route`: `{origin:{lat,lng}, destination:{lat,lng}, mode, city, fallbackPolicy}`
 - `get-route-options`: `{origin:{lat,lng}, destination:{lat,lng}, city, modes?, context?, fallbackPolicy}` — compare walk/metro/bus/taxi/drive and return a ranked route matrix.
 - `optimize-transport`: same input as `get-route-options`; returns the recommended option plus alternatives and scoring reasons.
-- `retrieve-travel-knowledge`: `{city, query, tags?, limit?}` — retrieve curated city/POI/transport rules. Live provider facts remain authoritative.
-- `replan-trip`: `{tripId, dayId?, context?, fallbackPolicy}` — recompute urban transport choices and create a proposal when a better route mode is found.
+- `retrieve-travel-knowledge`: `{city, query, tags?, limit?}` — hybrid keyword + pgvector RAG when configured; otherwise curated local fallback. Results include source/confidence/freshness metadata where available. Live provider facts remain authoritative.
+- `replan-trip`: `{tripId, dayId?, instruction?, context?, fallbackPolicy}` — recompute urban transport choices with RAG-aware planning context and create a proposal when a better route mode is found.
 - `get-weather`: `{destination, dates, fallbackPolicy}`
 - `search-travel-offers`: `{origin?, destination, startDate?, endDate?, travelers?, budget?, query, city?, categories?}`
 - `refresh-travel-offers`: `{tripId, expectedTripRevision, origin?, destination, startDate?, endDate?, travelers?, budget?, query, city?, categories?}`
@@ -51,3 +51,19 @@ The repository includes a curated local retrieval fallback and a Supabase pgvect
 transport rules, and historical route cases. Knowledge records carry confidence, source,
 freshness windows, and optional source URLs. They supplement rather than override live
 weather, routing, inventory, and price providers.
+
+
+## RAG Knowledge Engine v1
+
+Knowledge ingestion uses versioned source documents under `knowledge/`, deterministic chunking,
+optional OpenAI-compatible 1536-dimension embeddings, and Supabase tables
+`knowledge_documents` / `knowledge_chunks`.
+
+Hybrid retrieval uses keyword search and semantic similarity with reciprocal-rank fusion,
+plus confidence, freshness, city, tags and authority boosts. If Supabase or embeddings are
+not configured, the runtime degrades to local curated retrieval instead of failing.
+
+`optimize-transport` and `replan-trip` return RAG evidence, retrieval metadata and citations
+alongside route recommendations. These are explanations and planning evidence; live provider
+facts continue to outrank RAG for weather, route duration, traffic, operating status,
+availability and prices.

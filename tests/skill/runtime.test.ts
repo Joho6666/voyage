@@ -237,18 +237,37 @@ describe("Voyage Skill runtime", () => {
     }) as any;
     expect(knowledge.data.matches.length).toBeGreaterThan(0);
     expect(knowledge.data.matches.some((item: any) => item.city === "重庆")).toBe(true);
+    expect(knowledge.data.retrieval.strategy).toEqual(expect.any(String));
 
     const created = await create();
     const before = structuredClone(created.data.trip) as Trip;
     const replanned = await runtime.replanTrip({
       tripId: before.id,
+      instruction: "下雨而且很累，优先少走路",
       fallbackPolicy: "deny",
       context: { walkingTolerance: "low", fatigue: "high", weather: "rain", travelers: 2 },
     }) as any;
     expect(replanned.data.routePlans.length).toBeGreaterThan(0);
     expect(replanned.data.knowledge.length).toBeGreaterThan(0);
+    expect(replanned.data.knowledgeRetrievals.length).toBeGreaterThan(0);
+    expect(replanned.data.knowledgeRetrievals[0]).toHaveProperty("strategy");
     expect(replanned.data.proposalId).toEqual(expect.any(String));
     expect((await repository.getTrip(before.id))?.trip).toEqual(before);
+  });
+
+  it("uses RAG-aware replanning for natural-language transport changes", async () => {
+    const created = await create();
+    const trip = created.data.trip as Trip;
+    const proposal = await runtime.proposeChange({
+      tripId: trip.id,
+      instruction: "第二天太累了，少走一点。",
+      fallbackPolicy: "estimated",
+    }) as any;
+
+    expect(proposal.data.proposalId).toEqual(expect.any(String));
+    expect(proposal.data.routePlans.length).toBeGreaterThan(0);
+    expect(proposal.data.knowledgeRetrievals.length).toBeGreaterThan(0);
+    expect(proposal.data.actions.every((action: any) => action.payload.dayId === trip.days[1].id)).toBe(true);
   });
 
 });

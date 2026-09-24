@@ -10,6 +10,7 @@ import { tripRepository } from "@/services/trips/repository";
 import type { Day, Place, Trip } from "@/types/travel";
 import { createTripId, planWithRules } from "@/services/planning/rule-planner";
 import { weatherForDate } from "@/services/weather/merge";
+import { resolveCityCoverImage } from "@/services/media/city-cover";
 
 export const dynamic = "force-dynamic";
 
@@ -279,7 +280,7 @@ async function assembleTrip(input: {
     currency: "CNY",
     status: "ready",
     estimatedSpend,
-    coverImage: candidates[0]?.image || "",
+    coverImage: (candidates.find((candidate) => candidate.image)?.image || await resolveCityCoverImage(body.destination, candidates)),
     vibe: body.vibes ?? [],
     prompt: body.prompt ?? "",
     createdAt: new Date().toISOString(),

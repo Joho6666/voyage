@@ -93,6 +93,7 @@ export const retrieveTravelKnowledgeInputSchema = z.object({
 export const replanTripInputSchema = z.object({
   tripId: z.string().min(1),
   dayId: z.string().optional(),
+  instruction: z.string().max(2000).optional(),
   context: transportContextSchema,
   fallbackPolicy: fallbackPolicySchema,
 });

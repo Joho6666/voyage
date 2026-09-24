@@ -14,7 +14,8 @@ Choose one workflow:
 - **ADAPT**: `propose-change`, show the returned Diff, then call `apply-change` only after explicit user confirmation.
 - **TODAY**: use `propose-change` with `asOf`; preserve `current`, `done`, and `skipped` items and adjust only future `planned` items.
 - **TRANSPORT INTELLIGENCE**: use `get-route-options` to compare walk/metro/bus/taxi/drive, `optimize-transport` to rank them using user context, and `replan-trip` to create an auditable route-mode proposal.
-- **KNOWLEDGE**: use `retrieve-travel-knowledge` for curated city/POI/transport rules. Treat knowledge as planning context, never as a replacement for live route, weather, availability, or price facts.
+- **KNOWLEDGE**: use `retrieve-travel-knowledge` for hybrid RAG over city/POI/transport rules and route cases. Retrieval prefers Supabase keyword + pgvector semantic search when configured, with local curated fallback. Treat knowledge as planning context, never as a replacement for live route, weather, availability, traffic, operating-status, or price facts.
+- **RAG-AWARE OPTIMIZATION**: `optimize-transport` and `replan-trip` automatically build a planning context from user constraints plus retrieved knowledge; callers do not need to manually fetch RAG first.
 
 Real AMap data is authoritative. Estimated, mock, unknown, and unavailable values must remain labeled in the response. A missing server key is an explicit provider error unless the request opts into `fallbackPolicy: "estimated"`; never silently turn a fallback into real data.
 
