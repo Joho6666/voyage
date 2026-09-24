@@ -141,6 +141,8 @@ async function walk(root: string): Promise<string[]> {
 export async function discoverKnowledgeFiles(root: string) {
   return (await walk(root))
     .filter((file) => [".md", ".txt", ".json"].includes(path.extname(file).toLowerCase()))
+    .filter((file) => !["readme.md", "readme.txt"].includes(path.basename(file).toLowerCase()))
+    .filter((file) => !path.basename(file).startsWith("_"))
     .sort();
 }
 
