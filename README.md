@@ -39,6 +39,10 @@ State & Control Layer (Zustand: useTripStore · useUiStore · useHistoryStore ·
       ↓
 AI Action & Diff Engine (TravelAction 3.0 · ActionPlanner · ActionExecutor · TripDiffModal)
       ↓
+Travel Intelligence (Route Matrix · Transport Scoring · RAG Planning Context)
+      ↓
+Knowledge Engine (Hybrid Keyword + pgvector · Freshness · Confidence · Provenance)
+      ↓
 Service Facades & Routing Engine (RoutingService · WeatherContext · BookingIntent)
       ↓
 Server Boundary (API Routes with 'server-only' secrets isolation)
@@ -80,6 +84,9 @@ npm run test:e2e     # Playwright 端到端 Golden Trip 自动化验证
 | `LLM_BASE_URL` | OpenAI 兼容的大模型 API 根地址 (如方舟/DeepSeek) | 未配置时自动切入规则引擎 |
 | `LLM_API_KEY` | 服务端模型 API Key | 保护在服务端，绝不向浏览器泄露 |
 | `LLM_MODEL` | 模型名称 (如 `deepseek-v3`, `gpt-4o-mini`) | 默认 `gpt-4o-mini` |
+| `EMBEDDING_BASE_URL` | OpenAI-compatible Embeddings API 根地址 | 未配置时 RAG 自动降级为关键词/本地知识检索 |
+| `EMBEDDING_API_KEY` | Embedding API Key | 仅服务端使用 |
+| `EMBEDDING_MODEL` | 1536 维 Embedding 模型 | 未配置时不执行语义向量检索 |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase 项目地址 | 未配置时自动无感运行在内存 Demo 模式 |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase 客户端匿名密钥 | 严格受 `0002_rls_secure.sql` 行级安全控制 |
 
@@ -93,3 +100,4 @@ npm run test:e2e     # Playwright 端到端 Golden Trip 自动化验证
 - [`docs/REAL_WORLD_PROVIDER_GUIDE.md`](docs/REAL_WORLD_PROVIDER_GUIDE.md) — 高德/天气/预订/Supabase 接入指南
 - [`docs/TRAVEL_ACTIONS.md`](docs/TRAVEL_ACTIONS.md) — 24 项 TravelAction 规格与 Diff 预览说明
 - [`docs/BETA_ACCEPTANCE.md`](docs/BETA_ACCEPTANCE.md) — 18 项 Beta 用户路径通关报告
+- [`knowledge/README.md`](knowledge/README.md) — Travel Knowledge RAG 数据格式、入库与检索说明
