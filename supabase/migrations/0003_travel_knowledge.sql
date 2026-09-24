@@ -2,7 +2,8 @@
 -- Knowledge base foundation for curated city rules, POI knowledge,
 -- transport rules and route cases. Live provider facts remain authoritative.
 
-create extension if not exists vector;
+create schema if not exists extensions;
+create extension if not exists vector with schema extensions;
 
 create table if not exists travel_knowledge (
   id uuid primary key default gen_random_uuid(),
@@ -17,7 +18,7 @@ create table if not exists travel_knowledge (
   source_url text,
   valid_from timestamptz,
   valid_to timestamptz,
-  embedding vector(1536),
+  embedding extensions.vector(1536),
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -47,7 +48,7 @@ create policy "travel_knowledge_owner_all" on travel_knowledge
   with check (auth.uid() = owner_id);
 
 create or replace function match_travel_knowledge(
-  query_embedding vector(1536),
+  query_embedding extensions.vector(1536),
   query_city text,
   match_count int default 8,
   min_confidence real default 0.5
