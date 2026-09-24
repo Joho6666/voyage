@@ -207,6 +207,24 @@ function lockedItemIds(trip: Trip) {
   return new Set(trip.items.filter((item) => item.status !== "planned").map((item) => item.id));
 }
 
+function transportContextFromInstruction(
+  instruction: string,
+  trip: Trip,
+): Partial<TransportContext> | null {
+  if (!/少走|走路|步行|交通|地铁|轨道|公交|打车|出租车|路线|换乘|行李|无障碍|很累|太累|疲劳/.test(instruction)) {
+    return null;
+  }
+  return {
+    travelers: trip.travelers,
+    ...( /少走|走路|步行|很累|太累|疲劳/.test(instruction)
+      ? { walkingTolerance: "low" as const, fatigue: "high" as const }
+      : {}),
+    ...( /行李/.test(instruction) ? { hasLuggage: true } : {}),
+    ...( /无障碍|老人|轮椅/.test(instruction) ? { accessibilityNeeds: true } : {}),
+    ...( /雨|下雨/.test(instruction) ? { weather: "rain" as const } : {}),
+  };
+}
+
 function restoreLockedItems(original: Trip, proposed: Trip, locked: Set<string>) {
   const originals = new Map(original.items.filter((item) => locked.has(item.id)).map((item) => [item.id, item]));
   return { ...proposed, items: proposed.items.map((item) => originals.get(item.id) ?? item) };
@@ -695,6 +713,19 @@ export class VoyageSkillRuntime {
     const input = proposeChangeInputSchema.parse(raw);
     const stored = await this.repository.getTrip(input.tripId);
     if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+
+    const transportContext = transportContextFromInstruction(input.instruction, stored.trip);
+    if (transportContext) {
+      const replanned = await this.replanTrip({
+        tripId: input.tripId,
+        dayId: input.dayId,
+        instruction: input.instruction,
+        context: transportContext,
+        fallbackPolicy: input.fallbackPolicy,
+      }) as { data?: { proposalId?: string | null } };
+      if (replanned.data?.proposalId) return replanned;
+    }
+
     const provider = await this.providerFactory();
     const original = stored.trip;
     const locked = lockedItemIds(original);
