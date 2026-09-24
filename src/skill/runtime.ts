@@ -2,7 +2,8 @@ import path from "node:path";
 import { executeActions, estimateBudgetItems } from "@/services/ai/actions/executor";
 import type { TravelAction } from "@/services/ai/actions/types";
 import { buildRouteOptionSet } from "@/services/transport/options";
-import { retrieveTravelKnowledge } from "@/services/knowledge/retriever";
+import { retrieveTravelKnowledgeHybrid } from "@/services/knowledge/hybrid-retriever";
+import { buildTransportKnowledgeContext } from "@/services/knowledge/context-builder";
 import type { ScoredTransportOption, TransportContext } from "@/types/transport-intelligence";
 import { planActionsWithRules, resolveRequestedDay } from "@/services/ai/actions/rule-planner";
 import { computeTripChangeSet } from "@/services/ai/diff";
@@ -370,18 +371,16 @@ export class VoyageSkillRuntime {
 
   async optimizeTransport(raw: unknown) {
     const input = optimizeTransportInputSchema.parse(raw);
-    const knowledge = retrieveTravelKnowledge({
+    const planningContext = await buildTransportKnowledgeContext({
       city: input.city,
-      query: "城市地形 市内交通 步行 换乘 天气 疲劳 行李",
-      tags: ["transport", "walking"],
-      limit: 6,
+      context: input.context,
+      userQuery: "城市地形 市内交通 步行 换乘 天气 疲劳 行李",
+      limit: 8,
     });
-    const effectiveContext = {
-      ...input.context,
-      walkingTolerance: input.context.walkingTolerance ??
-        (knowledge.some((item) => item.tags.includes("terrain")) ? "low" as const : undefined),
-    };
-    const envelope = await this.getRouteOptions({ ...input, context: effectiveContext }) as {
+    const envelope = await this.getRouteOptions({
+      ...input,
+      context: planningContext.effectiveTransportContext,
+    }) as {
       data: { routeOptions: Awaited<ReturnType<typeof buildRouteOptionSet>> };
       warnings: string[];
       providerStatus: ProviderStatus;
@@ -392,26 +391,30 @@ export class VoyageSkillRuntime {
         recommended: routeOptions.options[0],
         alternatives: routeOptions.options.slice(1),
         routeOptions,
-        knowledge,
+        knowledge: planningContext.evidence,
+        knowledgeRetrieval: planningContext.retrieval,
+        knowledgeCitations: planningContext.citations,
+        knowledgeRationale: planningContext.rationale,
       },
       envelope.providerStatus,
-      envelope.warnings,
+      [...envelope.warnings, ...planningContext.retrieval.warnings],
     );
   }
 
   async retrieveTravelKnowledge(raw: unknown) {
     const input = retrieveTravelKnowledgeInputSchema.parse(raw);
-    const matches = retrieveTravelKnowledge(input);
+    const retrieval = await retrieveTravelKnowledgeHybrid(input);
     return successEnvelope({
       city: input.city,
       query: input.query,
-      matches,
+      matches: retrieval.matches,
       retrieval: {
-        source: "curated-local",
-        vectorReady: true,
-        note: "Supabase pgvector schema is available; live facts must still come from providers.",
+        strategy: retrieval.strategy,
+        vectorUsed: retrieval.vectorUsed,
+        databaseUsed: retrieval.databaseUsed,
+        note: "RAG knowledge supplements live providers; realtime route, weather, availability and price facts stay authoritative.",
       },
-    });
+    }, undefined, retrieval.warnings);
   }
 
   async replanTrip(raw: unknown) {
