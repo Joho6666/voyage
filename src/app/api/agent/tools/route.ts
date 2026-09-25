@@ -6,6 +6,8 @@ import { chatWithTools, type ChatMessage, type LlmTool } from "@/services/ai/llm
 import { createRuntime } from "@/skill/runtime";
 import { commandSchemas } from "@/skill/contracts";
 import { guestWorkspace, setGuestCookie } from "@/app/api/voyage/workspace";
+import { JsonSkillRepository } from "@/skill/repository";
+import { chongqingTrip, DEMO_TRIP_ID } from "@/data/demo/chongqing";
 
 export const dynamic = "force-dynamic";
 
@@ -42,10 +44,28 @@ export async function POST(request: NextRequest) {
   const parsed = inputSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ ok: false, error: "Invalid input" }, { status: 400 });
   const workspace = guestWorkspace(request);
+  if (process.env.VOYAGE_DEMO_MODE === "true" && parsed.data.tripId === DEMO_TRIP_ID) {
+    const repository = new JsonSkillRepository(workspace.root);
+    if (!(await repository.getTrip(DEMO_TRIP_ID))) {
+      await repository.createTrip(structuredClone(chongqingTrip));
+    }
+  }
   const runtime = createRuntime(workspace.root);
   const tripEnvelope = await runtime.execute("get-trip", { tripId: parsed.data.tripId }) as { data?: { trip?: { destination?: string; origin?: string; startDate?: string; endDate?: string; travelers?: number; budget?: number; days?: Array<{ id: string; date: string }> } } };
   const trip = tripEnvelope.data?.trip;
   if (!trip) return NextResponse.json({ ok: false, error: "Trip not found" }, { status: 404 });
+  if (process.env.VOYAGE_DEMO_MODE === "true" &&
+    /少走|走路|太累|下雨|雨方案|推迟|跳过|省100|换个地方/.test(parsed.data.message)) {
+    try {
+      const dayId = parsed.data.message.match(/\[dayId:([^\]]+)\]/)?.[1];
+      const proposal = await runtime.execute("propose-change", commandSchemas["propose-change"].parse({
+        tripId: parsed.data.tripId, instruction: parsed.data.message, dayId, fallbackPolicy: "estimated",
+      }));
+      return setGuestCookie(NextResponse.json({ ok: true, content: "已生成行程修改建议", toolsUsed: ["propose_change"], proposal }), workspace);
+    } catch (error) {
+      return setGuestCookie(NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "无法生成提案" }, { status: 422 }), workspace);
+    }
+  }
   const messages: ChatMessage[] = [
     { role: "system", content: `你是 Voyage 旅行助手。用中文回答。你可以调用白名单工具获取真实数据。不要编造价格、库存、天气或地点。行程修改只能生成提案，必须让用户确认后才能应用。当前行程：${trip.origin ?? ""} → ${trip.destination ?? ""}，${trip.startDate ?? ""} 至 ${trip.endDate ?? ""}，${trip.travelers ?? 1} 人，预算 ${trip.budget ?? 0} 元。` },
     { role: "user", content: parsed.data.message },

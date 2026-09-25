@@ -1,5 +1,3 @@
-import "server-only";
-
 import type { Place } from "@/types/travel";
 
 const cache = new Map<string, { expiresAt: number; url?: string }>();
