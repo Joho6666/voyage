@@ -1,6 +1,7 @@
 "use client";
 
 import { DayTimeline } from "./DayTimeline";
+import { SocialEvidencePanel } from "./SocialEvidencePanel";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useTripStore } from "@/store/trip-store";
 import { useUiStore, type WorkspaceTab } from "@/store/ui-store";
@@ -35,6 +36,7 @@ export function ItineraryPanel() {
         </Tabs>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
+        <SocialEvidencePanel evidence={trip.socialEvidence} warnings={trip.socialWarnings} />
         {trip.days.map((day) => (
           <DayTimeline key={day.id} day={day} />
         ))}

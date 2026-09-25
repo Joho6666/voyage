@@ -1,6 +1,6 @@
 export type SocialPlatform =
   | "tiktok" | "instagram" | "youtube" | "x" | "douyin"
-  | "xiaohongshu" | "wechat" | "wechat_channels";
+  | "xiaohongshu" | "weibo" | "wechat" | "wechat_channels" | "wechat_mp" | "wechat_search";
 
 export type SocialProviderName = "tikhub" | "redfox";
 export type SocialSignalType =
@@ -85,4 +85,19 @@ export interface SocialContext {
   confidence: number;
   sources: SocialSource[];
   signals: SocialSignal[];
+}
+
+export interface SocialEvidence {
+  platform: SocialPlatform;
+  sourceId: string;
+  sourceUrl?: string;
+  title?: string;
+  summary: string;
+  city: string;
+  publishedAt?: string;
+  fetchedAt: string;
+  signalTypes: SocialSignalType[];
+  confidence: number;
+  sampleSize: number;
+  warnings: string[];
 }

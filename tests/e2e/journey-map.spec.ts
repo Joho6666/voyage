@@ -59,14 +59,14 @@ test.describe("Voyage Journey Map E2E Suite", () => {
     await expect(day2Btn).toBeVisible({ timeout: 15000 });
 
     // Click Day 2
-    await day2Btn.dispatchEvent("click");
+    await day2Btn.click();
 
     // Verify active day is updated (button styled as active)
     await expect(day2Btn).toHaveClass(/bg-primary/);
 
     // Switch back to "全部"
     const allBtn = page.getByRole("button", { name: /全部/i }).first();
-    await allBtn.dispatchEvent("click");
+    await allBtn.click();
     await expect(allBtn).toHaveClass(/bg-primary/);
   });
 
@@ -77,7 +77,7 @@ test.describe("Voyage Journey Map E2E Suite", () => {
     // Click "行程总览"
     const overviewBtn = page.getByRole("button", { name: /行程总览/i }).first();
     if (await overviewBtn.isVisible()) {
-      await overviewBtn.dispatchEvent("click");
+      await overviewBtn.click();
 
       // Check Journey Overview summary card
       await expect(page.getByRole("heading", { name: /行程总览/i })).toBeVisible({ timeout: 5000 });

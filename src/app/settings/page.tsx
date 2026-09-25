@@ -5,7 +5,7 @@ import { configurationPresence } from "@/services/config/local-credentials";
 import { CredentialEditor } from "./CredentialEditor";
 import { LlmProviderEditor } from "./LlmProviderEditor";
 
-type Config = Record<"amapServer" | "amapBrowser" | "meituan" | "fliggy" | "llm" | "supabase", boolean>;
+type Config = Record<"amapServer" | "amapBrowser" | "meituan" | "fliggy" | "llm" | "supabase" | "tikhub" | "redfox", boolean>;
 export const dynamic = "force-dynamic";
 
 const providers = [
@@ -14,6 +14,8 @@ const providers = [
   { name: "飞猪 TOP", usage: "酒店房态与航班（需商家/分销权限）", keys: ["FLIGGY_APP_KEY", "FLIGGY_APP_SECRET", "FLIGGY_SESSION", "FLIGGY_DISTRIBUTOR"], fields: ["fliggy"], url: "https://open.alitrip.com/", link: "飞猪开放平台" },
   { name: "AI 模型（可选）", usage: "DeepSeek、通义、Kimi、GLM、硅基流动、OpenAI 或自定义兼容接口", keys: [] as string[], fields: ["llm"], url: "https://platform.openai.com/api-keys", link: "AI 供应商文档" },
   { name: "Supabase（可选）", usage: "用户认证及云端数据；Guest 可使用本地工作区", keys: ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY"], fields: ["supabase"], url: "https://supabase.com/dashboard", link: "Supabase 控制台" },
+  { name: "TikHub 社交数据（TikTok 搜索）", usage: "按关键词搜索公开 TikTok 内容；当前只接入搜索端点", keys: ["TIKHUB_API_KEY"], fields: ["tikhub"], url: "https://user.tikhub.io", link: "TikHub 控制台" },
+  { name: "RedFox 社交数据（抖音账号搜索）", usage: "按关键词获取抖音账号资料；当前不提供帖子、评论或趋势数据", keys: ["REDFOX_API_KEY"], fields: ["redfox"], url: "https://redfox.hk/apis/douyin/P5CHB3BZ", link: "RedFox API 文档" },
 ] as const;
 
 export default async function SettingsPage() {
@@ -26,6 +28,8 @@ export default async function SettingsPage() {
     fliggy: configured.FLIGGY_APP_KEY && configured.FLIGGY_APP_SECRET,
     llm: configured.LLM_BASE_URL && configured.LLM_API_KEY,
     supabase: configured.NEXT_PUBLIC_SUPABASE_URL && configured.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    tikhub: configured.TIKHUB_API_KEY,
+    redfox: configured.REDFOX_API_KEY,
   };
 
   return (

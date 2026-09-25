@@ -15,6 +15,13 @@ export interface SocialProvider {
 
 export type SocialOperation = "searchContent" | "getContent" | "getComments" | "getTrending";
 
+export class SocialProviderRequestError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SocialProviderRequestError";
+  }
+}
+
 /** The caller supplies a vetted API transport when a real endpoint contract is available. */
 export type SocialRequestTransport = (request: {
   provider: SocialProviderName;
@@ -34,16 +41,31 @@ function nonempty(value: unknown): string | undefined {
 }
 
 function isoDate(value: unknown): string | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const timestamp = value < 10_000_000_000 ? value * 1000 : value;
+    return Number.isFinite(new Date(timestamp).getTime()) ? new Date(timestamp).toISOString() : undefined;
+  }
   const date = nonempty(value);
-  return date && Number.isFinite(Date.parse(date)) ? new Date(date).toISOString() : undefined;
+  if (!date) return undefined;
+  if (/^\d{10,13}$/.test(date)) return isoDate(Number(date));
+  return Number.isFinite(Date.parse(date)) ? new Date(date).toISOString() : undefined;
 }
 
 function rows(value: unknown): unknown[] {
-  if (Array.isArray(value)) return value;
+  if (Array.isArray(value)) return value.flatMap((entry) => {
+    const item = record(entry);
+    if (item && !item.note_card && !item.mblog && (Array.isArray(item.items) || Array.isArray(item.list))) return rows(item.items ?? item.list);
+    return [entry];
+  });
   const item = record(value);
   if (!item) return [];
-  for (const key of ["items", "results", "data", "comments"]) {
-    if (Array.isArray(item[key])) return item[key] as unknown[];
+  for (const key of ["items", "results", "comments", "aweme_list", "video_list", "item_list", "search_list", "list", "item", "data", "aweme_info"]) {
+    const nested = item[key];
+    if (Array.isArray(nested)) return rows(nested);
+    if (record(nested)) {
+      const nestedRows = rows(nested);
+      if (nestedRows.length) return nestedRows;
+    }
   }
   return [value];
 }
@@ -57,24 +79,31 @@ function normalizeObservation(
 ): SocialObservation | null {
   const row = record(value);
   if (!row) return null;
-  const sourceId = nonempty(row.sourceId ?? row.source_id ?? row.id);
-  const content = nonempty(row.content ?? row.text ?? row.description ?? row.title);
+  const wrapped = record(row.item) ?? record(row.aweme_info) ?? record(row.video) ?? record(row.note_card) ?? record(row.mblog) ?? record(row.card) ?? row;
+  const sourceId = nonempty(wrapped.sourceId ?? wrapped.source_id ?? wrapped.aweme_id ?? wrapped.note_id ?? wrapped.docID ?? wrapped.itemId ?? wrapped.id);
+  const content = nonempty(wrapped.content ?? wrapped.text_raw ?? wrapped.text ?? wrapped.desc ?? wrapped.description ?? wrapped.title ?? wrapped.note_title ?? row.title ?? row.desc);
   const platform = nonempty(row.platform) ?? input.platform;
   if (!sourceId || !content || !platform || !platforms.includes(platform as SocialPlatform)) return null;
-  const rawMetrics = record(row.metrics) ?? {};
+  const statistics = record(wrapped.statistics) ?? {};
+  const rawMetrics = record(wrapped.metrics) ?? {
+    likes: statistics.digg_count ?? statistics.like_count,
+    comments: statistics.comment_count,
+    shares: statistics.share_count,
+    views: statistics.play_count ?? statistics.view_count,
+  };
   const metrics = Object.fromEntries(Object.entries(rawMetrics).filter((entry): entry is [string, number] =>
     typeof entry[1] === "number" && Number.isFinite(entry[1]),
   ));
-  const city = nonempty(row.city) ?? input.city ?? "";
-  const sourceUrl = nonempty(row.sourceUrl ?? row.source_url ?? row.url);
+  const city = input.city ?? nonempty(row.city) ?? "";
+  const sourceUrl = nonempty(wrapped.sourceUrl ?? wrapped.source_url ?? wrapped.share_url ?? wrapped.doc_url ?? wrapped.url ?? row.doc_url);
   return {
     provider, platform: platform as SocialPlatform, sourceId,
     ...(sourceUrl && /^https:\/\//i.test(sourceUrl) ? { sourceUrl } : {}),
     city,
     entityType: nonempty(row.entityType ?? row.entity_type),
     entityId: nonempty(row.entityId ?? row.entity_id),
-    content, summary: nonempty(row.summary),
-    publishedAt: isoDate(row.publishedAt ?? row.published_at),
+    content, summary: nonempty(wrapped.summary),
+    publishedAt: isoDate(wrapped.publishedAt ?? wrapped.published_at ?? wrapped.publish_time ?? wrapped.create_time ?? wrapped.timestamp ?? wrapped.time ?? wrapped.date),
     fetchedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + 30 * 86_400_000).toISOString(),
     metrics,
@@ -95,6 +124,7 @@ export function createSocialAdapter(input: {
   platforms: readonly SocialPlatform[];
   apiKey?: string;
   transport?: SocialRequestTransport;
+  supportedOperations?: readonly SocialOperation[];
   now?: () => Date;
 }): SocialProvider {
   const apiKey = input.apiKey?.trim() ?? "";
@@ -102,13 +132,19 @@ export function createSocialAdapter(input: {
   const now = input.now ?? (() => new Date());
 
   async function request(operation: SocialOperation, args: SocialSearchInput | SocialContentInput): Promise<SocialProviderResult<unknown>> {
+    if (input.supportedOperations && !input.supportedOperations.includes(operation)) {
+      return { status: "unavailable", data: null, warnings: [`${input.name} ${operation} is not enabled for this adapter`] };
+    }
     if (!configured || !input.transport) return { status: "unavailable", data: null, warnings: [`${input.name} is not configured`] };
     if (args.platform && !input.platforms.includes(args.platform)) {
       return { status: "unavailable", data: null, warnings: [`${input.name} does not support ${args.platform}`] };
     }
     try {
       return { status: "ok", data: await input.transport({ provider: input.name, operation, apiKey, input: args }), warnings: [] };
-    } catch {
+    } catch (error) {
+      if (error instanceof SocialProviderRequestError) {
+        return { status: "error", data: null, warnings: [error.message] };
+      }
       return { status: "error", data: null, warnings: [`${input.name} request failed`] };
     }
   }
@@ -119,7 +155,7 @@ export function createSocialAdapter(input: {
       data: rows(result.data).flatMap((row) => {
         const item = normalizeObservation(row, input.name, input.platforms, args, now());
         return item ? [item] : [];
-      }),
+      }).slice(0, Math.max(0, Math.min(args.limit ?? 20, 20))),
     };
   }
 

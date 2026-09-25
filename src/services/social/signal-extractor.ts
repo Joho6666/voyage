@@ -10,7 +10,9 @@ function candidates(observation: SocialObservation): Candidate[] {
   const add = (signalType: SocialSignalType, value: SocialSignalValue, groupValue = "") =>
     result.push({ observation, signalType, value, groupValue });
 
-  if (/排队|拥堵|拥挤|人山人海|人很多|crowded|long queue/i.test(content)) {
+  if (/人少|不拥挤|不用排队|无需排队|没什么人/.test(content)) {
+    add("crowd_risk", { risk: 0.1 });
+  } else if (/排队|拥堵|拥挤|人山人海|人很多|crowded|long queue/i.test(content)) {
     add("crowd_risk", { risk: 0.8 });
   }
   const times = content.match(/\b([01]?\d|2[0-3]):([0-5]\d)\s*[-~至到]\s*([01]?\d|2[0-3]):([0-5]\d)\b/);
@@ -65,7 +67,9 @@ export function extractSocialSignals(observations: SocialObservation[], now = ne
     const expiresAtMs = Math.min(observedAtMs + ttl, ...group.map((item) => Date.parse(item.observation.expiresAt)));
     if (expiresAtMs <= now.getTime()) return [];
     const platformCount = new Set(group.map((item) => item.observation.platform)).size;
-    const confidence = Math.min(0.85, 0.3 + Math.min(group.length, 3) * 0.1 + Math.min(platformCount - 1, 2) * 0.1);
+    const risks = group.filter((item) => item.signalType === "crowd_risk").map((item) => "risk" in item.value ? item.value.risk : 0);
+    const conflicting = risks.length > 1 && Math.max(...risks) - Math.min(...risks) >= 0.5;
+    const confidence = Math.max(0.2, Math.min(0.85, 0.3 + Math.min(group.length, 3) * 0.1 + Math.min(platformCount - 1, 2) * 0.1 - (conflicting ? 0.25 : 0)));
     let value = first.value;
     if (first.signalType === "crowd_risk") value = { risk: average(group.map((item) => "risk" in item.value ? item.value.risk : 0)) };
     if (first.signalType === "trend_score") value = { score: average(group.map((item) => "score" in item.value ? item.value.score : 0)) };
