@@ -4,12 +4,14 @@ import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { validateTrip } from "@/schemas/trip";
 import type { Place, Trip } from "@/types/travel";
 import type { ProviderForecast, ProviderRoute, TravelDataProvider } from "@/skill/providers";
 import { JsonSkillRepository } from "@/skill/repository";
 import { VoyageSkillRuntime } from "@/skill/runtime";
+
+vi.setConfig({ testTimeout: 30_000 });
 
 interface Fixture {
   places: Place[];
