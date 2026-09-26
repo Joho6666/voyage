@@ -30,7 +30,12 @@ export class MemoryTripRepository implements TripRepository {
   private trips: Map<string, Trip>;
 
   constructor() {
-    this.trips = new Map<string, Trip>([[chongqingTrip.id, structuredClone(chongqingTrip)]]);
+    this.trips = new Map<string, Trip>();
+    // The hardcoded Chongqing fixture (coordinates, prices, operating status)
+    // is fabricated data: it must only exist when demo mode is explicit.
+    if (process.env.VOYAGE_DEMO_MODE === "true") {
+      this.trips.set(chongqingTrip.id, structuredClone(chongqingTrip));
+    }
 
     // Guest mode is intentionally local-only. Keep the in-memory fallback
     // useful across browser reloads without making localStorage a server
@@ -46,7 +51,7 @@ export class MemoryTripRepository implements TripRepository {
         }
       }
     } catch {
-      // Ignore malformed or unavailable browser storage and keep the demo trip.
+      // Ignore malformed or unavailable browser storage and keep the session trips.
     }
   }
 

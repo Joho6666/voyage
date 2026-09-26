@@ -712,17 +712,24 @@ export class VoyageSkillRuntime {
 
   async getWeather(raw: unknown) {
     const input = getWeatherInputSchema.parse(raw);
-    const provider = await this.providerFactory();
-    let forecasts: ProviderForecast[];
+    let provider: TravelDataProvider | undefined;
     try {
-      forecasts = await provider.getWeather(input.destination);
+      provider = await this.providerFactory();
     } catch (error) {
       if (input.fallbackPolicy !== "estimated") throw normalizeProviderError(error, "WEATHER_UNAVAILABLE");
-      forecasts = [];
+    }
+    let forecasts: ProviderForecast[] = [];
+    if (provider) {
+      try {
+        forecasts = await provider.getWeather(input.destination);
+      } catch (error) {
+        if (input.fallbackPolicy !== "estimated") throw normalizeProviderError(error, "WEATHER_UNAVAILABLE");
+      }
     }
     const weather = input.dates.map((date) => ({ date, ...weatherForDate(forecasts, date) }));
     const missing = weather.some((item) => item.provenance.source === "unavailable");
-    return successEnvelope({ weather }, status("UNKNOWN", "UNKNOWN", weatherLevel(provider, missing)), missing ? ["Weather unavailable for one or more dates"] : []);
+    const level: ProviderLevel = provider ? weatherLevel(provider, missing) : "UNAVAILABLE";
+    return successEnvelope({ weather }, status("UNKNOWN", "UNKNOWN", level), missing ? ["Weather unavailable for one or more dates"] : []);
   }
 
   async searchFlights(raw: unknown) {

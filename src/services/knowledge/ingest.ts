@@ -21,6 +21,8 @@ const AUTHORITIES = new Set<KnowledgeAuthorityLevel>([
   "community",
   "user",
   "derived",
+  "social",
+  "unknown",
 ]);
 
 function parseScalar(value: string): unknown {
