@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { planActions } from "@/services/ai/actions/planner";
 import { executeActions } from "@/services/ai/actions/executor";
+import { computeTripChangeSet } from "@/services/ai/diff";
 import { tripRepository } from "@/services/trips/repository";
 import { recomputeTrip } from "@/services/routing";
 import type { Trip } from "@/types/travel";
@@ -22,7 +23,10 @@ export async function POST(request: Request) {
   const execution = executeActions(trip, result.actions);
   const nextTrip = recomputeTrip(execution.trip);
 
-  if (body.data.persist !== false) {
+  // Confirmation discipline: this endpoint plans and previews only. It never
+  // persists unless the caller explicitly opts in; user-approved changes must
+  // flow through the Diff confirmation UI or the runtime apply-change command.
+  if (body.data.persist === true) {
     try {
       await tripRepository.save(nextTrip);
     } catch (error) {
@@ -40,6 +44,8 @@ export async function POST(request: Request) {
     applied: execution.applied,
     rejected: execution.rejected,
     trip: nextTrip,
+    changeSet: computeTripChangeSet(trip, nextTrip, execution.applied, result.summary),
+    requiresConfirmation: body.data.persist !== true,
   });
 }
 

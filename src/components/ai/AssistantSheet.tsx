@@ -5,8 +5,10 @@ import { Sparkles, Undo2, Redo2 } from "lucide-react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { TripDiffModal } from "@/components/ai/TripDiffModal";
 import { travelAgent } from "@/services/ai";
 import type { AgentMessage } from "@/services/ai/types";
+import type { TripChangeSet } from "@/types/diff";
 import { useHistoryStore } from "@/store/history-store";
 import { useTripStore } from "@/store/trip-store";
 import { useUiStore } from "@/store/ui-store";
@@ -26,6 +28,7 @@ export function AssistantSheet() {
   const redo = useHistoryStore((s) => s.redo);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pendingDiff, setPendingDiff] = useState<{ changeSet: TripChangeSet; proposal: NonNullable<AgentMessage["proposal"]> } | null>(null);
   const [messages, setMessages] = useState<AgentMessage[]>([
     {
       id: "welcome",
@@ -49,6 +52,15 @@ export function AssistantSheet() {
     } finally {
       setBusy(false);
     }
+  };
+
+  /** Every proposal must pass the Diff confirmation modal before it mutates the trip. */
+  const reviewProposal = (proposal: NonNullable<AgentMessage["proposal"]>) => {
+    if (proposal.changeSet) {
+      setPendingDiff({ changeSet: proposal.changeSet, proposal });
+      return;
+    }
+    applyProposal(proposal);
   };
 
   const applyProposal = (proposal: NonNullable<AgentMessage["proposal"]>) => {
@@ -113,8 +125,8 @@ export function AssistantSheet() {
               >
                 <p className="leading-6">{msg.content}</p>
                 {msg.proposal ? (
-                  <Button size="sm" className="mt-2" onClick={() => applyProposal(msg.proposal!)}>
-                    应用修改
+                  <Button size="sm" className="mt-2" onClick={() => reviewProposal(msg.proposal!)}>
+                    查看并应用修改
                   </Button>
                 ) : null}
               </div>
@@ -149,6 +161,18 @@ export function AssistantSheet() {
             }}
           />
         </div>
+        <TripDiffModal
+          changeSet={pendingDiff?.changeSet ?? null}
+          open={Boolean(pendingDiff)}
+          onOpenChange={(next) => {
+            if (!next) setPendingDiff(null);
+          }}
+          onApply={(changeSet) => {
+            const proposal = pendingDiff?.proposal;
+            setPendingDiff(null);
+            if (proposal) applyProposal(proposal);
+          }}
+        />
       </SheetContent>
     </Sheet>
   );

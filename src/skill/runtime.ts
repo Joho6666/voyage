@@ -1,4 +1,5 @@
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { executeActions, estimateBudgetItems } from "@/services/ai/actions/executor";
 import type { TravelAction } from "@/services/ai/actions/types";
 import { buildRouteOptionSet } from "@/services/transport/options";
@@ -15,6 +16,9 @@ import type { Day, ItineraryItem, Place, RouteSegment, Trip } from "@/types/trav
 import {
   applyChangeInputSchema,
   createTripInputSchema,
+  getPlaceInputSchema,
+  getSocialEvidenceInputSchema,
+  getSocialTrendingInputSchema,
   getTripInputSchema,
   getWeatherInputSchema,
   getRouteOptionsInputSchema,
@@ -22,12 +26,14 @@ import {
   retrieveTravelKnowledgeInputSchema,
   replanTripInputSchema,
   searchFlightsInputSchema,
+  searchSocialInputSchema,
   searchTravelOffersInputSchema,
   refreshTravelOffersInputSchema,
   planRouteInputSchema,
   proposeChangeInputSchema,
   searchPlacesInputSchema,
   reorderDayInputSchema,
+  updateTripInputSchema,
   successEnvelope,
   type ProviderLevel,
   type ProviderStatus,
@@ -41,6 +47,12 @@ import { queryMeituan } from "@/services/meituan/runner";
 import { queryFliggyOffers } from "@/services/booking/fliggy-offers";
 import type { OfferKind, OfferProviderLevel, OfferProviderStatus, TravelOffer } from "@/types/offers";
 import { resolveCityCoverImage } from "@/services/media/city-cover";
+import { SocialProviderRouter } from "@/services/social/router";
+import { createTikHubProvider } from "@/services/social/tikhub";
+import { createRedFoxProvider } from "@/services/social/redfox";
+import { extractSocialSignals } from "@/services/social/signal-extractor";
+import { buildSocialContext } from "@/services/social/context-builder";
+import type { SocialEvidence, SocialObservation, SocialPlatform } from "@/services/social/types";
 
 const DAY_MS = 86_400_000;
 
@@ -55,14 +67,24 @@ function daysBetween(startDate: string, finishDate: string) {
 function overall(levels: ProviderLevel[]): ProviderLevel {
   if (levels.includes("UNAVAILABLE")) return "UNAVAILABLE";
   if (levels.includes("UNSTRUCTURED")) return "UNSTRUCTURED";
+  if (levels.includes("PERMISSION_REQUIRED")) return "PERMISSION_REQUIRED";
   if (levels.includes("MOCK")) return "MOCK";
   if (levels.includes("UNKNOWN")) return "UNKNOWN";
   if (levels.includes("ESTIMATED")) return "ESTIMATED";
+  if (levels.includes("CACHED")) return "CACHED";
+  if (levels.includes("CURATED")) return "CURATED";
+  if (levels.includes("SOCIAL")) return "SOCIAL";
   return "REAL";
 }
 
-function status(places: ProviderLevel, routes: ProviderLevel, weather: ProviderLevel, travelOffers?: ProviderLevel): ProviderStatus {
-  return { overall: overall([places, routes, weather, ...(travelOffers ? [travelOffers] : [])]), places, routes, weather, travelOffers: travelOffers ?? "UNKNOWN" };
+function status(places: ProviderLevel, routes: ProviderLevel, weather: ProviderLevel, travelOffers?: ProviderLevel, social?: ProviderLevel, knowledge?: ProviderLevel): ProviderStatus {
+  return {
+    overall: overall([places, routes, weather, ...(travelOffers ? [travelOffers] : []), ...(social ? [social] : []), ...(knowledge ? [knowledge] : [])]),
+    places, routes, weather,
+    travelOffers: travelOffers ?? "UNKNOWN",
+    social: social ?? "UNKNOWN",
+    knowledge: knowledge ?? "UNKNOWN",
+  };
 }
 
 function routeLevel(route: ProviderRoute | undefined): ProviderLevel {
@@ -231,10 +253,80 @@ function restoreLockedItems(original: Trip, proposed: Trip, locked: Set<string>)
   return { ...proposed, items: proposed.items.map((item) => originals.get(item.id) ?? item) };
 }
 
+function socialRouter(): SocialProviderRouter {
+  return new SocialProviderRouter([createTikHubProvider(), createRedFoxProvider()]);
+}
+
+function socialLevel(resultStatus: "ok" | "unavailable" | "error", observationCount: number): ProviderLevel {
+  if (resultStatus === "ok") return observationCount > 0 ? "SOCIAL" : "UNKNOWN";
+  return "UNAVAILABLE";
+}
+
+function socialEngagement(observation: SocialObservation): number {
+  const { likes = 0, comments = 0, shares = 0 } = observation.metrics;
+  return likes + comments + shares;
+}
+
+function recentRelevantObservations(input: { city: string; poi?: string }, observations: SocialObservation[]): SocialObservation[] {
+  return observations
+    .filter((item) => item.content.includes(input.city) || (input.poi && item.content.includes(input.poi)))
+    .filter((item) => !item.publishedAt || Number.isFinite(Date.parse(item.publishedAt)) && Date.now() - Date.parse(item.publishedAt) < 30 * 86_400_000)
+    .slice(0, 20);
+}
+
+type PoiMatch = { placeId: string; name: string; confidence: number; matchBasis: "entity_id" | "name_contains" | "unknown" };
+
+/** First-generation POI alignment: entity id when the provider reports one, otherwise name containment. Unmatched evidence stays UNKNOWN. */
+function alignObservationToPois(observation: SocialObservation, poi: string | undefined, places: Array<{ id: string; name: string }> | undefined): PoiMatch[] {
+  if (!places?.length) return [];
+  const haystack = `${observation.content} ${observation.summary ?? ""}`.toLowerCase();
+  const matches: PoiMatch[] = [];
+  for (const place of places) {
+    const name = place.name.trim();
+    if (name.length < 2) continue;
+    if (observation.entityId && observation.entityId === place.id) {
+      matches.push({ placeId: place.id, name, confidence: 0.8, matchBasis: "entity_id" });
+    } else if (haystack.includes(name.toLowerCase())) {
+      matches.push({ placeId: place.id, name, confidence: 0.5, matchBasis: "name_contains" });
+    } else if (poi && name.includes(poi) && haystack.includes(poi.toLowerCase())) {
+      matches.push({ placeId: place.id, name, confidence: 0.4, matchBasis: "name_contains" });
+    }
+  }
+  return matches.sort((a, b) => b.confidence - a.confidence).slice(0, 3);
+}
+
+function buildSocialEvidence(input: { city: string; poi?: string; observations: SocialObservation[]; places?: Array<{ id: string; name: string }> }): { evidence: SocialEvidence[]; signals: ReturnType<typeof extractSocialSignals> } {
+  const signals = extractSocialSignals(input.observations);
+  const evidence = input.observations.map((observation) => {
+    const related = signals.filter((signal) => signal.sources.some((source) => source.sourceId === observation.sourceId && source.platform === observation.platform));
+    return {
+      platform: observation.platform,
+      sourceId: observation.sourceId,
+      sourceUrl: observation.sourceUrl,
+      summary: observation.summary ?? observation.content.slice(0, 180),
+      city: observation.city,
+      publishedAt: observation.publishedAt,
+      fetchedAt: observation.fetchedAt,
+      signalTypes: related.map((signal) => signal.signalType),
+      confidence: related.length ? Math.max(...related.map((signal) => signal.confidence)) : 0.25,
+      sampleSize: related.length ? Math.max(...related.map((signal) => signal.sampleSize)) : 1,
+      metrics: observation.metrics,
+      poiMatches: alignObservationToPois(observation, input.poi, input.places),
+      warnings: ["社交平台内容仅作攻略参考，不替代实时供应商事实"],
+    } satisfies SocialEvidence;
+  });
+  return { evidence, signals };
+}
+
+function socialQueryId(input: { city: string; poi?: string; query?: string }): string {
+  return createHash("sha256").update(`${input.city}|${input.poi ?? ""}|${input.query ?? ""}`).digest("hex").slice(0, 32);
+}
+
 export class VoyageSkillRuntime {
   constructor(
     private readonly repository: JsonSkillRepository,
     private readonly providerFactory: () => Promise<TravelDataProvider> = providerFromEnvironment,
+    private readonly socialRouterFactory: () => SocialProviderRouter = socialRouter,
   ) {}
 
   async createTrip(raw: unknown) {
@@ -435,7 +527,7 @@ export class VoyageSkillRuntime {
         databaseUsed: retrieval.databaseUsed,
         note: "RAG knowledge supplements live providers; realtime route, weather, availability and price facts stay authoritative.",
       },
-    }, undefined, retrieval.warnings);
+    }, status("UNKNOWN", "UNKNOWN", "UNKNOWN", undefined, undefined, retrieval.matches.length ? "CURATED" : "UNKNOWN"), retrieval.warnings);
   }
 
   async replanTrip(raw: unknown) {
@@ -794,6 +886,108 @@ export class VoyageSkillRuntime {
     return successEnvelope({ tripId: input.tripId, proposalId: input.proposalId, trip: stored.trip, revision: stored.revision, tripHash: stored.hash });
   }
 
+  async getPlace(raw: unknown) {
+    const input = getPlaceInputSchema.parse(raw);
+    if (input.tripId && input.placeId) {
+      const stored = await this.repository.getTrip(input.tripId);
+      if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+      const place = stored.trip.places.find((candidate) => candidate.id === input.placeId);
+      if (!place) throw new SkillError("PLACE_NOT_FOUND", "Place not found in trip");
+      return successEnvelope({ place, matchBasis: "trip_lookup" as const }, status("UNKNOWN", "UNKNOWN", "UNKNOWN"));
+    }
+    const provider = await this.providerFactory();
+    const places = uniquePlaces(await provider.searchPlaces({ destination: input.city!, query: input.name!, category: undefined, limit: 5 }).catch((error) => {
+      throw normalizeProviderError(error, "NO_POI_RESULTS");
+    }));
+    if (!places.length) throw new SkillError("NO_POI_RESULTS", "No matching places found");
+    const name = input.name!.trim();
+    const best = places.find((place) => place.name === name)
+      ?? places.find((place) => place.name.includes(name) || name.includes(place.name))
+      ?? places[0];
+    return successEnvelope({ place: best, matchBasis: "provider_search" as const }, status(placeLevel(provider), "UNKNOWN", "UNKNOWN"));
+  }
+
+  async updateTrip(raw: unknown) {
+    const input = updateTripInputSchema.parse(raw);
+    const stored = await this.repository.getTrip(input.tripId);
+    if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+    if (stored.revision !== input.expectedTripRevision) throw new SkillError("REVISION_CONFLICT", "Trip revision does not match expectedTripRevision");
+    const { patch } = input;
+    let trip: Trip = { ...stored.trip, ...patch, updatedAt: new Date().toISOString() };
+    if (patch.budget !== undefined) {
+      trip = estimateBudgetItems({ ...trip, estimatedSpend: Math.round(patch.budget * 0.85) });
+    }
+    const saved = await this.repository.updateTrip({ tripId: input.tripId, expectedRevision: stored.revision, trip });
+    return successEnvelope(
+      { tripId: input.tripId, trip: saved.trip, revision: saved.revision, tripHash: saved.hash, changedFields: Object.keys(patch) },
+      status("UNKNOWN", "UNKNOWN", "UNKNOWN"),
+      [],
+      { source: "user_patch" },
+    );
+  }
+
+  async searchSocial(raw: unknown) {
+    const input = searchSocialInputSchema.parse(raw);
+    const router = this.socialRouterFactory();
+    const collected = await router.searchContent({ city: input.city, query: input.query, platform: input.platform as SocialPlatform | undefined, limit: input.limit });
+    const observations = recentRelevantObservations({ city: input.city, poi: input.poi }, collected.data);
+    const { evidence, signals } = buildSocialEvidence({ city: input.city, poi: input.poi, observations });
+    const level = socialLevel(collected.status, observations.length);
+    const warnings = collected.warnings;
+    return successEnvelope(
+      { city: input.city, queryId: socialQueryId(input), evidence, signals, platformStatus: { router: collected.status }, warnings },
+      status("UNKNOWN", "UNKNOWN", "UNKNOWN", undefined, level),
+      warnings,
+    );
+  }
+
+  async getSocialTrending(raw: unknown) {
+    const input = getSocialTrendingInputSchema.parse(raw);
+    const router = this.socialRouterFactory();
+    const collected = await router.getTrending({ city: input.city, platform: input.platform as SocialPlatform | undefined, limit: input.limit });
+    const ranked = recentRelevantObservations({ city: input.city }, collected.data)
+      .sort((a, b) => socialEngagement(b) - socialEngagement(a))
+      .slice(0, input.limit);
+    const { evidence, signals } = buildSocialEvidence({ city: input.city, observations: ranked });
+    const level = socialLevel(collected.status, ranked.length);
+    const warnings = collected.warnings;
+    return successEnvelope(
+      { city: input.city, queryId: socialQueryId(input), evidence, signals, platformStatus: { router: collected.status }, warnings },
+      status("UNKNOWN", "UNKNOWN", "UNKNOWN", undefined, level),
+      warnings,
+    );
+  }
+
+  async getSocialEvidence(raw: unknown) {
+    const input = getSocialEvidenceInputSchema.parse(raw);
+    let places: Array<{ id: string; name: string }> = [];
+    if (input.tripId) {
+      const stored = await this.repository.getTrip(input.tripId);
+      if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+      places = stored.trip.places.map((place) => ({ id: place.id, name: place.name }));
+    } else if (input.poi) {
+      try {
+        const provider = await this.providerFactory();
+        places = uniquePlaces(await provider.searchPlaces({ destination: input.city, query: input.poi, category: undefined, limit: 8 }))
+          .map((place) => ({ id: place.id, name: place.name }));
+      } catch {
+        places = [];
+      }
+    }
+    const query = [input.poi, input.query].filter(Boolean).join(" ").trim() || undefined;
+    const collected = await this.socialRouterFactory().searchContent({ city: input.city, query, limit: input.limit });
+    const observations = recentRelevantObservations({ city: input.city, poi: input.poi }, collected.data);
+    const { evidence, signals } = buildSocialEvidence({ city: input.city, poi: input.poi, observations, places });
+    const context = buildSocialContext({ city: input.city, poi: input.poi, query: input.query }, signals);
+    const level = socialLevel(collected.status, observations.length);
+    const warnings = [...collected.warnings, ...context.warnings.map((message) => `social: ${message}`)];
+    return successEnvelope(
+      { city: input.city, queryId: socialQueryId(input), evidence, signals, context, platformStatus: { router: collected.status }, warnings },
+      status("UNKNOWN", "UNKNOWN", "UNKNOWN", undefined, level),
+      warnings,
+    );
+  }
+
   async execute(command: SkillCommand, input: unknown) {
     switch (command) {
       case "create-trip": return this.createTrip(input);
@@ -811,6 +1005,11 @@ export class VoyageSkillRuntime {
       case "reorder-day": return this.reorderDay(input);
       case "propose-change": return this.proposeChange(input);
       case "apply-change": return this.applyChange(input);
+      case "get-place": return this.getPlace(input);
+      case "update-trip": return this.updateTrip(input);
+      case "search-social": return this.searchSocial(input);
+      case "get-social-trending": return this.getSocialTrending(input);
+      case "get-social-evidence": return this.getSocialEvidence(input);
     }
   }
 }

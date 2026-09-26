@@ -99,5 +99,7 @@ export interface SocialEvidence {
   signalTypes: SocialSignalType[];
   confidence: number;
   sampleSize: number;
+  metrics?: Record<string, number>;
+  poiMatches?: Array<{ placeId: string; name: string; confidence: number; matchBasis: "entity_id" | "name_contains" | "unknown" }>;
   warnings: string[];
 }
