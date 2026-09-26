@@ -1,5 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { chunkKnowledgeDocument, knowledgeContentHash, normalizeKnowledgeText } from "./chunker";
 import { createEmbeddingProvider, embedInBatches, type EmbeddingProvider } from "./embeddings";
 import { createKnowledgeAdminClient, SupabaseKnowledgeRepository } from "./supabase";
@@ -158,6 +159,26 @@ export interface IngestKnowledgeOptions {
   force?: boolean;
   ownerId?: string | null;
   embeddingProvider?: EmbeddingProvider | null;
+}
+
+/** Absolute path of the repository's own curated corpus. */
+export function repositoryKnowledgeRoot(): string {
+  return path.resolve(fileURLToPath(new URL("../../../knowledge", import.meta.url)));
+}
+
+/**
+ * Operator entry point: ingests the repository's curated corpus with no
+ * caller-supplied filesystem path, so the CLI cannot be aimed at arbitrary
+ * directories.
+ */
+export async function ingestRepositoryCorpus(
+  options: { force?: boolean; ownerId?: string | null } = {},
+): Promise<IngestKnowledgeSummary> {
+  return ingestKnowledgeDirectory({
+    root: repositoryKnowledgeRoot(),
+    force: options.force,
+    ownerId: options.ownerId ?? null,
+  });
 }
 
 export interface IngestKnowledgeSummary {

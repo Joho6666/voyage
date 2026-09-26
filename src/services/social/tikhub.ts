@@ -53,13 +53,14 @@ function detailRequest(operation: string, input: { platform?: string; sourceId?:
 
 const TIKHUB_API_HOST = new URL(TIKHUB_API_BASE_URL).hostname;
 
-/** Single network choke point: the sink refuses anything off the documented TikHub host. */
+/** Single network choke point: only path+query survive onto the pinned origin. */
 async function requestJson(url: URL, method: string, body: Record<string, unknown>, apiKey: string) {
   if (url.protocol !== "https:" || url.hostname !== TIKHUB_API_HOST) {
     throw new SocialProviderRequestError("TikHub request host mismatch");
   }
+  const pinnedTarget = `${TIKHUB_API_BASE_URL}${url.pathname}${url.search}`;
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const response = await fetch(url, {
+    const response = await fetch(pinnedTarget, {
       method,
       headers: { authorization: `Bearer ${apiKey}`, accept: "application/json", ...(method === "POST" ? { "content-type": "application/json" } : {}) },
       ...(method === "POST" ? { body: JSON.stringify(body) } : {}),
