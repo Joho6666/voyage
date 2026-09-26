@@ -257,8 +257,58 @@ function socialRouter(): SocialProviderRouter {
   return new SocialProviderRouter([createTikHubProvider(), createRedFoxProvider()]);
 }
 
-function socialLevel(resultStatus: "ok" | "unavailable" | "error", observationCount: number): ProviderLevel {
-  if (resultStatus === "ok") return observationCount > 0 ? "SOCIAL" : "UNKNOWN";
+const DEFAULT_SOCIAL_PLATFORMS: SocialPlatform[] = ["douyin", "xiaohongshu", "weibo", "wechat_search"];
+
+interface SocialCollectResult {
+  observations: SocialObservation[];
+  platformStatus: Record<string, string>;
+  warnings: string[];
+}
+
+/**
+ * When the caller names a platform, hit it directly; otherwise fan out across
+ * the Chinese-content platforms — TikHub's own default is international TikTok,
+ * which carries almost no domestic travel content.
+ */
+async function collectSocialObservations(
+  router: SocialProviderRouter,
+  input: { city: string; query?: string; platform?: string; limit: number; operation?: "searchContent" | "getTrending" },
+): Promise<SocialCollectResult> {
+  const operation = input.operation ?? "searchContent";
+  const platform = input.platform as SocialPlatform | undefined;
+  if (platform) {
+    const result = await router[operation]({ city: input.city, query: input.query, platform, limit: input.limit });
+    return { observations: result.data, platformStatus: { [platform]: result.status }, warnings: result.warnings };
+  }
+  const settled = await Promise.all(DEFAULT_SOCIAL_PLATFORMS.map(async (p) => {
+    try {
+      const result = await router[operation]({ city: input.city, query: input.query, platform: p, limit: Math.min(input.limit, 5) });
+      return { platform: p, result };
+    } catch {
+      return { platform: p, result: { status: "error" as const, data: [] as SocialObservation[], warnings: ["request failed"] } };
+    }
+  }));
+  const seen = new Set<string>();
+  const observations: SocialObservation[] = [];
+  for (const { result } of settled) {
+    for (const observation of result.data) {
+      const dedupeKey = `${observation.provider}|${observation.platform}|${observation.sourceId}`;
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
+      observations.push(observation);
+    }
+  }
+  const platformStatus = Object.fromEntries(settled.map(({ platform, result }) => [
+    platform, result.status === "ok" && result.data.length === 0 ? "unavailable" : result.status,
+  ]));
+  const warnings = settled.flatMap(({ platform, result }) => result.warnings.map((warning) => `${platform}: ${warning}`));
+  return { observations, platformStatus, warnings };
+}
+
+function socialLevelFromStatuses(statuses: Record<string, string>, observationCount: number): ProviderLevel {
+  const values = Object.values(statuses);
+  if (values.includes("ok")) return observationCount > 0 ? "SOCIAL" : "UNKNOWN";
+  if (values.includes("error")) return "UNAVAILABLE";
   return "UNAVAILABLE";
 }
 
@@ -935,14 +985,13 @@ export class VoyageSkillRuntime {
 
   async searchSocial(raw: unknown) {
     const input = searchSocialInputSchema.parse(raw);
-    const router = this.socialRouterFactory();
-    const collected = await router.searchContent({ city: input.city, query: input.query, platform: input.platform as SocialPlatform | undefined, limit: input.limit });
-    const observations = recentRelevantObservations({ city: input.city, poi: input.poi }, collected.data);
+    const collected = await collectSocialObservations(this.socialRouterFactory(), { city: input.city, query: input.query, platform: input.platform, limit: input.limit });
+    const observations = recentRelevantObservations({ city: input.city, poi: input.poi }, collected.observations);
     const { evidence, signals } = buildSocialEvidence({ city: input.city, poi: input.poi, observations });
-    const level = socialLevel(collected.status, observations.length);
+    const level = socialLevelFromStatuses(collected.platformStatus, observations.length);
     const warnings = collected.warnings;
     return successEnvelope(
-      { city: input.city, queryId: socialQueryId(input), evidence, signals, platformStatus: { router: collected.status }, warnings },
+      { city: input.city, queryId: socialQueryId(input), evidence, signals, platformStatus: collected.platformStatus, warnings },
       status("UNKNOWN", "UNKNOWN", "UNKNOWN", undefined, level),
       warnings,
     );
@@ -950,16 +999,15 @@ export class VoyageSkillRuntime {
 
   async getSocialTrending(raw: unknown) {
     const input = getSocialTrendingInputSchema.parse(raw);
-    const router = this.socialRouterFactory();
-    const collected = await router.getTrending({ city: input.city, platform: input.platform as SocialPlatform | undefined, limit: input.limit });
-    const ranked = recentRelevantObservations({ city: input.city }, collected.data)
+    const collected = await collectSocialObservations(this.socialRouterFactory(), { city: input.city, platform: input.platform, limit: input.limit, operation: "getTrending" });
+    const ranked = recentRelevantObservations({ city: input.city }, collected.observations)
       .sort((a, b) => socialEngagement(b) - socialEngagement(a))
       .slice(0, input.limit);
     const { evidence, signals } = buildSocialEvidence({ city: input.city, observations: ranked });
-    const level = socialLevel(collected.status, ranked.length);
+    const level = socialLevelFromStatuses(collected.platformStatus, ranked.length);
     const warnings = collected.warnings;
     return successEnvelope(
-      { city: input.city, queryId: socialQueryId(input), evidence, signals, platformStatus: { router: collected.status }, warnings },
+      { city: input.city, queryId: socialQueryId(input), evidence, signals, platformStatus: collected.platformStatus, warnings },
       status("UNKNOWN", "UNKNOWN", "UNKNOWN", undefined, level),
       warnings,
     );
@@ -982,14 +1030,14 @@ export class VoyageSkillRuntime {
       }
     }
     const query = [input.poi, input.query].filter(Boolean).join(" ").trim() || undefined;
-    const collected = await this.socialRouterFactory().searchContent({ city: input.city, query, limit: input.limit });
-    const observations = recentRelevantObservations({ city: input.city, poi: input.poi }, collected.data);
+    const collected = await collectSocialObservations(this.socialRouterFactory(), { city: input.city, query, limit: input.limit });
+    const observations = recentRelevantObservations({ city: input.city, poi: input.poi }, collected.observations);
     const { evidence, signals } = buildSocialEvidence({ city: input.city, poi: input.poi, observations, places });
     const context = buildSocialContext({ city: input.city, poi: input.poi, query: input.query }, signals);
-    const level = socialLevel(collected.status, observations.length);
+    const level = socialLevelFromStatuses(collected.platformStatus, observations.length);
     const warnings = [...collected.warnings, ...context.warnings.map((message) => `social: ${message}`)];
     return successEnvelope(
-      { city: input.city, queryId: socialQueryId(input), evidence, signals, context, platformStatus: { router: collected.status }, warnings },
+      { city: input.city, queryId: socialQueryId(input), evidence, signals, context, platformStatus: collected.platformStatus, warnings },
       status("UNKNOWN", "UNKNOWN", "UNKNOWN", undefined, level),
       warnings,
     );

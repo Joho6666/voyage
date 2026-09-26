@@ -2,7 +2,10 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Golden cases chain several runtime commands per test; the default 5s timeout
+// is marginal for these flows on a loaded machine.
+vi.setConfig({ testTimeout: 30_000 });
 import type { Trip } from "@/types/travel";
 import type { ProviderForecast, ProviderRoute, TravelDataProvider } from "@/skill/providers";
 import { JsonSkillRepository } from "@/skill/repository";
