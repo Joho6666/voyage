@@ -2,7 +2,9 @@ import { z } from "zod";
 import { offerKindSchema } from "@/schemas/offers";
 
 export const SCHEMA_VERSION = "voyage.skill.v1" as const;
-export type ProviderLevel = "REAL" | "ESTIMATED" | "MOCK" | "UNKNOWN" | "UNAVAILABLE" | "UNSTRUCTURED" | "PERMISSION_REQUIRED";
+export type ProviderLevel =
+  | "REAL" | "ESTIMATED" | "CACHED" | "CURATED" | "SOCIAL"
+  | "MOCK" | "UNKNOWN" | "UNAVAILABLE" | "UNSTRUCTURED" | "PERMISSION_REQUIRED";
 
 export interface ProviderStatus {
   overall: ProviderLevel;
@@ -10,6 +12,8 @@ export interface ProviderStatus {
   routes: ProviderLevel;
   weather: ProviderLevel;
   travelOffers: ProviderLevel;
+  social: ProviderLevel;
+  knowledge: ProviderLevel;
 }
 
 export const fallbackPolicySchema = z.enum(["deny", "estimated"]).default("deny");
@@ -150,6 +154,49 @@ export const applyChangeInputSchema = z.object({
   confirmed: z.literal(true),
 });
 
+export const getPlaceInputSchema = z.object({
+  placeId: z.string().min(1).optional(),
+  tripId: z.string().min(1).optional(),
+  name: z.string().min(1).max(80).optional(),
+  city: z.string().min(1).max(80).optional(),
+}).refine((value) => (value.placeId && value.tripId) || (value.name && value.city), {
+  message: "provide tripId+placeId, or name+city",
+});
+
+export const updateTripInputSchema = z.object({
+  tripId: z.string().min(1),
+  expectedTripRevision: z.number().int().min(1),
+  patch: z.object({
+    title: z.string().min(1).max(120).optional(),
+    budget: z.number().min(0).max(1_000_000).optional(),
+    travelers: z.number().int().min(1).max(20).optional(),
+    vibe: z.array(z.string().min(1).max(30)).max(12).optional(),
+    prompt: z.string().max(2000).optional(),
+  }).refine((patch) => Object.keys(patch).length > 0, { message: "patch must not be empty" }),
+});
+
+export const searchSocialInputSchema = z.object({
+  city: z.string().min(1).max(80),
+  query: z.string().max(120).optional(),
+  poi: z.string().max(120).optional(),
+  platform: z.string().max(40).optional(),
+  limit: z.number().int().min(1).max(20).default(10),
+});
+
+export const getSocialTrendingInputSchema = z.object({
+  city: z.string().min(1).max(80),
+  platform: z.string().max(40).optional(),
+  limit: z.number().int().min(1).max(20).default(10),
+});
+
+export const getSocialEvidenceInputSchema = z.object({
+  city: z.string().min(1).max(80),
+  poi: z.string().max(120).optional(),
+  query: z.string().max(120).optional(),
+  tripId: z.string().min(1).optional(),
+  limit: z.number().int().min(1).max(20).default(10),
+});
+
 export const commandSchemas = {
   "create-trip": createTripInputSchema,
   "get-trip": getTripInputSchema,
@@ -166,14 +213,76 @@ export const commandSchemas = {
   "reorder-day": reorderDayInputSchema,
   "propose-change": proposeChangeInputSchema,
   "apply-change": applyChangeInputSchema,
+  "get-place": getPlaceInputSchema,
+  "update-trip": updateTripInputSchema,
+  "search-social": searchSocialInputSchema,
+  "get-social-trending": getSocialTrendingInputSchema,
+  "get-social-evidence": getSocialEvidenceInputSchema,
 } as const;
 
 export type SkillCommand = keyof typeof commandSchemas;
 
-export function successEnvelope(data: unknown, providerStatus?: ProviderStatus, warnings: string[] = []) {
-  return { schemaVersion: SCHEMA_VERSION, ok: true as const, data, warnings, ...(providerStatus ? { providerStatus } : {}) };
+export function successEnvelope(data: unknown, providerStatus?: ProviderStatus, warnings: string[] = [], provenance?: { source: string; confidence?: number }) {
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    ok: true as const,
+    data,
+    warnings,
+    generatedAt: new Date().toISOString(),
+    ...(providerStatus ? { providerStatus } : {}),
+    ...(provenance ? { provenance } : {}),
+  };
 }
 
 export function errorEnvelope(code: string, message: string, details?: unknown) {
-  return { schemaVersion: SCHEMA_VERSION, ok: false as const, error: { code, message, ...(details === undefined ? {} : { details }) } };
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    ok: false as const,
+    error: { code, message, ...(details === undefined ? {} : { details }) },
+    generatedAt: new Date().toISOString(),
+  };
 }
+
+/**
+ * Output schemas describe the shape of `data` per command. Complex nested
+ * payloads reuse the canonical trip schema; everything else is validated on
+ * the envelope fields every entry point must expose.
+ */
+const tripDataSchema = z.object({ tripId: z.string(), trip: z.unknown(), revision: z.number().int(), tripHash: z.string() }).passthrough();
+export const socialEvidenceSchema = z.object({
+  platform: z.string(), sourceId: z.string(), sourceUrl: z.string().url().optional(),
+  title: z.string().optional(), summary: z.string(), city: z.string(),
+  publishedAt: z.string().optional(), fetchedAt: z.string(),
+  signalTypes: z.array(z.string()), confidence: z.number().min(0).max(1),
+  sampleSize: z.number().int().nonnegative(), metrics: z.record(z.string(), z.number()).optional(),
+  poiMatches: z.array(z.object({ placeId: z.string(), name: z.string(), confidence: z.number().min(0).max(1), matchBasis: z.enum(["entity_id", "name_contains", "unknown"]) })).default([]),
+  warnings: z.array(z.string()),
+});
+const socialEvidenceListSchema = z.object({
+  city: z.string(), queryId: z.string().optional(), evidence: z.array(socialEvidenceSchema),
+  signals: z.array(z.unknown()).default([]), platformStatus: z.record(z.string(), z.string()),
+  warnings: z.array(z.string()),
+}).passthrough();
+
+export const outputSchemas = {
+  "create-trip": tripDataSchema,
+  "get-trip": tripDataSchema,
+  "update-trip": tripDataSchema,
+  "apply-change": tripDataSchema,
+  "reorder-day": tripDataSchema,
+  "search-places": z.object({ places: z.array(z.object({ id: z.string(), name: z.string(), category: z.string() }).passthrough()) }).passthrough(),
+  "get-place": z.object({ place: z.object({ id: z.string(), name: z.string() }).passthrough(), matchBasis: z.enum(["trip_lookup", "provider_search"]) }).passthrough(),
+  "plan-route": z.object({ route: z.object({ mode: z.string(), distanceMeters: z.number(), durationMinutes: z.number(), estimated: z.boolean() }).passthrough() }).passthrough(),
+  "get-route-options": z.object({ routeOptions: z.object({ recommendedMode: z.string(), options: z.array(z.unknown()).min(1) }).passthrough() }).passthrough(),
+  "optimize-transport": z.object({ recommended: z.unknown(), routeOptions: z.unknown() }).passthrough(),
+  "retrieve-travel-knowledge": z.object({ matches: z.array(z.unknown()), retrieval: z.object({ strategy: z.string(), vectorUsed: z.boolean(), databaseUsed: z.boolean() }).passthrough() }).passthrough(),
+  "get-weather": z.object({ weather: z.array(z.unknown()).min(1) }).passthrough(),
+  "search-flights": z.object({ flights: z.unknown(), provenance: z.unknown().optional() }).passthrough(),
+  "search-travel-offers": z.object({ offers: z.array(z.unknown()) }).passthrough(),
+  "refresh-travel-offers": tripDataSchema,
+  "replan-trip": z.object({ proposalId: z.string().nullable(), baseRevision: z.number().int().optional() }).passthrough(),
+  "propose-change": z.object({ proposalId: z.string(), tripId: z.string(), baseRevision: z.number().int() }).passthrough(),
+  "search-social": socialEvidenceListSchema,
+  "get-social-trending": socialEvidenceListSchema,
+  "get-social-evidence": socialEvidenceListSchema.extend({ context: z.unknown().optional() }),
+} as const;

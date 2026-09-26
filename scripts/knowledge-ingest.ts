@@ -1,5 +1,4 @@
-import path from "node:path";
-import { ingestKnowledgeDirectory } from "../src/services/knowledge/ingest";
+import { ingestRepositoryCorpus } from "../src/services/knowledge/ingest";
 
 function argValue(name: string) {
   const index = process.argv.indexOf(name);
@@ -7,19 +6,15 @@ function argValue(name: string) {
 }
 
 async function main() {
-  const root = path.resolve(argValue("--root") ?? "knowledge");
+  // Always ingests the repository's own curated corpus; there is no
+  // caller-supplied filesystem path on this entry point.
   const force = process.argv.includes("--force");
   const ownerId = argValue("--owner") ?? null;
 
-  const summary = await ingestKnowledgeDirectory({
-    root,
-    force,
-    ownerId,
-  });
+  const summary = await ingestRepositoryCorpus({ force, ownerId });
 
   process.stdout.write(JSON.stringify({
     ok: true,
-    root,
     force,
     ...summary,
   }, null, 2) + "\n");

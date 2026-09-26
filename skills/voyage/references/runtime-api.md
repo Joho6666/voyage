@@ -6,6 +6,8 @@ Commands:
 
 - `create-trip`: `{origin, destination, startDate, endDate|days, people, budget, preferences, walkingTolerance, fallbackPolicy, includeExternalOffers?, offerCategories?}`
 - `get-trip`: `{tripId}`
+- `update-trip`: `{tripId, expectedTripRevision, patch:{title?, budget?, travelers?, vibe?, prompt?}}` — safe scalar patch under a revision lock; structural edits must use `propose-change`/`apply-change`.
+- `get-place`: `{tripId+placeId}` or `{name, city}` — single place lookup; provider search marks `matchBasis:"provider_search"`.
 - `search-places`: `{destination, query, category?, limit?}`
 - `plan-route`: `{origin:{lat,lng}, destination:{lat,lng}, mode, city, fallbackPolicy}`
 - `get-route-options`: `{origin:{lat,lng}, destination:{lat,lng}, city, modes?, context?, fallbackPolicy}` — compare walk/metro/bus/taxi/drive and return a ranked route matrix.
@@ -13,18 +15,25 @@ Commands:
 - `retrieve-travel-knowledge`: `{city, query, tags?, limit?}` — hybrid keyword + pgvector RAG when configured; otherwise curated local fallback. Results include source/confidence/freshness metadata where available. Live provider facts remain authoritative.
 - `replan-trip`: `{tripId, dayId?, instruction?, context?, fallbackPolicy}` — recompute urban transport choices with RAG-aware planning context and create a proposal when a better route mode is found.
 - `get-weather`: `{destination, dates, fallbackPolicy}`
+- `search-flights`: `{departureCityCode, arrivalCityCode, departureDate, returnDate?, tripType?, cabinClass?, externalAgentName, ...}` — Fliggy top-client only; fails with `NO_PROVIDER_CONFIGURED` without credentials.
 - `search-travel-offers`: `{origin?, destination, startDate?, endDate?, travelers?, budget?, query, city?, categories?}`
 - `refresh-travel-offers`: `{tripId, expectedTripRevision, origin?, destination, startDate?, endDate?, travelers?, budget?, query, city?, categories?}`
+- `reorder-day`: `{tripId, dayId, orderedItemIds, expectedTripRevision}` — reorder items in one day under a revision lock.
 - `propose-change`: `{tripId, instruction, dayId?, asOf?, fallbackPolicy}`
 - `apply-change`: `{tripId, proposalId, expectedTripRevision, confirmed:true}`
+- `search-social`: `{city, query?, poi?, platform?, limit?}` — live multi-platform social content; evidence carries platform, sourceId, sourceUrl, publishedAt, metrics, fetchedAt, confidence, poiMatches.
+- `get-social-trending`: `{city, platform?, limit?}` — engagement-ranked trending observations.
+- `get-social-evidence`: `{city, poi?, query?, tripId?, limit?}` — aggregated evidence plus crowd/trend context; with `tripId`, evidence is aligned to trip POIs (entity id or name containment; unmatched stays unknown).
 
 Successful output:
 
 ```json
-{"schemaVersion":"voyage.skill.v1","ok":true,"data":{},"warnings":[],"providerStatus":{"overall":"REAL","places":"REAL","routes":"REAL","weather":"REAL","travelOffers":"UNKNOWN"}}
+{"schemaVersion":"voyage.skill.v1","ok":true,"data":{},"warnings":[],"generatedAt":"2026-09-26T08:00:00.000Z","providerStatus":{"overall":"REAL","places":"REAL","routes":"REAL","weather":"REAL","travelOffers":"UNKNOWN","social":"UNKNOWN","knowledge":"UNKNOWN"}}
 ```
 
-Errors include `ok:false`, a stable `error.code`, and a non-zero exit code. Important codes include `NO_PROVIDER_CONFIGURED`, `PROVIDER_AUTH_FAILED`, `NO_POI_RESULTS`, `WEATHER_UNAVAILABLE`, `ROUTE_PROVIDER_UNAVAILABLE`, `CONFIRMATION_REQUIRED`, and `PROPOSAL_STALE`.
+`providerStatus` levels: `REAL`, `ESTIMATED`, `CACHED`, `CURATED`, `SOCIAL`, `MOCK`, `UNKNOWN`, `UNAVAILABLE`, `UNSTRUCTURED`, `PERMISSION_REQUIRED`. `overall` degrades to the weakest level present.
+
+Errors include `ok:false`, a stable `error.code`, and a non-zero exit code. Important codes include `NO_PROVIDER_CONFIGURED`, `PROVIDER_AUTH_FAILED`, `NO_POI_RESULTS`, `WEATHER_UNAVAILABLE`, `ROUTE_PROVIDER_UNAVAILABLE`, `PLACE_NOT_FOUND`, `CONFIRMATION_REQUIRED`, `REVISION_CONFLICT`, and `PROPOSAL_STALE`.
 ## Meituan offers
 
 `search-travel-offers` accepts `origin`, `destination`, optional dates, `travelers`, `budget`, `query`, and `categories` (`train`, `hotel`, `flight`, `ticket`, `restaurant`, `coupon`). It returns `offers` plus raw response data and a `travelOffers` provider status.

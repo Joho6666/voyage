@@ -1,6 +1,6 @@
 // @vitest-environment node
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -270,4 +270,108 @@ describe("Voyage Skill runtime", () => {
     expect(proposal.data.actions.every((action: any) => action.payload.dayId === trip.days[1].id)).toBe(true);
   });
 
+});
+
+describe("voyage skill standalone copy", () => {
+  // The CLI wrapper is a process boundary by design, so standalone verification
+  // reuses the established spawnSync argv-array pattern (no shell involved).
+  const repoRoot = process.cwd();
+
+  function assertSafePath(value: string): string {
+    if (!/^[A-Za-z0-9_\-\\/.:]+$/.test(value)) throw new Error(`unsafe child-process path: ${value}`);
+    return value;
+  }
+
+  async function copySkill(tmp: string) {
+    const skillDir = path.join(tmp, "voyage");
+    await cp(path.join(repoRoot, "skills", "voyage"), skillDir, { recursive: true });
+    return skillDir;
+  }
+
+  function runSkill(skillDir: string, cwd: string, command: string, inputPath: string, envExtra: Record<string, string>) {
+    const script = assertSafePath(path.join(skillDir, "scripts", "voyage.mjs"));
+    return spawnSync(process.execPath, [script, command, "--input", assertSafePath(inputPath)], {
+      cwd,
+      encoding: "utf8",
+      env: { ...process.env, ...envExtra },
+    });
+  }
+
+  const baseEnv = (tmp: string) => ({
+    VOYAGE_REPO: repoRoot,
+    VOYAGE_ALLOW_MOCK: "1",
+    VOYAGE_PROVIDER_FIXTURE: path.join(repoRoot, "tests", "fixtures", "voyage-provider.json"),
+    VOYAGE_DATA_DIR: path.join(tmp, "data"),
+  });
+
+  it("runs from a skill folder copied outside the repository without cloning anything", async () => {
+    const tmp = await mkdtemp(path.join(os.tmpdir(), "voyage-standalone-"));
+    const skillDir = await copySkill(tmp);
+    try {
+      const inputFile = path.join(tmp, "search.json");
+      await writeFile(inputFile, JSON.stringify({ destination: "重庆", query: "景点", limit: 3 }), "utf8");
+      const result = runSkill(skillDir, tmp, "search-places", inputFile, baseEnv(tmp));
+      expect(result.status, result.stderr).toBe(0);
+      const output = JSON.parse(result.stdout);
+      expect(output.schemaVersion).toBe("voyage.skill.v1");
+      expect(output.ok).toBe(true);
+      expect(output.generatedAt).toBeTruthy();
+      expect(output.data.places.length).toBeGreaterThan(0);
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("creates a trip and applies a revision-locked update end to end", async () => {
+    const tmp = await mkdtemp(path.join(os.tmpdir(), "voyage-standalone-"));
+    const skillDir = await copySkill(tmp);
+    try {
+      const createInput = path.join(tmp, "create.json");
+      await writeFile(createInput, JSON.stringify({
+        destination: "重庆",
+        startDate: "2026-10-01",
+        days: 2,
+        people: 2,
+        budget: 2500,
+        fallbackPolicy: "estimated",
+      }), "utf8");
+      const created = runSkill(skillDir, tmp, "create-trip", createInput, baseEnv(tmp));
+      expect(created.status, created.stderr).toBe(0);
+      const createEnvelope = JSON.parse(created.stdout);
+      expect(createEnvelope.ok).toBe(true);
+      const tripId = createEnvelope.data.tripId as string;
+      const revision = createEnvelope.data.revision as number;
+      expect(tripId).toBeTruthy();
+      expect(revision).toBeGreaterThanOrEqual(1);
+
+      const updateInput = path.join(tmp, "update.json");
+      await writeFile(updateInput, JSON.stringify({
+        tripId,
+        expectedTripRevision: revision,
+        patch: { title: "重庆精简两日", budget: 1800 },
+      }), "utf8");
+      const updated = runSkill(skillDir, tmp, "update-trip", updateInput, baseEnv(tmp));
+      expect(updated.status, updated.stderr).toBe(0);
+      const updateEnvelope = JSON.parse(updated.stdout);
+      expect(updateEnvelope.ok).toBe(true);
+      expect(updateEnvelope.data.trip.title).toBe("重庆精简两日");
+      expect(updateEnvelope.data.trip.budget).toBe(1800);
+      expect(updateEnvelope.data.revision).toBeGreaterThan(revision);
+
+      // A stale revision must be rejected, never silently applied.
+      const stale = runSkill(skillDir, tmp, "update-trip", updateInput, baseEnv(tmp));
+      expect(stale.status).toBe(1);
+      const staleEnvelope = JSON.parse(stale.stdout);
+      expect(staleEnvelope.ok).toBe(false);
+      expect(staleEnvelope.error.code).toBe("REVISION_CONFLICT");
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps runtime.lock.json pointed at the v0.2.0 release commit", async () => {
+    const lock = JSON.parse(await readFile(path.join(repoRoot, "skills", "voyage", "runtime.lock.json"), "utf8")) as { ref: string; commit: string };
+    expect(lock.ref).toBe("voyage-skill-v0.2.0");
+    expect(lock.commit).toMatch(/^[0-9a-f]{40}$/);
+  });
 });

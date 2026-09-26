@@ -4,7 +4,7 @@ export type TravelKnowledgeKind =
   | "transport_rule"
   | "route_case";
 
-export type KnowledgeAuthorityLevel = "official" | "curated" | "community" | "user" | "derived";
+export type KnowledgeAuthorityLevel = "official" | "curated" | "community" | "user" | "derived" | "social" | "unknown";
 
 export interface TravelKnowledgeRecord {
   id: string;

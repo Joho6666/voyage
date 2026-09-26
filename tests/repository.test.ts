@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MemoryTripRepository } from "@/services/trips/repository";
 import { chongqingTrip } from "@/data/demo/chongqing";
 
@@ -7,10 +7,22 @@ describe("MemoryTripRepository", () => {
     window.localStorage.clear();
   });
 
-  it("lists the seeded Chongqing trip", async () => {
-    const repo = new MemoryTripRepository();
-    const list = await repo.list();
-    expect(list.some((t) => t.id === chongqingTrip.id)).toBe(true);
+  afterEach(() => {
+    delete process.env.VOYAGE_DEMO_MODE;
+  });
+
+  it("seeds the Chongqing fixture only in explicit demo mode", async () => {
+    process.env.VOYAGE_DEMO_MODE = "true";
+    const demoRepo = new MemoryTripRepository();
+    const demoList = await demoRepo.list();
+    expect(demoList.some((t) => t.id === chongqingTrip.id)).toBe(true);
+
+    // Fabricated coordinates, prices, and operating status must not leak into
+    // normal mode as if they were real data.
+    delete process.env.VOYAGE_DEMO_MODE;
+    const plainRepo = new MemoryTripRepository();
+    const plainList = await plainRepo.list();
+    expect(plainList.some((t) => t.id === chongqingTrip.id)).toBe(false);
   });
 
   it("round-trips a save/get", async () => {

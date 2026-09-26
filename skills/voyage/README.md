@@ -33,13 +33,13 @@ The launcher prefers `VOYAGE_REPO`, then a containing Voyage checkout, and other
 
 ## Commands
 
-The commands are `create-trip`, `get-trip`, `search-places`, `plan-route`, `get-weather`, `search-flights`, `search-travel-offers`, `refresh-travel-offers`, `propose-change`, and `apply-change`. Every successful response is JSON on stdout with `schemaVersion: "voyage.skill.v1"`, warnings, and provider status. Logs are on stderr; fatal commands exit non-zero.
+The commands are `create-trip`, `get-trip`, `update-trip`, `get-place`, `search-places`, `plan-route`, `get-route-options`, `optimize-transport`, `retrieve-travel-knowledge`, `replan-trip`, `get-weather`, `search-flights`, `search-travel-offers`, `refresh-travel-offers`, `reorder-day`, `propose-change`, `apply-change`, `search-social`, `get-social-trending`, and `get-social-evidence`. Every successful response is JSON on stdout with `schemaVersion: "voyage.skill.v1"`, warnings, `generatedAt`, and provider status. Logs are on stderr; fatal commands exit non-zero.
 
 See the references and examples for complete request/response shapes.
 
 ## Current limits and roadmap
 
-The MVP targets mainland China and uses AMap as its real place, route, and weather provider. Flight search is available only when an approved Fliggy TOP application has the `alitrip.flight.service.search` permission. Train timetable and seat availability are not provided by the current Fliggy API catalog; payment and OTA order fulfillment remain outside scope. MCP is intentionally not included; the stable command contracts are designed for future one-to-one `voyage_*` MCP tools.
+The MVP targets mainland China and uses AMap as its real place, route, and weather provider. Flight search is available only when an approved Fliggy TOP application has the `alitrip.flight.service.search` permission. Train timetable and seat availability are not provided by the current Fliggy API catalog; payment and OTA order fulfillment remain outside scope. Social commands require `TIKHUB_API_KEY` (and optionally `REDFOX_API_KEY`) on the server side; without credentials they return `UNAVAILABLE` rather than estimated content. The same command contracts are mirrored one-to-one by the `voyage_*` tools in `packages/voyage-mcp`.
 ## External travel offers
 
 Voyage can optionally query the official Meituan Travel Skill from the server-side JSON runtime. AMap remains authoritative for places, routes, and weather; Meituan results are stored as read-only `trip.offers` snapshots with provider, fetched time, raw response, and booking links.

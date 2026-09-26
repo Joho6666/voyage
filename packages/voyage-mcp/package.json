@@ -1,0 +1,11 @@
+{
+  "name": "@voyage/mcp",
+  "version": "0.2.0",
+  "private": true,
+  "description": "MCP adapter for the Voyage Runtime — thin schema translation only; every tool forwards to src/skill/runtime.ts.",
+  "type": "module",
+  "main": "./server.ts",
+  "scripts": {
+    "start": "tsx ../../node_modules/tsx/dist/cli.mjs server.ts"
+  }
+}
