@@ -179,6 +179,8 @@ describe("Golden Travel Cases", () => {
   });
 
   it("Case 5: 缺少 AMap Key — explicit UNAVAILABLE, never fabricated REAL data", async () => {
+    // Force the unconfigured state even on machines holding real credentials.
+    process.env.VOYAGE_SKIP_LOCAL_CREDENTIALS = "1";
     const previousKey = process.env.AMAP_SERVER_KEY;
     delete process.env.AMAP_SERVER_KEY;
     delete process.env.AMAP_REST_KEY;
@@ -193,6 +195,7 @@ describe("Golden Travel Cases", () => {
       expect(weather.data.weather[0].provenance.estimated).toBe(true);
       expect(weather.warnings.length).toBeGreaterThan(0);
     } finally {
+      delete process.env.VOYAGE_SKIP_LOCAL_CREDENTIALS;
       if (previousKey !== undefined) process.env.AMAP_SERVER_KEY = previousKey;
     }
   });

@@ -79,17 +79,21 @@ function normalizeObservation(
 ): SocialObservation | null {
   const row = record(value);
   if (!row) return null;
-  const wrapped = record(row.item) ?? record(row.aweme_info) ?? record(row.video) ?? record(row.note_card) ?? record(row.mblog) ?? record(row.card) ?? row;
+  // Wrapped containers per platform generation: douyin aweme_info, xiaohongshu
+  // app_v2 `note`, legacy note_card, weibo card `data`, generic item/video/card.
+  const wrapped = record(row.item) ?? record(row.aweme_info) ?? record(row.video) ?? record(row.note) ?? record(row.note_card) ?? record(row.mblog) ?? record(row.data) ?? record(row.card) ?? row;
   const sourceId = nonempty(wrapped.sourceId ?? wrapped.source_id ?? wrapped.aweme_id ?? wrapped.note_id ?? wrapped.docID ?? wrapped.itemId ?? wrapped.id);
-  const content = nonempty(wrapped.content ?? wrapped.text_raw ?? wrapped.text ?? wrapped.desc ?? wrapped.description ?? wrapped.title ?? wrapped.note_title ?? row.title ?? row.desc);
+  const rawContent = nonempty(wrapped.content ?? wrapped.text_raw ?? wrapped.text ?? wrapped.desc ?? wrapped.description ?? wrapped.title ?? wrapped.note_title ?? row.title ?? row.desc);
+  // Live weibo/xhs payloads embed light markup; plain text downstream.
+  const content = rawContent?.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || undefined;
   const platform = nonempty(row.platform) ?? input.platform;
   if (!sourceId || !content || !platform || !platforms.includes(platform as SocialPlatform)) return null;
   const statistics = record(wrapped.statistics) ?? {};
   const rawMetrics = record(wrapped.metrics) ?? {
-    likes: statistics.digg_count ?? statistics.like_count,
-    comments: statistics.comment_count,
-    shares: statistics.share_count,
-    views: statistics.play_count ?? statistics.view_count,
+    likes: statistics.digg_count ?? statistics.like_count ?? wrapped.liked_count ?? wrapped.liked ?? wrapped.attitudes_count,
+    comments: statistics.comment_count ?? wrapped.comments_count ?? wrapped.comment_count,
+    shares: statistics.share_count ?? wrapped.shared_count ?? wrapped.reposts_count,
+    views: statistics.play_count ?? statistics.view_count ?? wrapped.view_count ?? wrapped.read_count,
   };
   const metrics = Object.fromEntries(Object.entries(rawMetrics).filter((entry): entry is [string, number] =>
     typeof entry[1] === "number" && Number.isFinite(entry[1]),
@@ -103,7 +107,7 @@ function normalizeObservation(
     entityType: nonempty(row.entityType ?? row.entity_type),
     entityId: nonempty(row.entityId ?? row.entity_id),
     content, summary: nonempty(wrapped.summary),
-    publishedAt: isoDate(wrapped.publishedAt ?? wrapped.published_at ?? wrapped.publish_time ?? wrapped.create_time ?? wrapped.timestamp ?? wrapped.time ?? wrapped.date),
+    publishedAt: isoDate(wrapped.publishedAt ?? wrapped.published_at ?? wrapped.publish_time ?? wrapped.create_time ?? wrapped.created_at ?? wrapped.update_time ?? wrapped.timestamp ?? wrapped.time ?? wrapped.date),
     fetchedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + 30 * 86_400_000).toISOString(),
     metrics,

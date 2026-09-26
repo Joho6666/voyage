@@ -122,4 +122,70 @@ describe("social providers", () => {
     expect(result.data.map((item) => item.provider)).toEqual(["redfox"]);
     expect(result.warnings).toContain("tikhub request failed");
   });
+
+  // Sanitized live envelopes captured 2026-09-26 against api.tikhub.io. These
+  // pin the real 2026-09 contracts so drift is caught without paid calls.
+  describe("live 2026-09 platform contracts", () => {
+    const xhsEnvelope = {
+      code: 200,
+      data: { data: { items: [{
+        mix_track_id: "NOTE__x",
+        model_type: "note",
+        note: {
+          id: "6aae6172", type: "video",
+          desc: "🌃现实版千与千寻洪崖洞✨ 很多人第一次来重庆就踩大坑😭",
+          title: "洪崖洞夜景攻略",
+          user: { userid: "u-1", nickname: "旅行博主" },
+          liked_count: 15, collected_count: 7, shared_count: 15, comments_count: 0,
+          update_time: 1789814053000,
+        },
+      }] } },
+    };
+    const weiboEnvelope = {
+      code: 200,
+      data: { items: [
+        { category: "card", type: "card", itemId: null, items: [{ category: "card", data: { card_type: 3, elements: [], scheme: "sinaweibo://" } }] },
+        { category: "card", type: "card", itemId: null, items: [{ category: "card", data: {
+          id: "5678901234",
+          text: "重庆洪崖洞夜景<a href=\"/s\">#旅行#</a> 人从众",
+          user: { id: 42, screen_name: "微博用户" },
+          created_at: "Tue Sep 22 10:00:00 +0800 2030",
+          attitudes_count: 88, comments_count: 12, reposts_count: 5,
+        } }] },
+      ] },
+    };
+
+    it("normalizes the xiaohongshu app_v2 `note` wrapper with metrics and publish time", async () => {
+      const provider = createTikHubProvider({ apiKey: FIXTURE_API_KEY, transport: async () => xhsEnvelope, now });
+      const result = await provider.searchContent({ city: "重庆", platform: "xiaohongshu", query: "洪崖洞" });
+      expect(result.status).toBe("ok");
+      expect(result.data).toHaveLength(1);
+      const observation = result.data[0];
+      expect(observation).toMatchObject({
+        platform: "xiaohongshu",
+        sourceId: "6aae6172",
+        city: "重庆",
+        metrics: { likes: 15, shares: 15, comments: 0 },
+      });
+      expect(observation.content).toContain("洪崖洞");
+      expect(observation.publishedAt).toBe(new Date(1789814053000).toISOString());
+    });
+
+    it("normalizes the weibo card `data` post shape with html stripped", async () => {
+      const provider = createTikHubProvider({ apiKey: FIXTURE_API_KEY, transport: async () => weiboEnvelope, now });
+      const result = await provider.searchContent({ city: "重庆", platform: "weibo", query: "洪崖洞" });
+      expect(result.status).toBe("ok");
+      expect(result.data).toHaveLength(1);
+      const observation = result.data[0];
+      expect(observation).toMatchObject({
+        platform: "weibo",
+        sourceId: "5678901234",
+        metrics: { likes: 88, comments: 12, shares: 5 },
+      });
+      // markup stripped, hashtag text preserved
+      expect(observation.content).toBe("重庆洪崖洞夜景 #旅行# 人从众");
+      // weibo created_at (UTC+8) is parsed into ISO time
+      expect(observation.publishedAt).toBe("2030-09-22T02:00:00.000Z");
+    });
+  });
 });

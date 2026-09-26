@@ -88,7 +88,11 @@ describe("Meituan travel adapter", () => {
   it("returns an explicit configuration error without a token", async () => {
     const previous = process.env.MEITUAN_HT_TOKEN;
     delete process.env.MEITUAN_HT_TOKEN;
+    process.env.VOYAGE_SKIP_LOCAL_CREDENTIALS = "1";
     try { await expect(queryMeituan(input, async () => ({ code: 0, stdout: "{}", stderr: "" }))).rejects.toMatchObject({ code: "MEITUAN_PROVIDER_NOT_CONFIGURED" }); }
-    finally { if (previous !== undefined) process.env.MEITUAN_HT_TOKEN = previous; }
+    finally {
+      delete process.env.VOYAGE_SKIP_LOCAL_CREDENTIALS;
+      if (previous !== undefined) process.env.MEITUAN_HT_TOKEN = previous;
+    }
   });
 });

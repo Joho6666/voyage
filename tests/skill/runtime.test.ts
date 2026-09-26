@@ -150,10 +150,12 @@ describe("Voyage Skill runtime", () => {
   it("fails real mode explicitly when no AMap key exists", async () => {
     const previous = process.env.AMAP_SERVER_KEY;
     delete process.env.AMAP_SERVER_KEY;
+    process.env.VOYAGE_SKIP_LOCAL_CREDENTIALS = "1";
     try {
       const noProvider = new VoyageSkillRuntime(new JsonSkillRepository(dataDir));
       await expect(noProvider.searchPlaces({ destination: "重庆", query: "景点" })).rejects.toMatchObject({ code: "NO_PROVIDER_CONFIGURED" });
     } finally {
+      delete process.env.VOYAGE_SKIP_LOCAL_CREDENTIALS;
       if (previous) process.env.AMAP_SERVER_KEY = previous;
     }
   });
@@ -170,6 +172,7 @@ describe("Voyage Skill runtime", () => {
   it("keeps the AMap trip usable when Meituan is not configured", async () => {
     const previous = process.env.MEITUAN_HT_TOKEN;
     delete process.env.MEITUAN_HT_TOKEN;
+    process.env.VOYAGE_SKIP_LOCAL_CREDENTIALS = "1";
     try {
       const response = await runtime.createTrip({
         origin: "桂林", destination: "重庆", startDate: "2030-05-01", days: 3, people: 2, budget: 2500,
@@ -180,6 +183,7 @@ describe("Voyage Skill runtime", () => {
       expect(response.data.trip.offers).toEqual([]);
       expect(response.data.trip.places.every((place: Place) => place.source === "amap")).toBe(true);
     } finally {
+      delete process.env.VOYAGE_SKIP_LOCAL_CREDENTIALS;
       if (previous !== undefined) process.env.MEITUAN_HT_TOKEN = previous;
     }
   });
@@ -229,30 +233,37 @@ describe("Voyage Skill runtime", () => {
   });
 
   it("retrieves travel knowledge and creates a route-mode replan proposal", async () => {
-    const knowledge = await runtime.retrieveTravelKnowledge({
-      city: "重庆",
-      query: "洪崖洞 夜景 人流 步行",
-      tags: ["walking"],
-      limit: 5,
-    }) as any;
-    expect(knowledge.data.matches.length).toBeGreaterThan(0);
-    expect(knowledge.data.matches.some((item: any) => item.city === "重庆")).toBe(true);
-    expect(knowledge.data.retrieval.strategy).toEqual(expect.any(String));
+    // Isolate from the developer machine's live credentials so the retrieval
+    // path under test stays the curated-local fixture behavior.
+    process.env.VOYAGE_SKIP_LOCAL_CREDENTIALS = "1";
+    try {
+      const knowledge = await runtime.retrieveTravelKnowledge({
+        city: "重庆",
+        query: "洪崖洞 夜景 人流 步行",
+        tags: ["walking"],
+        limit: 5,
+      }) as any;
+      expect(knowledge.data.matches.length).toBeGreaterThan(0);
+      expect(knowledge.data.matches.some((item: any) => item.city === "重庆")).toBe(true);
+      expect(knowledge.data.retrieval.strategy).toEqual(expect.any(String));
 
-    const created = await create();
-    const before = structuredClone(created.data.trip) as Trip;
-    const replanned = await runtime.replanTrip({
-      tripId: before.id,
-      instruction: "下雨而且很累，优先少走路",
-      fallbackPolicy: "deny",
-      context: { walkingTolerance: "low", fatigue: "high", weather: "rain", travelers: 2 },
-    }) as any;
-    expect(replanned.data.routePlans.length).toBeGreaterThan(0);
-    expect(replanned.data.knowledge.length).toBeGreaterThan(0);
-    expect(replanned.data.knowledgeRetrievals.length).toBeGreaterThan(0);
-    expect(replanned.data.knowledgeRetrievals[0]).toHaveProperty("strategy");
-    expect(replanned.data.proposalId).toEqual(expect.any(String));
-    expect((await repository.getTrip(before.id))?.trip).toEqual(before);
+      const created = await create();
+      const before = structuredClone(created.data.trip) as Trip;
+      const replanned = await runtime.replanTrip({
+        tripId: before.id,
+        instruction: "下雨而且很累，优先少走路",
+        fallbackPolicy: "deny",
+        context: { walkingTolerance: "low", fatigue: "high", weather: "rain", travelers: 2 },
+      }) as any;
+      expect(replanned.data.routePlans.length).toBeGreaterThan(0);
+      expect(replanned.data.knowledge.length).toBeGreaterThan(0);
+      expect(replanned.data.knowledgeRetrievals.length).toBeGreaterThan(0);
+      expect(replanned.data.knowledgeRetrievals[0]).toHaveProperty("strategy");
+      expect(replanned.data.proposalId).toEqual(expect.any(String));
+      expect((await repository.getTrip(before.id))?.trip).toEqual(before);
+    } finally {
+      delete process.env.VOYAGE_SKIP_LOCAL_CREDENTIALS;
+    }
   });
 
   it("uses RAG-aware replanning for natural-language transport changes", async () => {

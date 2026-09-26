@@ -2,7 +2,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { chunkKnowledgeDocument } from "@/services/knowledge/chunker";
 import { parseKnowledgeFile } from "@/services/knowledge/ingest";
 import { retrieveTravelKnowledgeHybrid } from "@/services/knowledge/hybrid-retriever";
@@ -21,9 +21,16 @@ afterEach(() => {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
   }
+  // These tests deliberately exercise the unconfigured/curated fallback paths.
+  delete process.env.VOYAGE_SKIP_LOCAL_CREDENTIALS;
 });
 
 describe("Travel Knowledge RAG", () => {
+  beforeEach(() => {
+    // Ignore the developer machine's real credentials for the whole describe.
+    process.env.VOYAGE_SKIP_LOCAL_CREDENTIALS = "1";
+  });
+
   it("chunks long knowledge documents while preserving metadata", () => {
     const document: KnowledgeSourceDocument = {
       sourceKey: "test/cq.md",

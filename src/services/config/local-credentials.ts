@@ -17,7 +17,17 @@ export type EditableKey = (typeof EDITABLE_KEYS)[number];
 const allowed = new Set<string>(EDITABLE_KEYS);
 const configPath = () => path.join(process.cwd(), ".voyage", "local-credentials.json");
 
+/**
+ * Test isolation switch: with VOYAGE_SKIP_LOCAL_CREDENTIALS=1 the file store is
+ * ignored so "provider not configured" behavior stays testable on machines that
+ * hold real credentials. Only environment variables apply while it is set.
+ */
+function localCredentialsEnabled() {
+  return process.env.VOYAGE_SKIP_LOCAL_CREDENTIALS !== "1";
+}
+
 export async function readLocalCredentials(): Promise<Partial<Record<EditableKey, string>>> {
+  if (!localCredentialsEnabled()) return {};
   try {
     const data = JSON.parse(await readFile(configPath(), "utf8")) as Record<string, unknown>;
     return Object.fromEntries(Object.entries(data).filter(([key, value]) => allowed.has(key) && typeof value === "string")) as Partial<Record<EditableKey, string>>;
@@ -33,11 +43,13 @@ export async function runtimeConfig(key: EditableKey): Promise<string> {
 }
 
 export function runtimeConfigSync(key: EditableKey): string {
-  try {
-    const saved = JSON.parse(readFileSync(configPath(), "utf8")) as Record<string, unknown>;
-    if (typeof saved[key] === "string" && saved[key]) return saved[key];
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  if (localCredentialsEnabled()) {
+    try {
+      const saved = JSON.parse(readFileSync(configPath(), "utf8")) as Record<string, unknown>;
+      if (typeof saved[key] === "string" && saved[key]) return saved[key];
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
   }
   return process.env[key] || "";
 }
