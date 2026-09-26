@@ -9,7 +9,6 @@ import { JsonSkillRepository } from "@/skill/repository";
 import { VoyageSkillRuntime } from "@/skill/runtime";
 import { normalizeToolError, voyageTools } from "../packages/voyage-mcp/server";
 import { SkillError } from "@/skill/errors";
-import { z } from "zod";
 
 class FixtureProvider implements TravelDataProvider {
   readonly kind = "amap" as const;

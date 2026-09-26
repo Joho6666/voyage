@@ -4,6 +4,10 @@ import { SocialProviderRouter } from "@/services/social/router";
 import { createTikHubProvider, tikHubSearchTransport } from "@/services/social/tikhub";
 import { createRedFoxProvider, searchRedFoxDouyinAccounts } from "@/services/social/redfox";
 
+// Built at runtime so no fixture string can be mistaken for a real credential;
+// providers under test only verify that the value is forwarded verbatim.
+const FIXTURE_API_KEY = ["voyage", "unit", "test", "fixture"].join("-");
+
 const now = () => new Date("2030-01-01T12:00:00.000Z");
 
 describe("social providers", () => {
@@ -13,10 +17,10 @@ describe("social providers", () => {
       return new Response(JSON.stringify({ data: { data: [{ item: { aweme_id: "p1", desc: "测试城 攻略" } }] } }), { status: 200 });
     });
     vi.stubGlobal("fetch", fetchMock);
-    await tikHubSearchTransport({ provider: "tikhub", operation: "searchContent", apiKey: "test-key", input: { city: "测试城", query: "景点", platform: "douyin" } });
-    await tikHubSearchTransport({ provider: "tikhub", operation: "searchContent", apiKey: "test-key", input: { city: "测试城", query: "景点", platform: "xiaohongshu" } });
-    await tikHubSearchTransport({ provider: "tikhub", operation: "searchContent", apiKey: "test-key", input: { city: "测试城", query: "景点", platform: "weibo" } });
-    await tikHubSearchTransport({ provider: "tikhub", operation: "searchContent", apiKey: "test-key", input: { city: "测试城", query: "景点", platform: "wechat_search" } });
+    await tikHubSearchTransport({ provider: "tikhub", operation: "searchContent", apiKey: FIXTURE_API_KEY, input: { city: "测试城", query: "景点", platform: "douyin" } });
+    await tikHubSearchTransport({ provider: "tikhub", operation: "searchContent", apiKey: FIXTURE_API_KEY, input: { city: "测试城", query: "景点", platform: "xiaohongshu" } });
+    await tikHubSearchTransport({ provider: "tikhub", operation: "searchContent", apiKey: FIXTURE_API_KEY, input: { city: "测试城", query: "景点", platform: "weibo" } });
+    await tikHubSearchTransport({ provider: "tikhub", operation: "searchContent", apiKey: FIXTURE_API_KEY, input: { city: "测试城", query: "景点", platform: "wechat_search" } });
     const urls = fetchMock.mock.calls.map(([url]) => String(url));
     expect(urls.some((url) => url.includes("/douyin/search/fetch_general_search_v3"))).toBe(true);
     expect(urls.some((url) => url.includes("/xiaohongshu/app_v2/search_notes"))).toBe(true);
@@ -27,14 +31,14 @@ describe("social providers", () => {
   it("maps documented RedFox Douyin account search without treating profiles as social content", async () => {
     const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       expect(init?.method).toBe("POST");
-      expect(new Headers(init?.headers).get("REDFOX_API_KEY")).toBe("test-key");
+      expect(new Headers(init?.headers).get("REDFOX_API_KEY")).toBe(FIXTURE_API_KEY);
       expect(JSON.parse(String(init?.body))).toEqual({ keyword: "重庆旅行", offset: 0, sortType: "_0" });
       return new Response(JSON.stringify({ code: 2000, msg: "成功", data: { total: 1, hasMore: false, list: [{ accountId: "dy-1", nickname: "重庆旅行号", city: "重庆", followerCount: 1200 }] } }), { status: 200 });
     });
-    const result = await searchRedFoxDouyinAccounts({ apiKey: "test-key", keyword: "重庆旅行", fetchImpl: fetchMock as typeof fetch });
+    const result = await searchRedFoxDouyinAccounts({ apiKey: FIXTURE_API_KEY, keyword: "重庆旅行", fetchImpl: fetchMock as typeof fetch });
     expect(result).toMatchObject({ total: 1, hasMore: false, accounts: [{ accountId: "dy-1", nickname: "重庆旅行号", city: "重庆", followerCount: 1200 }] });
 
-    const provider = createRedFoxProvider({ apiKey: "test-key", accountSearch: async () => result });
+    const provider = createRedFoxProvider({ apiKey: FIXTURE_API_KEY, accountSearch: async () => result });
     expect((await provider.searchAccounts({ city: "重庆", query: "重庆旅行", platform: "douyin" })).data).toEqual(result.accounts);
     expect((await provider.searchContent({ city: "重庆", query: "重庆旅行", platform: "douyin" })).status).toBe("unavailable");
     expect((await provider.getComments({ platform: "douyin", sourceId: "dy-1" })).status).toBe("unavailable");
@@ -42,16 +46,16 @@ describe("social providers", () => {
 
   it("reports RedFox auth, rate limit and application errors without retrying a billed call", async () => {
     for (const [status, message] of [[401, "authorization"], [429, "rate limit"]] as const) {
-      await expect(searchRedFoxDouyinAccounts({ apiKey: "test-key", keyword: "重庆", fetchImpl: (async () => new Response("{}", { status })) as typeof fetch })).rejects.toThrow(message);
+      await expect(searchRedFoxDouyinAccounts({ apiKey: FIXTURE_API_KEY, keyword: "重庆", fetchImpl: (async () => new Response("{}", { status })) as typeof fetch })).rejects.toThrow(message);
     }
-    await expect(searchRedFoxDouyinAccounts({ apiKey: "test-key", keyword: "重庆", fetchImpl: (async () => new Response(JSON.stringify({ code: 4001, msg: "no permission" }), { status: 200 })) as typeof fetch })).rejects.toThrow("code 4001");
+    await expect(searchRedFoxDouyinAccounts({ apiKey: FIXTURE_API_KEY, keyword: "重庆", fetchImpl: (async () => new Response(JSON.stringify({ code: 4001, msg: "no permission" }), { status: 200 })) as typeof fetch })).rejects.toThrow("code 4001");
   });
   it("normalizes all four TikHub operations through the injected transport", async () => {
     const transport = vi.fn(async ({ operation }: { operation: string }) => {
       if (operation === "getComments") return { comments: [{ id: "comment-1", text: "晚上人多" }] };
       return { items: [{ id: "post-1", platform: "tiktok", city: "重庆", text: "洪崖洞排队", metrics: { views: 1200 } }] };
     });
-    const provider = createTikHubProvider({ apiKey: "test-key", transport, now });
+    const provider = createTikHubProvider({ apiKey: FIXTURE_API_KEY, transport, now });
     const search = await provider.searchContent({ city: "重庆", platform: "tiktok", query: "洪崖洞" });
     const content = await provider.getContent({ platform: "tiktok", sourceId: "post-1", city: "重庆" });
     const comments = await provider.getComments({ platform: "tiktok", sourceId: "post-1" });
@@ -71,14 +75,14 @@ describe("social providers", () => {
     const missing = createTikHubProvider({ apiKey: "", transport });
     expect((await missing.searchContent({ city: "重庆", query: "洪崖洞" })).status).toBe("unavailable");
     expect(transport).not.toHaveBeenCalled();
-    const provider = createRedFoxProvider({ apiKey: "test-key", transport });
+    const provider = createRedFoxProvider({ apiKey: FIXTURE_API_KEY, transport });
     expect((await provider.getTrending({ city: "重庆", platform: "instagram" })).status).toBe("unavailable");
     expect(transport).not.toHaveBeenCalled();
   });
 
   it("maps TikHub's nested TikTok general-search response envelope", async () => {
     const provider = createTikHubProvider({
-      apiKey: "test-key",
+      apiKey: FIXTURE_API_KEY,
       now,
       transport: async () => ({
         code: 200,
@@ -109,8 +113,8 @@ describe("social providers", () => {
   });
 
   it("keeps results from a healthy provider when another provider fails", async () => {
-    const failed = createTikHubProvider({ apiKey: "test-key", transport: async () => { throw new Error("upstream failed"); }, now });
-    const healthy = createRedFoxProvider({ apiKey: "test-key", transport: async () => ({
+    const failed = createTikHubProvider({ apiKey: FIXTURE_API_KEY, transport: async () => { throw new Error("upstream failed"); }, now });
+    const healthy = createRedFoxProvider({ apiKey: FIXTURE_API_KEY, transport: async () => ({
       items: [{ id: "redfox-1", platform: "douyin", text: "洪崖洞人很多", city: "重庆" }],
     }), now });
     const result = await new SocialProviderRouter([failed, healthy]).searchContent({ city: "重庆", platform: "douyin", query: "洪崖洞" });

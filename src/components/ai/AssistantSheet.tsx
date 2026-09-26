@@ -167,7 +167,7 @@ export function AssistantSheet() {
           onOpenChange={(next) => {
             if (!next) setPendingDiff(null);
           }}
-          onApply={(changeSet) => {
+          onApply={() => {
             const proposal = pendingDiff?.proposal;
             setPendingDiff(null);
             if (proposal) applyProposal(proposal);

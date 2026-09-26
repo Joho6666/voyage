@@ -1,4 +1,5 @@
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { ingestKnowledgeDirectory } from "../src/services/knowledge/ingest";
 
 function argValue(name: string) {
@@ -7,7 +8,14 @@ function argValue(name: string) {
 }
 
 async function main() {
+  // The ingest root must stay inside the repository: this script reads and
+  // chunks every file below `root`, so an arbitrary --root would turn the
+  // operator tool into a file-walker over any directory on the machine.
+  const repoRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
   const root = path.resolve(argValue("--root") ?? "knowledge");
+  if (root !== repoRoot && !root.startsWith(repoRoot + path.sep)) {
+    throw new Error(`--root must stay inside the repository (${repoRoot})`);
+  }
   const force = process.argv.includes("--force");
   const ownerId = argValue("--owner") ?? null;
 

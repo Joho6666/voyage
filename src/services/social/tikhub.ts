@@ -51,7 +51,13 @@ function detailRequest(operation: string, input: { platform?: string; sourceId?:
   throw new SocialProviderRequestError(`TikHub ${operation} is not verified for ${platform}`);
 }
 
+const TIKHUB_API_HOST = new URL(TIKHUB_API_BASE_URL).hostname;
+
+/** Single network choke point: the sink refuses anything off the documented TikHub host. */
 async function requestJson(url: URL, method: string, body: Record<string, unknown>, apiKey: string) {
+  if (url.protocol !== "https:" || url.hostname !== TIKHUB_API_HOST) {
+    throw new SocialProviderRequestError("TikHub request host mismatch");
+  }
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const response = await fetch(url, {
       method,
@@ -80,7 +86,14 @@ export const tikHubSearchTransport: SocialRequestTransport = async ({ operation,
   const search = input as { platform?: string; city?: string; query?: string; limit?: number };
   const request = operation === "searchContent" ? buildRequest(search) : detailRequest(operation, input as { platform?: string; sourceId?: string; query?: string; city?: string });
   const { endpoint, params } = "endpoint" in request ? request : { endpoint: { method: request.method, path: request.path }, params: request.params };
-  const url = new URL(endpoint.path, TIKHUB_API_BASE_URL);
+  const base = new URL(TIKHUB_API_BASE_URL);
+  const url = new URL(endpoint.path, base);
+  // SSRF guard: request paths come from the static endpoint tables above, and
+  // this check keeps the sink pinned to the documented host even if that
+  // ever changes.
+  if (url.protocol !== "https:" || url.hostname !== base.hostname) {
+    throw new SocialProviderRequestError("TikHub request host mismatch");
+  }
   const body: Record<string, unknown> = endpoint.method === "POST" ? {} : params;
   if (endpoint.method === "GET") {
     for (const [key, value] of Object.entries(params)) url.searchParams.set(key, String(value));
