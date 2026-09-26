@@ -9,7 +9,8 @@ import type { ScoredTransportOption, TransportContext } from "@/types/transport-
 import { planActionsWithRules, resolveRequestedDay } from "@/services/ai/actions/rule-planner";
 import { computeTripChangeSet } from "@/services/ai/diff";
 import { haversineMeters, estimateTransit } from "@/lib/utils";
-import { createTripId, planWithRules } from "@/services/planning/rule-planner";
+import { createTripId } from "@/services/planning/rule-planner";
+import { planOutline } from "@/services/planning/outline-planner";
 import { recomputeDay, recomputeTrip } from "@/services/routing";
 import { weatherForDate } from "@/services/weather/merge";
 import type { Day, ItineraryItem, Place, RouteSegment, Trip } from "@/types/travel";
@@ -52,7 +53,7 @@ import { createTikHubProvider } from "@/services/social/tikhub";
 import { createRedFoxProvider } from "@/services/social/redfox";
 import { extractSocialSignals } from "@/services/social/signal-extractor";
 import { buildSocialContext } from "@/services/social/context-builder";
-import type { SocialEvidence, SocialObservation, SocialPlatform } from "@/services/social/types";
+import type { SocialEvidence, SocialObservation, SocialPlatform, SocialProviderStatus } from "@/services/social/types";
 
 const DAY_MS = 86_400_000;
 
@@ -261,7 +262,7 @@ const DEFAULT_SOCIAL_PLATFORMS: SocialPlatform[] = ["douyin", "xiaohongshu", "we
 
 interface SocialCollectResult {
   observations: SocialObservation[];
-  platformStatus: Record<string, string>;
+  platformStatus: Record<string, SocialProviderStatus>;
   warnings: string[];
 }
 
@@ -312,6 +313,19 @@ function socialLevelFromStatuses(statuses: Record<string, string>, observationCo
   return "UNAVAILABLE";
 }
 
+function socialQueryStatus(input: {
+  requested: boolean;
+  statuses: Record<string, SocialProviderStatus>;
+  evidenceCount: number;
+  usedByPlanner: boolean;
+}): NonNullable<Trip["socialQueryStatus"]> {
+  if (!input.requested) return "not_requested";
+  if (input.usedByPlanner && input.evidenceCount > 0) return "used";
+  if (input.evidenceCount > 0 || Object.values(input.statuses).includes("ok")) return "queried_not_used";
+  if (Object.values(input.statuses).includes("error")) return "error";
+  return "unavailable";
+}
+
 function socialEngagement(observation: SocialObservation): number {
   const { likes = 0, comments = 0, shares = 0 } = observation.metrics;
   return likes + comments + shares;
@@ -350,6 +364,7 @@ function buildSocialEvidence(input: { city: string; poi?: string; observations: 
   const evidence = input.observations.map((observation) => {
     const related = signals.filter((signal) => signal.sources.some((source) => source.sourceId === observation.sourceId && source.platform === observation.platform));
     return {
+      provider: observation.provider,
       platform: observation.platform,
       sourceId: observation.sourceId,
       sourceUrl: observation.sourceUrl,
@@ -357,6 +372,7 @@ function buildSocialEvidence(input: { city: string; poi?: string; observations: 
       city: observation.city,
       publishedAt: observation.publishedAt,
       fetchedAt: observation.fetchedAt,
+      expiresAt: observation.expiresAt,
       signalTypes: related.map((signal) => signal.signalType),
       confidence: related.length ? Math.max(...related.map((signal) => signal.confidence)) : 0.25,
       sampleSize: related.length ? Math.max(...related.map((signal) => signal.sampleSize)) : 1,
@@ -390,9 +406,23 @@ export class VoyageSkillRuntime {
       if (input.fallbackPolicy !== "estimated") throw normalizeProviderError(error, "WEATHER_UNAVAILABLE");
       return [];
     });
-    const tripId = createTripId();
-    const count = daysBetween(input.startDate, finish);
-    const plan = planWithRules({
+
+    const social = input.includeSocialEvidence
+      ? await collectSocialObservations(this.socialRouterFactory(), {
+          city: input.destination,
+          query: input.prompt,
+          limit: 5,
+        }).catch((error) => ({
+          observations: [] as SocialObservation[],
+          platformStatus: Object.fromEntries(DEFAULT_SOCIAL_PLATFORMS.map((platform) => [platform, "error" as const])) as Record<string, SocialProviderStatus>,
+          warnings: [error instanceof Error ? error.message : "social search failed"],
+        }))
+      : undefined;
+    const socialBuilt = social
+      ? buildSocialEvidence({ city: input.destination, observations: social.observations, places: candidates })
+      : { evidence: [], signals: [] };
+    const planResult = await planOutline({
+      prompt: input.prompt,
       destination: input.destination,
       startDate: input.startDate,
       endDate: finish,
@@ -400,7 +430,17 @@ export class VoyageSkillRuntime {
       budget: input.budget,
       vibes: input.vibes ?? input.preferences,
       candidates,
+      ...(socialBuilt.signals.length ? { social: { signals: socialBuilt.signals } } : {}),
     });
+    const socialStatus = socialQueryStatus({
+      requested: input.includeSocialEvidence,
+      statuses: social?.platformStatus ?? {},
+      evidenceCount: socialBuilt.evidence.length,
+      usedByPlanner: planResult.source === "llm" && socialBuilt.signals.length > 0,
+    });
+
+    const tripId = createTripId();
+    const count = daysBetween(input.startDate, finish);
     const days: Day[] = Array.from({ length: count }, (_, index) => {
       const date = endDate(input.startDate, index + 1);
       return {
@@ -408,28 +448,42 @@ export class VoyageSkillRuntime {
         tripId,
         index,
         date,
-        title: plan.dayPlans[index]?.title ?? `Day ${index + 1}`,
-        summary: plan.dayPlans[index]?.summary ?? "",
+        title: planResult.outline.dayPlans[index]?.title ?? `Day ${index + 1}`,
+        summary: planResult.outline.dayPlans[index]?.summary ?? "",
         weather: weatherForDate(forecasts, date),
       };
     });
-    const selected = new Map<string, Place>();
     const items: ItineraryItem[] = [];
-    plan.dayPlans.forEach((dayPlan, dayIndex) => dayPlan.stops.forEach((stop, order) => {
+    planResult.outline.dayPlans.forEach((dayPlan, dayIndex) => dayPlan.stops.forEach((stop, order) => {
       const place = candidates.find((candidate) => candidate.id === stop.placeId);
-      if (!place) return;
-      selected.set(place.id, place);
+      if (!place || !days[dayIndex]) return;
       items.push({
         id: crypto.randomUUID(), dayId: days[dayIndex].id, type: itemType(place), placeId: place.id,
         startTime: stop.startTime, duration: stop.durationMinutes, order, status: "planned", ...(stop.meal ? { meal: stop.meal } : {}),
       });
     }));
     let trip: Trip = {
-      id: tripId, title: plan.title, destination: input.destination, origin: input.origin, startDate: input.startDate, endDate: finish,
+      id: tripId, title: planResult.outline.title, destination: input.destination, origin: input.origin, startDate: input.startDate, endDate: finish,
       travelers: input.travelers ?? input.people, budget: input.budget, currency: "CNY", status: "ready",
       estimatedSpend: Math.round(input.budget * 0.85), coverImage: "", vibe: input.vibes ?? input.preferences,
       prompt: input.prompt, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), days, items,
       segments: [], places: candidates, hotels: [], restaurants: [], activities: [], transports: [], tasks: [], budgetItems: [],
+      planningMetadata: {
+        source: planResult.source,
+        llm: planResult.llm,
+        ...(planResult.fallbackReason ? { fallbackReason: planResult.fallbackReason } : {}),
+        social: socialStatus,
+      },
+      socialQueryStatus: socialStatus,
+      ...(social
+        ? {
+            socialQueryId: socialQueryId({ city: input.destination, query: input.prompt }),
+            socialPlatformStatus: social.platformStatus,
+            socialEvidence: socialBuilt.evidence,
+            socialSignals: socialBuilt.signals,
+            socialWarnings: social.warnings,
+          }
+        : {}),
     };
     trip = estimateBudgetItems(trip);
     const routePromise = enrichRoutes(trip, provider, input.fallbackPolicy === "estimated");
@@ -468,8 +522,21 @@ export class VoyageSkillRuntime {
     }
     const stored = await this.repository.createTrip(finalTrip);
     const missingWeather = days.some((day) => day.weather.provenance?.source === "unavailable");
-    const providerStatus = status(placeLevel(provider), routed.level, weatherLevel(provider, missingWeather), input.includeExternalOffers ? offerLevel : undefined);
-    return successEnvelope({ tripId, trip: stored.trip, revision: stored.revision, tripHash: stored.hash }, providerStatus, [...routed.warnings, ...offerWarnings]);
+    const socialLevel = input.includeSocialEvidence
+      ? socialLevelFromStatuses(social?.platformStatus ?? {}, socialBuilt.evidence.length)
+      : undefined;
+    const providerStatus = status(
+      placeLevel(provider),
+      routed.level,
+      weatherLevel(provider, missingWeather),
+      input.includeExternalOffers ? offerLevel : undefined,
+      socialLevel,
+    );
+    return successEnvelope(
+      { tripId, trip: stored.trip, revision: stored.revision, tripHash: stored.hash },
+      providerStatus,
+      [...routed.warnings, ...(social?.warnings ?? []), ...(planResult.fallbackReason ? [planResult.fallbackReason] : []), ...offerWarnings],
+    );
   }
 
   async getTrip(raw: unknown) {

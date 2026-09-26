@@ -50,6 +50,7 @@ export function NewTripExperience() {
   const [budget, setBudget] = useState("2500");
   const [vibes, setVibes] = useState<string[]>(["美食", "轻松"]);
   const [includeOffers, setIncludeOffers] = useState(false);
+  const [includeSocialEvidence, setIncludeSocialEvidence] = useState(false);
   const [running, setRunning] = useState(false);
   const [steps, setSteps] = useState<GenerationStep[]>([]);
   const [markers, setMarkers] = useState(0);
@@ -106,6 +107,7 @@ export function NewTripExperience() {
         budget: requestBudget,
         vibes,
         includeExternalOffers: includeOffers,
+        includeSocialEvidence,
       });
       hydrateTrip(trip);
       setDone(true);
@@ -168,10 +170,14 @@ export function NewTripExperience() {
             <Input value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="预算" className="sm:col-span-2" />
           </div>
         </div>
-        <div className="mt-3 flex justify-end">
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
           <label className="mr-auto flex items-center gap-2 text-[12px] text-muted-foreground">
             <input type="checkbox" checked={includeOffers} onChange={(e) => setIncludeOffers(e.target.checked)} />
             同步酒店 / 交通 / 门票 / 美食推荐
+          </label>
+          <label className="flex items-center gap-2 text-[12px] text-muted-foreground" title="会查询可用的 TikHub / RedFox 平台；内容仅作攻略参考">
+            <input type="checkbox" checked={includeSocialEvidence} onChange={(e) => setIncludeSocialEvidence(e.target.checked)} />
+            参考小红书 / 抖音 / 微信攻略
           </label>
           <Button size="lg" disabled={running} onClick={() => void run()}>
             AI 创建旅行

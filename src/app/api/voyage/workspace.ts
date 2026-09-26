@@ -7,8 +7,30 @@ import type { NextRequest, NextResponse } from "next/server";
 const cookieName = "voyage_guest_workspace";
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export function guestWorkspace(request: NextRequest) {
-  const existing = request.cookies.get(cookieName)?.value;
+export type TripImportAuthorization = "workspace" | "public-demo" | "denied";
+
+export function authorizeTripImport(input: {
+  tripId: string;
+  workspaceTripExists: boolean;
+  demoMode?: string;
+  publicDemoTripIds: readonly string[];
+}): TripImportAuthorization {
+  if (input.workspaceTripExists) return "workspace";
+  if (input.demoMode === "true" && input.publicDemoTripIds.includes(input.tripId)) return "public-demo";
+  return "denied";
+}
+
+function requestCookie(request: Request | NextRequest, name: string) {
+  if ("cookies" in request && request.cookies) return request.cookies.get(name)?.value;
+  const header = request.headers.get("cookie") ?? "";
+  return header
+    .split(";")
+    .map((part) => part.trim().split("="))
+    .find(([key]) => key === name)?.[1];
+}
+
+export function guestWorkspace(request: Request | NextRequest) {
+  const existing = requestCookie(request, cookieName);
   const id = existing && uuid.test(existing) ? existing : randomUUID();
   const base = process.env.VOYAGE_DATA_DIR ?? path.join(process.cwd(), ".voyage");
   return { id, fresh: id !== existing, root: path.join(base, "guests", id), base };

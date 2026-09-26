@@ -10,6 +10,7 @@ export interface CreateTripInput {
   budget?: number;
   vibes?: string[];
   includeExternalOffers?: boolean;
+  includeSocialEvidence?: boolean;
   offerCategories?: import("@/types/offers").OfferKind[];
 }
 

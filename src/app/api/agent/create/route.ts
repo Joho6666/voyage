@@ -1,58 +1,43 @@
 import "server-only";
 
+import { NextRequest, NextResponse } from "next/server";
+import { SkillError } from "@/skill/errors";
 import { createTripWebRequestSchema, planTripFromRequest } from "@/services/trip-planner/create-trip";
-import { tripRepository } from "@/services/trips/repository";
-import { persistSocialSearch } from "@/services/social/store";
+import { guestWorkspace, setGuestCookie } from "@/app/api/voyage/workspace";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+function statusFor(error: SkillError) {
+  if (error.code === "INVALID_INPUT") return 400;
+  if (
+    error.code === "NO_PROVIDER_CONFIGURED" ||
+    error.code === "PROVIDER_AUTH_FAILED" ||
+    error.code === "AMAP_NETWORK_UNAVAILABLE" ||
+    error.code === "NO_POI_RESULTS" ||
+    error.code === "WEATHER_UNAVAILABLE" ||
+    error.code === "ROUTE_PROVIDER_UNAVAILABLE"
+  ) return 503;
+  return 409;
+}
+
+export async function POST(request: NextRequest) {
+  const workspace = guestWorkspace(request);
+  const reply = (body: unknown, status = 200) => setGuestCookie(
+    NextResponse.json(body, { status, headers: { "cache-control": "no-store" } }),
+    workspace,
+  );
   const body = createTripWebRequestSchema.safeParse(await request.json().catch(() => null));
   if (!body.success) {
-    return Response.json({ error: "invalid body", detail: body.error.flatten() }, { status: 400 });
-  }
-
-  let source: "llm" | "rules";
-  let mapProvider: "amap" | "demo";
-  let trip;
-  let social;
-  try {
-    const planned = await planTripFromRequest(body.data);
-    source = planned.source;
-    mapProvider = planned.mapProvider;
-    trip = planned.trip;
-    social = planned.social;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "candidate lookup failed";
-    const errorCode = /INVALID_USER_KEY|USERKEY_PLAT_NOMATCH/.test(message)
-      ? "AMAP_INVALID_USER_KEY"
-      : message === "NO_POI_RESULTS"
-        ? "NO_POI_RESULTS"
-        : message === "NO_PROVIDER_CONFIGURED"
-          ? "NO_PROVIDER_CONFIGURED"
-          : "AMAP_PROVIDER_ERROR";
-    return Response.json(
-      { error: errorCode, detail: errorCode === "AMAP_INVALID_USER_KEY" ? "AMAP_SERVER_KEY 无效、未开通 Web 服务或 Key 与平台类型不匹配" : message },
-      { status: 503 },
-    );
-  }
-
-  if (social) {
-    void persistSocialSearch(social).catch(() => undefined);
+    return reply({ error: "invalid body", detail: body.error.flatten() }, 400);
   }
 
   try {
-    const saved = await tripRepository.save(trip);
-    return Response.json({ source, mapProvider, trip: saved });
+    const planned = await planTripFromRequest(body.data, workspace.root);
+    return reply(planned);
   } catch (error) {
-    return Response.json(
-      {
-        source,
-        mapProvider,
-        trip,
-        persistError: error instanceof Error ? error.message : "persist failed",
-      },
-      { status: 200 },
-    );
+    if (error instanceof SkillError) {
+      return reply({ error: error.code, detail: error.message }, statusFor(error));
+    }
+    return reply({ error: "INTERNAL_ERROR", detail: "Voyage runtime failed" }, 500);
   }
 }

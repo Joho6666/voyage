@@ -35,6 +35,7 @@ export class OpenAITravelAgent extends MockTravelAgent implements TravelAgent {
           budget: input.budget ?? 2500,
           vibes: input.vibes ?? [], preferences: input.vibes ?? [],
           includeExternalOffers: input.includeExternalOffers ?? false,
+          includeSocialEvidence: input.includeSocialEvidence ?? false,
           offerCategories: input.offerCategories, fallbackPolicy: "estimated",
         } }),
       });

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { offerKindSchema } from "@/schemas/offers";
+import { socialEvidenceSchema, socialPlatformStatusSchema, socialSignalSchema } from "@/schemas/social";
 
 export const SCHEMA_VERSION = "voyage.skill.v1" as const;
 export type ProviderLevel =
@@ -37,6 +38,7 @@ export const createTripInputSchema = z
     prompt: z.string().max(2000).default(""),
     fallbackPolicy: fallbackPolicySchema,
     includeExternalOffers: z.boolean().default(false),
+    includeSocialEvidence: z.boolean().default(false),
     offerCategories: z.array(offerKindSchema).max(6).default(["train", "hotel", "ticket", "restaurant", "coupon"]),
   })
   .refine((value) => value.endDate || value.days, { message: "endDate or days is required" });
@@ -249,18 +251,9 @@ export function errorEnvelope(code: string, message: string, details?: unknown) 
  * the envelope fields every entry point must expose.
  */
 const tripDataSchema = z.object({ tripId: z.string(), trip: z.unknown(), revision: z.number().int(), tripHash: z.string() }).passthrough();
-export const socialEvidenceSchema = z.object({
-  platform: z.string(), sourceId: z.string(), sourceUrl: z.string().url().optional(),
-  title: z.string().optional(), summary: z.string(), city: z.string(),
-  publishedAt: z.string().optional(), fetchedAt: z.string(),
-  signalTypes: z.array(z.string()), confidence: z.number().min(0).max(1),
-  sampleSize: z.number().int().nonnegative(), metrics: z.record(z.string(), z.number()).optional(),
-  poiMatches: z.array(z.object({ placeId: z.string(), name: z.string(), confidence: z.number().min(0).max(1), matchBasis: z.enum(["entity_id", "name_contains", "unknown"]) })).default([]),
-  warnings: z.array(z.string()),
-});
 const socialEvidenceListSchema = z.object({
   city: z.string(), queryId: z.string().optional(), evidence: z.array(socialEvidenceSchema),
-  signals: z.array(z.unknown()).default([]), platformStatus: z.record(z.string(), z.string()),
+  signals: z.array(socialSignalSchema).default([]), platformStatus: socialPlatformStatusSchema,
   warnings: z.array(z.string()),
 }).passthrough();
 

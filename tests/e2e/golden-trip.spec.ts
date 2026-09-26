@@ -29,14 +29,22 @@ test.describe("Voyage Golden Trip E2E Suite", () => {
     await page.waitForURL(/\/new-trip/);
     await expect(page).toHaveURL(/.*new-trip.*/);
 
+    const socialReference = page.getByRole("checkbox", { name: /参考小红书 \/ 抖音 \/ 微信攻略/ });
+    await expect(socialReference).toBeVisible();
+    await expect(socialReference).not.toBeChecked();
+
     // Click Generate Trip
     const generateBtn = page.getByRole("button", { name: /开始生成|创建|生成完整旅行|AI 创建旅行/i });
     await expect(generateBtn).toBeVisible({ timeout: 15000 });
     await generateBtn.click();
 
-    // Wait for trip workspace
+    // Wait for the actual trip workspace content instead of relying on heading order.
     await page.waitForURL(/\/trip\//, { timeout: 30000 });
-    await expect(page.locator("h1, h2").first()).toContainText(/重庆|Day/);
+    await expect(page.locator("body")).toContainText("重庆");
+    const sourcePanel = page.locator('[aria-label="本次规划来源"]:visible');
+    await expect(sourcePanel).toContainText("确定性规则规划");
+    await expect(sourcePanel).toContainText("本次未调用外部 LLM");
+    await expect(sourcePanel).toContainText("未请求");
   });
 
   test("Flow 2: Itinerary item interaction and map sync", async ({ page }) => {

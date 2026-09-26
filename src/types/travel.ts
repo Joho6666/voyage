@@ -264,9 +264,17 @@ export interface Trip {
   offers?: TravelOffer[];
   offerProviderStatus?: OfferProviderStatus;
   socialQueryId?: string;
+  socialQueryStatus?: "not_requested" | "used" | "queried_not_used" | "unavailable" | "error";
+  socialPlatformStatus?: Record<string, "ok" | "unavailable" | "error">;
   socialEvidence?: SocialEvidence[];
   socialSignals?: SocialSignal[];
   socialWarnings?: string[];
+  planningMetadata?: {
+    source: "llm" | "rules";
+    llm: "used" | "unavailable" | "failed" | "skipped";
+    fallbackReason?: string;
+    social?: "not_requested" | "used" | "queried_not_used" | "unavailable" | "error";
+  };
 }
 
 export interface TripSummary {

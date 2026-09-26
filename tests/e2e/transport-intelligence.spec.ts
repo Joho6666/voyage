@@ -51,4 +51,18 @@ test.describe("Voyage Transport Intelligence E2E", () => {
     expect(payload.data.retrieval).toHaveProperty("vectorUsed");
     expect(payload.data.retrieval).toHaveProperty("databaseUsed");
   });
+
+  test("transport page distinguishes provider capability from real-time inventory", async ({ page }) => {
+    await page.goto("/trip/chongqing-2026/transport");
+
+    await expect(page.getByRole("heading", { name: "交通规划与出行建议" })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("transport-capability-train")).toContainText("美团未配置");
+    await expect(page.getByTestId("transport-capability-train")).toContainText("无专用铁路实时库存 provider");
+    await expect(page.getByTestId("transport-capability-flight")).toContainText("飞猪未配置");
+    await expect(page.getByText("官方 / 平台首页核实")).toBeVisible();
+
+    const railLink = page.getByRole("link", { name: "打开 12306 官网首页" });
+    await expect(railLink).toHaveAttribute("href", "https://www.12306.cn/index/");
+    await expect(page.locator("body")).toContainText("入口不代表 Voyage 返回实时库存");
+  });
 });

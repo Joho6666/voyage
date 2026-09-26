@@ -36,7 +36,13 @@ export function ItineraryPanel() {
         </Tabs>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
-        <SocialEvidencePanel evidence={trip.socialEvidence} warnings={trip.socialWarnings} />
+        <SocialEvidencePanel
+          evidence={trip.socialEvidence}
+          warnings={trip.socialWarnings}
+          platformStatus={trip.socialPlatformStatus}
+          queryStatus={trip.socialQueryStatus}
+          planningMetadata={trip.planningMetadata}
+        />
         {trip.days.map((day) => (
           <DayTimeline key={day.id} day={day} />
         ))}

@@ -88,6 +88,8 @@ export interface SocialContext {
 }
 
 export interface SocialEvidence {
+  /** Provider identity is optional for backward compatibility with old stored evidence. */
+  provider?: SocialProviderName;
   platform: SocialPlatform;
   sourceId: string;
   sourceUrl?: string;
@@ -96,6 +98,8 @@ export interface SocialEvidence {
   city: string;
   publishedAt?: string;
   fetchedAt: string;
+  /** Evidence validity is optional for backward compatibility; new evidence always sets it. */
+  expiresAt?: string;
   signalTypes: SocialSignalType[];
   confidence: number;
   sampleSize: number;

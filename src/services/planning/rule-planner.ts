@@ -54,7 +54,9 @@ export function planWithRules(input: RulePlanningInput): RulePlan {
     const maxStops = Math.max(1, Math.min(4, Math.floor(remainingPlaces / remainingDays)));
     let cursor = "09:00";
     const take = (predicate: (p: Place) => boolean, meal?: "lunch" | "dinner") => {
-      const candidate = pool.find((p) => !used.has(p.id) && predicate(p));
+      // Reuse a compatible candidate only after every provider candidate has
+      // been assigned once, so longer trips still have a concrete daily plan.
+      const candidate = pool.find((p) => !used.has(p.id) && predicate(p)) ?? pool.find(predicate);
       if (!candidate) return;
       used.add(candidate.id);
       stops.push({ placeId: candidate.id, startTime: cursor, durationMinutes: candidate.stayMinutes || 60, ...(meal ? { meal } : {}) });

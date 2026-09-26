@@ -58,6 +58,7 @@ export async function searchTravelSocial(input: LiveSocialSearchInput, providerO
   const evidence = observations.map((observation) => {
     const related = signals.filter((signal) => signal.sources.some((source) => source.sourceId === observation.sourceId && source.platform === observation.platform));
     return {
+      provider: observation.provider,
       platform: observation.platform,
       sourceId: observation.sourceId,
       sourceUrl: observation.sourceUrl,
@@ -65,6 +66,7 @@ export async function searchTravelSocial(input: LiveSocialSearchInput, providerO
       city: observation.city,
       publishedAt: observation.publishedAt,
       fetchedAt: observation.fetchedAt,
+      expiresAt: observation.expiresAt,
       signalTypes: related.map((signal) => signal.signalType),
       confidence: related.length ? Math.max(...related.map((signal) => signal.confidence)) : 0.25,
       sampleSize: related.length ? Math.max(...related.map((signal) => signal.sampleSize)) : 1,
