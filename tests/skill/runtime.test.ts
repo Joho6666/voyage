@@ -204,4 +204,70 @@ describe("Voyage Skill runtime", () => {
     const source = (await Promise.all(files.map((file) => readFile(file, "utf8")))).join("\n");
     expect(source).not.toMatch(/from ["']react|zustand|localStorage|\bwindow\b/);
   });
+  it("returns ranked multimodal route options and an optimized recommendation", async () => {
+    const options = await runtime.getRouteOptions({
+      origin: { lat: 29.5627, lng: 106.5791 },
+      destination: { lat: 29.5525, lng: 106.5475 },
+      city: "重庆",
+      fallbackPolicy: "deny",
+      context: { travelers: 2, walkingTolerance: "low", fatigue: "high", weather: "rain" },
+    }) as any;
+    expect(options.ok).toBe(true);
+    expect(options.data.routeOptions.options.length).toBeGreaterThanOrEqual(4);
+    expect(options.data.routeOptions.options.map((item: any) => item.mode))
+      .toEqual(expect.arrayContaining(["walk", "metro", "bus", "taxi", "drive"]));
+    expect(options.data.routeOptions.options[0]).toHaveProperty("score");
+
+    const optimized = await runtime.optimizeTransport({
+      origin: { lat: 29.5627, lng: 106.5791 },
+      destination: { lat: 29.5525, lng: 106.5475 },
+      city: "重庆",
+      fallbackPolicy: "deny",
+      context: { travelers: 2, walkingTolerance: "low", fatigue: "high", weather: "rain" },
+    }) as any;
+    expect(optimized.data.recommended.score).toBeGreaterThanOrEqual(optimized.data.alternatives[0].score);
+  });
+
+  it("retrieves travel knowledge and creates a route-mode replan proposal", async () => {
+    const knowledge = await runtime.retrieveTravelKnowledge({
+      city: "重庆",
+      query: "洪崖洞 夜景 人流 步行",
+      tags: ["walking"],
+      limit: 5,
+    }) as any;
+    expect(knowledge.data.matches.length).toBeGreaterThan(0);
+    expect(knowledge.data.matches.some((item: any) => item.city === "重庆")).toBe(true);
+    expect(knowledge.data.retrieval.strategy).toEqual(expect.any(String));
+
+    const created = await create();
+    const before = structuredClone(created.data.trip) as Trip;
+    const replanned = await runtime.replanTrip({
+      tripId: before.id,
+      instruction: "下雨而且很累，优先少走路",
+      fallbackPolicy: "deny",
+      context: { walkingTolerance: "low", fatigue: "high", weather: "rain", travelers: 2 },
+    }) as any;
+    expect(replanned.data.routePlans.length).toBeGreaterThan(0);
+    expect(replanned.data.knowledge.length).toBeGreaterThan(0);
+    expect(replanned.data.knowledgeRetrievals.length).toBeGreaterThan(0);
+    expect(replanned.data.knowledgeRetrievals[0]).toHaveProperty("strategy");
+    expect(replanned.data.proposalId).toEqual(expect.any(String));
+    expect((await repository.getTrip(before.id))?.trip).toEqual(before);
+  });
+
+  it("uses RAG-aware replanning for natural-language transport changes", async () => {
+    const created = await create();
+    const trip = created.data.trip as Trip;
+    const proposal = await runtime.proposeChange({
+      tripId: trip.id,
+      instruction: "第二天太累了，少走一点。",
+      fallbackPolicy: "estimated",
+    }) as any;
+
+    expect(proposal.data.proposalId).toEqual(expect.any(String));
+    expect(proposal.data.routePlans.length).toBeGreaterThan(0);
+    expect(proposal.data.knowledgeRetrievals.length).toBeGreaterThan(0);
+    expect(proposal.data.actions.every((action: any) => action.payload.dayId === trip.days[1].id)).toBe(true);
+  });
+
 });

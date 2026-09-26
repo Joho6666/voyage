@@ -17,14 +17,14 @@ test.describe("Voyage Journey Map E2E Suite", () => {
     await expect(page.locator("body")).toBeVisible();
 
     // Timeline items should exist
-    const items = page.locator("article");
+    const items = page.getByTestId("itinerary-card");
     await expect(items.first()).toBeVisible({ timeout: 15000 });
 
     // Click first item in Timeline
-    await items.first().click();
+    await items.first().dispatchEvent("click");
 
     // Verify timeline item is selected
-    await expect(items.first()).toHaveClass(/border-primary|bg-accent/);
+    await expect(items.first()).toHaveAttribute("data-selected", "true");
 
     // Verify Map Popover appears in the visible map section
     const popover = page.locator('[data-testid="map-popover"]:visible');
@@ -39,16 +39,15 @@ test.describe("Voyage Journey Map E2E Suite", () => {
     const markerPins = page.locator('[data-testid="place-marker"]:visible');
     await expect(markerPins.first()).toBeVisible({ timeout: 15000 });
 
-    // AMap replaces marker DOM nodes while its overlay settles. Dispatch on the
-    // current semantic marker so the test exercises selection without racing a detached node.
-    await markerPins.first().evaluate((element) => (element as HTMLElement).click());
+    // Use a pointer click so both the fallback map and AMap's overlay event listener run.
+    await markerPins.first().click({ force: true });
 
     // Map popover opens
     await expect(page.locator('[data-testid="map-popover"]:visible')).toBeVisible({ timeout: 5000 });
 
-    // An article card in the timeline should be selected
-    const selectedItem = page.locator("article.border-primary\\/40, article.bg-accent");
-    await expect(selectedItem.first()).toBeVisible({ timeout: 5000 });
+    // The corresponding itinerary card should be selected
+    const selectedItem = page.locator('[data-testid="itinerary-card"][data-selected="true"]').first();
+    await expect(selectedItem).toBeVisible({ timeout: 5000 });
   });
 
   test("Map Flow 3: Switch Day in DaySwitcher -> Map active day update", async ({ page }) => {
@@ -60,14 +59,14 @@ test.describe("Voyage Journey Map E2E Suite", () => {
     await expect(day2Btn).toBeVisible({ timeout: 15000 });
 
     // Click Day 2
-    await day2Btn.dispatchEvent("click");
+    await day2Btn.click();
 
     // Verify active day is updated (button styled as active)
     await expect(day2Btn).toHaveClass(/bg-primary/);
 
     // Switch back to "全部"
     const allBtn = page.getByRole("button", { name: /全部/i }).first();
-    await allBtn.dispatchEvent("click");
+    await allBtn.click();
     await expect(allBtn).toHaveClass(/bg-primary/);
   });
 
@@ -78,7 +77,7 @@ test.describe("Voyage Journey Map E2E Suite", () => {
     // Click "行程总览"
     const overviewBtn = page.getByRole("button", { name: /行程总览/i }).first();
     if (await overviewBtn.isVisible()) {
-      await overviewBtn.dispatchEvent("click");
+      await overviewBtn.click();
 
       // Check Journey Overview summary card
       await expect(page.getByRole("heading", { name: /行程总览/i })).toBeVisible({ timeout: 5000 });
@@ -115,9 +114,9 @@ test.describe("Voyage Journey Map E2E Suite", () => {
     await expect(page.locator("body")).toBeVisible();
 
     // Find and click 洪崖洞 in timeline
-    const hydItem = page.locator("article").filter({ hasText: "洪崖洞" }).first();
+    const hydItem = page.getByTestId("itinerary-card").filter({ hasText: "洪崖洞" }).first();
     await expect(hydItem).toBeVisible({ timeout: 15000 });
-    await hydItem.click();
+    await hydItem.dispatchEvent("click");
 
     // Verify Map Popover shows vertical transit guide
     const popover = page.locator('[data-testid="map-popover"]:visible');

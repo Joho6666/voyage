@@ -1,4 +1,5 @@
 import type { OfferProviderStatus, TravelOffer } from "./offers";
+import type { SocialEvidence, SocialSignal } from "@/services/social/types";
 
 export type PlaceCategory =
   | "attraction"
@@ -262,6 +263,10 @@ export interface Trip {
   budgetItems: BudgetItem[];
   offers?: TravelOffer[];
   offerProviderStatus?: OfferProviderStatus;
+  socialQueryId?: string;
+  socialEvidence?: SocialEvidence[];
+  socialSignals?: SocialSignal[];
+  socialWarnings?: string[];
 }
 
 export interface TripSummary {

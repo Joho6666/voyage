@@ -10,6 +10,9 @@ import { tripRepository } from "@/services/trips/repository";
 import type { Day, Place, Trip } from "@/types/travel";
 import { createTripId, planWithRules } from "@/services/planning/rule-planner";
 import { weatherForDate } from "@/services/weather/merge";
+import { resolveCityCoverImage } from "@/services/media/city-cover";
+import { searchTravelSocial, type LiveSocialSearchResult } from "@/services/social/live-search";
+import { persistSocialSearch } from "@/services/social/store";
 
 export const dynamic = "force-dynamic";
 
@@ -198,7 +201,7 @@ const SYSTEM_PROMPT = [
   "4. startTime 用 24 小时 HH:mm；第一天不早于火车/航班到达时间。",
 ].join("\n");
 
-async function llmOutline(input: { prompt: string; candidates: Candidate[]; dayCount: number; budget: number; travelers: number; vibes: string[] }): Promise<Outline> {
+async function llmOutline(input: { prompt: string; candidates: Candidate[]; dayCount: number; budget: number; travelers: number; vibes: string[]; social?: LiveSocialSearchResult }): Promise<Outline> {
   const { chatJson } = await import("@/services/ai/llm");
   const candidateLines = input.candidates
     .map((p) => `${p.id} ${p.name} [${p.category}] (${p.district || p.address})`)
@@ -210,6 +213,8 @@ async function llmOutline(input: { prompt: string; candidates: Candidate[]; dayC
     "",
     "候选地点：",
     candidateLines,
+    input.social?.signals.length ? "\n社交平台信号（仅作参考，不得创建候选地点或替代高德事实）：" : "",
+    ...(input.social?.signals ?? []).map((signal) => `${signal.signalType}=${signal.signalType === "travel_warning" ? "reported; see source evidence" : JSON.stringify(signal.value)} confidence=${signal.confidence.toFixed(2)} sources=${signal.sources.length}`),
   ]
     .filter(Boolean)
     .join("\n");
@@ -229,8 +234,9 @@ async function assembleTrip(input: {
   outline: Outline;
   body: z.output<typeof bodySchema>;
   candidates: Candidate[];
+  social?: LiveSocialSearchResult;
 }): Promise<Trip> {
-  const { body, candidates } = input;
+  const { body, candidates, social } = input;
   const tripId = createTripId();
   const days = await buildDays(body.startDate, body.endDate, tripId, body.destination);
   const outline = input.outline;
@@ -279,7 +285,7 @@ async function assembleTrip(input: {
     currency: "CNY",
     status: "ready",
     estimatedSpend,
-    coverImage: candidates[0]?.image || "",
+    coverImage: (candidates.find((candidate) => candidate.image)?.image || await resolveCityCoverImage(body.destination, candidates)),
     vibe: body.vibes ?? [],
     prompt: body.prompt ?? "",
     createdAt: new Date().toISOString(),
@@ -300,6 +306,7 @@ async function assembleTrip(input: {
       status: "todo" as const,
     })),
     budgetItems: [],
+    ...(social ? { socialQueryId: social.queryId, socialEvidence: social.evidence, socialSignals: social.signals, socialWarnings: social.warnings } : {}),
   };
   const withBudget = estimateBudgetItems({ ...trip, estimatedSpend: Math.max(300, estimatedSpend) });
   return recomputeTrip(withBudget);
@@ -318,7 +325,7 @@ function ruleOutline(body: z.output<typeof bodySchema>, candidates: Candidate[])
   return { ...plan, tasks: [] };
 }
 
-async function llmOutlineSafe(body: z.output<typeof bodySchema>, candidates: Candidate[]): Promise<Outline | undefined> {
+async function llmOutlineSafe(body: z.output<typeof bodySchema>, candidates: Candidate[], social?: LiveSocialSearchResult): Promise<Outline | undefined> {
   try {
     const dayCount = Math.max(1, Math.min(7, Math.floor((new Date(`${body.endDate}T12:00:00`).getTime() - new Date(`${body.startDate}T12:00:00`).getTime()) / 86_400_000) + 1));
     return await llmOutline({
@@ -328,6 +335,7 @@ async function llmOutlineSafe(body: z.output<typeof bodySchema>, candidates: Can
       budget: body.budget ?? 2500,
       travelers: body.travelers ?? 2,
       vibes: body.vibes ?? [],
+      social,
     });
   } catch {
     return undefined;
@@ -362,8 +370,20 @@ export async function POST(request: Request) {
     );
   }
 
-  const outline = llmEnv ? await llmOutlineSafe(body.data, candidates) : undefined;
-  const trip = await assembleTrip({ outline: outline ?? ruleOutline(body.data, candidates), body: body.data, candidates });
+  let social: LiveSocialSearchResult | undefined;
+  if (process.env.NODE_ENV !== "test" && process.env.VOYAGE_SOCIAL_ENABLED !== "0") {
+    try {
+      social = await searchTravelSocial({ city: body.data.destination, query: body.data.prompt });
+      await persistSocialSearch(social).catch((error) => {
+        social?.warnings.push(error instanceof Error ? error.message : "Social evidence could not be saved");
+      });
+    } catch {
+      social = undefined;
+    }
+  }
+
+  const outline = llmEnv ? await llmOutlineSafe(body.data, candidates, social) : undefined;
+  const trip = await assembleTrip({ outline: outline ?? ruleOutline(body.data, candidates), body: body.data, candidates, social });
   try {
     const saved = await tripRepository.save(trip);
     return Response.json({ source: outline ? "llm" : "rules", mapProvider: provider, trip: saved });

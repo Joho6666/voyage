@@ -7,7 +7,7 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  workers: 1,
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL || `http://localhost:${port}`,
@@ -24,7 +24,7 @@ export default defineConfig({
     : {
         command: `npx next start -p ${port}`,
         // E2E is deterministic and explicit demo mode. Live AMap validation runs separately.
-        env: { ...process.env, AMAP_SERVER_KEY: "", VOYAGE_DEMO_MODE: "true" },
+        env: { ...process.env, AMAP_SERVER_KEY: "", VOYAGE_DEMO_MODE: "true", VOYAGE_SOCIAL_ENABLED: "0" },
         url: `http://localhost:${port}`,
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,

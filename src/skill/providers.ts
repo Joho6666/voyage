@@ -114,7 +114,8 @@ export class AmapTravelProvider implements TravelDataProvider {
   async planRoute(input: Parameters<TravelDataProvider["planRoute"]>[0]): Promise<ProviderRoute> {
     let route: AmapRouteResult;
     if (input.mode === "walk") route = await amapWalkingRoute(input.origin, input.destination);
-    else if (input.mode === "metro" || input.mode === "bus") route = await amapTransitRoute(input.origin, input.destination, input.city);
+    else if (input.mode === "metro") route = await amapTransitRoute(input.origin, input.destination, input.city, "0");
+    else if (input.mode === "bus") route = await amapTransitRoute(input.origin, input.destination, input.city, "5");
     else route = await amapDrivingRoute(input.origin, input.destination);
     return { ...route, source: "amap", mode: input.mode };
   }

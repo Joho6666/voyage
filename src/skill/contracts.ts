@@ -60,6 +60,44 @@ export const getWeatherInputSchema = z.object({
   fallbackPolicy: fallbackPolicySchema,
 });
 
+const urbanTransportModeSchema = z.enum(["walk", "metro", "bus", "taxi", "drive"]);
+
+export const transportContextSchema = z.object({
+  budgetSensitivity: z.enum(["low", "medium", "high"]).optional(),
+  walkingTolerance: z.enum(["low", "medium", "high"]).optional(),
+  fatigue: z.enum(["low", "medium", "high"]).optional(),
+  weather: z.enum(["clear", "rain", "heat", "cold", "unknown"]).optional(),
+  travelers: z.number().int().min(1).max(20).optional(),
+  hasLuggage: z.boolean().optional(),
+  accessibilityNeeds: z.boolean().optional(),
+}).default({});
+
+export const getRouteOptionsInputSchema = z.object({
+  origin: point,
+  destination: point,
+  city: z.string().min(1).max(80),
+  modes: z.array(urbanTransportModeSchema).min(1).max(5).optional(),
+  context: transportContextSchema,
+  fallbackPolicy: fallbackPolicySchema,
+});
+
+export const optimizeTransportInputSchema = getRouteOptionsInputSchema;
+
+export const retrieveTravelKnowledgeInputSchema = z.object({
+  city: z.string().min(1).max(80),
+  query: z.string().min(1).max(2000),
+  tags: z.array(z.string().min(1).max(80)).max(20).default([]),
+  limit: z.number().int().min(1).max(20).default(8),
+});
+
+export const replanTripInputSchema = z.object({
+  tripId: z.string().min(1),
+  dayId: z.string().optional(),
+  instruction: z.string().max(2000).optional(),
+  context: transportContextSchema,
+  fallbackPolicy: fallbackPolicySchema,
+});
+
 export const searchFlightsInputSchema = z.object({
   departureCityCode: z.string().regex(/^[A-Z]{3}$/),
   arrivalCityCode: z.string().regex(/^[A-Z]{3}$/),
@@ -117,6 +155,10 @@ export const commandSchemas = {
   "get-trip": getTripInputSchema,
   "search-places": searchPlacesInputSchema,
   "plan-route": planRouteInputSchema,
+  "get-route-options": getRouteOptionsInputSchema,
+  "optimize-transport": optimizeTransportInputSchema,
+  "retrieve-travel-knowledge": retrieveTravelKnowledgeInputSchema,
+  "replan-trip": replanTripInputSchema,
   "get-weather": getWeatherInputSchema,
   "search-flights": searchFlightsInputSchema,
   "search-travel-offers": searchTravelOffersInputSchema,

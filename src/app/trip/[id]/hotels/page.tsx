@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { useTripStore } from "@/store/trip-store";
 import { useParams } from "next/navigation";
 import { TravelImage } from "@/components/travel/TravelImage";
+import { LiveDiscovery } from "@/components/travel/LiveDiscovery";
 
 export default function HotelsPage() {
   const trip = useTripStore((s) => s.trip);
@@ -18,6 +19,7 @@ export default function HotelsPage() {
       <h1 className="text-xl font-semibold tracking-tight">住宿规划与预订建议</h1>
       <p className="mt-1 text-[12px] text-muted-foreground">{trip.destination} · 只展示可验证的外部结果，不生成虚构房价或房态</p>
       <Button asChild size="sm" className="mt-3"><Link href={`/trip/${encodeURIComponent(id)}/offers`}>查询酒店实时房价</Link></Button>
+      <LiveDiscovery city={trip.destination} kind="hotel" query="酒店" title={`${trip.destination} 酒店口碑与位置发现`} />
       <section className="mt-4 rounded-[14px] border border-border bg-secondary/40 p-3.5 text-[12px] leading-5">
         <div className="flex items-center gap-1.5 font-medium"><Building className="size-4 text-primary" />住宿选址原则</div>
         <p className="mt-1 text-muted-foreground">优先选择靠近当前行程 POI、公共交通和餐饮的区域；具体房价、房态和评分以外部服务商实时结果为准。</p>

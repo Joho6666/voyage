@@ -93,7 +93,7 @@ export function JourneyMockMap({
 
   return (
     <div className="relative h-full min-h-[320px] w-full overflow-hidden bg-[#f4f5f7] select-none">
-      {fallbackReason ? <div className="absolute left-3 right-3 top-3 z-30 rounded-xl border border-amber-300/70 bg-amber-50/95 px-3 py-2 text-[11px] leading-4 text-amber-900 shadow-sm">地图底图暂为交互式备用视图：{fallbackReason}<br /><span className="text-amber-700/80">POI 和路线数据仍按各自来源标签显示。</span></div> : null}
+      {fallbackReason ? <div className="pointer-events-none absolute left-3 right-3 top-14 z-10 rounded-xl border border-amber-300/70 bg-amber-50/95 px-3 py-2 text-[11px] leading-4 text-amber-900 shadow-sm">地图底图暂为交互式备用视图：{fallbackReason}<br /><span className="text-amber-700/80">POI 和路线数据仍按各自来源标签显示。</span></div> : null}
       {/* Subtle clean basemap background */}
       <div className="pointer-events-none absolute inset-0 opacity-40 bg-[radial-gradient(#d4d4d8_1px,transparent_1px)] [background-size:16px_16px]" />
 
