@@ -14,7 +14,7 @@ test.describe("Voyage Golden Trip E2E Suite", () => {
 
   test("Flow 1: Landing -> Input requirement -> Create Trip -> Trip Workspace", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator("h1")).toContainText("Tell Voyage where you're going");
+    await expect(page.locator("h1")).toContainText("告诉 Voyage 你想去哪儿");
 
     // Check prefilled Golden Trip prompt
     const promptInput = page.locator("textarea");
