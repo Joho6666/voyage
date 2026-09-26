@@ -86,7 +86,9 @@ export default function ExplorePage() {
   const [q, setQ] = useState("");
   const [remote, setRemote] = useState<Place[]>([]);
   const [source, setSource] = useState<"amap" | "known" | "unknown">("unknown");
-  const center = trip.places.find((p) => p.id === "p-jiefangbei") ?? trip.places[0];
+  // Distance anchor = where the traveler is staying; the old hardcoded demo id
+  // ("p-jiefangbei") made every real trip fall back to places[0] → "0 m".
+  const center = trip.places.find((p) => p.category === "hotel") ?? trip.places[0];
 
   useEffect(() => {
     let keywords = q.trim();

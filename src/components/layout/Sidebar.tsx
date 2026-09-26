@@ -11,14 +11,13 @@ import { useUiStore } from "@/store/ui-store";
 import { getCurrentUser } from "@/services/supabase/auth";
 import type { User } from "@supabase/supabase-js";
 import { AuthDialog } from "@/components/auth/AuthDialog";
-import { bottomNav, globalNav, tripNav } from "./nav";
+import { bottomNav, globalNav, tripNavGroups } from "./nav";
 
 export function Sidebar({ tripId }: { tripId?: string }) {
   const pathname = usePathname();
   const collapsed = useUiStore((s) => s.sidebarCollapsed);
   const toggle = useUiStore((s) => s.toggleSidebar);
   const trip = useTripStore((s) => s.trip);
-  const items = tripId ? tripNav(tripId) : [];
 
   const [user, setUser] = useState<User | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
@@ -68,7 +67,14 @@ export function Sidebar({ tripId }: { tripId?: string }) {
                 <Compass className="size-4 text-muted-foreground" />
               </div>
             )}
-            <NavGroup collapsed={collapsed} items={items} pathname={pathname} />
+            {tripNavGroups(tripId).map((group) => (
+              <div key={group.title} className="mb-3">
+                {!collapsed ? (
+                  <p className="mb-1 px-2 text-[11px] font-medium text-muted-foreground/80">{group.title}</p>
+                ) : null}
+                <NavGroup collapsed={collapsed} items={group.items} pathname={pathname} />
+              </div>
+            ))}
           </div>
         ) : null}
       </nav>

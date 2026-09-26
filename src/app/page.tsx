@@ -35,7 +35,7 @@ export default function LandingPage() {
           </div>
           <span>{brand.name}</span>
           <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground">
-            Travel OS Beta
+            Travel OS 内测
           </span>
         </Link>
         <nav className="flex items-center gap-3 text-[13px]">
@@ -53,11 +53,11 @@ export default function LandingPage() {
         <div className="space-y-3 text-center sm:text-left">
           <div className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-secondary/60 px-3 py-1 text-[12px] text-muted-foreground">
             <Sparkles className="size-3 text-primary" />
-            <span>AI-Native Travel Operating System</span>
+            <span>AI 原生旅行操作系统</span>
           </div>
 
           <h1 className="text-3xl sm:text-5xl font-semibold tracking-tight leading-[1.15] text-balance">
-            Tell Voyage where you&apos;re going.
+            告诉 Voyage 你想去哪儿。
           </h1>
 
           <p className="text-base sm:text-lg text-muted-foreground max-w-xl text-balance">

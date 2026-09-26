@@ -101,7 +101,7 @@ export function PoiCard({
             </span>
             <span>{place.priceLabel}</span>
             <span>{item.duration} min</span>
-            <span>{place.openingStatus === "open" ? "开放中" : "已关闭"}</span>
+            <span>{place.openingStatus === "open" ? "营业中" : null}</span>
           </p>
           <p className="mt-1 line-clamp-1 text-[12px] leading-4 text-muted-foreground">{place.description}</p>
         </div>

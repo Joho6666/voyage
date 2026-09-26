@@ -68,7 +68,7 @@ export function TopBar() {
       </div>
       <Button size="sm" onClick={() => setAssistantOpen(true)}>
         <Sparkles className="size-3.5" />
-        AI Assistant
+        AI 助手
       </Button>
     </header>
   );

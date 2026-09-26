@@ -5,7 +5,9 @@ import { PLACE_CATEGORY_LABEL, type Place } from "@/types/travel";
 import { formatKm, haversineMeters } from "@/lib/utils";
 
 export function PlaceCard({ place, from }: { place: Place; from?: { lat: number; lng: number } }) {
-  const distance = from ? formatKm(haversineMeters(from, place)) : place.district;
+  const meters = from ? haversineMeters(from, place) : null;
+  // A card at the anchor point itself reads "0 m" — meaningless to the user.
+  const distance = meters !== null ? (meters < 50 ? "就在附近" : formatKm(meters)) : place.district;
   const hasRealRating = typeof place.rating === "number" && place.rating > 0;
 
   return (

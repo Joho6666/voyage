@@ -137,7 +137,7 @@ export default function TodayPage() {
         <div>
           <div className="flex items-center gap-1.5">
             <span className="text-[12px] font-medium text-primary tracking-wide uppercase">
-              {trip.destination} · 今日行程 · Travel OS Execution
+              {trip.destination} · 今日行程 · 现场执行模式
             </span>
           </div>
           <h1 className="mt-0.5 text-2xl font-semibold tracking-tight text-foreground">
