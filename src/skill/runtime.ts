@@ -11,9 +11,14 @@ import { computeTripChangeSet } from "@/services/ai/diff";
 import { haversineMeters, estimateTransit } from "@/lib/utils";
 import { createTripId } from "@/services/planning/rule-planner";
 import { planOutline } from "@/services/planning/outline-planner";
+import {
+  filterPlanningCandidates,
+  planningProfileToPrompt,
+} from "@/services/planning/profile";
 import { recomputeDay, recomputeTrip } from "@/services/routing";
 import { weatherForDate } from "@/services/weather/merge";
 import type { Day, ItineraryItem, Place, RouteSegment, Trip } from "@/types/travel";
+import type { PlanningProfile } from "@/schemas/planning";
 import {
   applyChangeInputSchema,
   createTripInputSchema,
@@ -63,6 +68,46 @@ function endDate(startDate: string, days: number) {
 
 function daysBetween(startDate: string, finishDate: string) {
   return Math.max(1, Math.min(7, Math.floor((new Date(`${finishDate}T12:00:00Z`).getTime() - new Date(`${startDate}T12:00:00Z`).getTime()) / DAY_MS) + 1));
+}
+
+function preferredRouteMode(profile?: PlanningProfile): "walk" | "metro" | "bus" | "taxi" | "drive" | undefined {
+  switch (profile?.transportPreference) {
+    case "walk": return "walk";
+    case "metro": return "metro";
+    case "bus": return "bus";
+    case "taxi": return "taxi";
+    case "drive": return "drive";
+    case "public": return "metro";
+    default: return undefined;
+  }
+}
+
+function placeMatchesTerm(place: Place, term: string) {
+  const needle = term.trim().toLocaleLowerCase();
+  if (!needle) return false;
+  return [place.name, place.address, place.district, place.description, ...place.tags]
+    .join(" ")
+    .toLocaleLowerCase()
+    .includes(needle);
+}
+
+function planningConstraintWarnings(profile: PlanningProfile | undefined, providerCandidates: Place[], selectedCandidates: Place[]) {
+  if (!profile) return [];
+  const warnings: string[] = [];
+  const unmatchedMust = profile.mustVisit.filter((term) => !providerCandidates.some((place) => placeMatchesTerm(place, term)));
+  if (unmatchedMust.length) warnings.push(`未能在 provider 候选中匹配必去地点：${unmatchedMust.join("、")}`);
+  const matchedAvoid = profile.avoid.filter((term) => providerCandidates.some((place) => placeMatchesTerm(place, term)));
+  if (matchedAvoid.length && selectedCandidates.some((place) => matchedAvoid.some((term) => placeMatchesTerm(place, term)))) {
+    warnings.push("部分避开条件未能从候选地点元数据中完全排除");
+  }
+  if (profile.dietary.length && !providerCandidates.some((place) => profile.dietary.some((term) => placeMatchesTerm(place, term)))) {
+    warnings.push(`provider 未提供可验证的饮食匹配：${profile.dietary.join("、")}`);
+  }
+  if (profile.accessibility !== undefined && !providerCandidates.some((place) => /无障碍|轮椅|电梯|accessible|elevator/i.test([place.name, place.description, ...place.tags].join(" ")))) {
+    warnings.push("provider 未提供可验证的无障碍设施信息");
+  }
+  if (!selectedCandidates.length) warnings.push("旅行画像过滤后没有可用的 provider 候选，未生成地点替代品");
+  return warnings;
 }
 
 function overall(levels: ProviderLevel[]): ProviderLevel {
@@ -149,7 +194,13 @@ function routeSegment(input: {
   };
 }
 
-async function enrichRoutes(trip: Trip, provider: TravelDataProvider, allowEstimate: boolean, onlyDayId?: string) {
+async function enrichRoutes(
+  trip: Trip,
+  provider: TravelDataProvider,
+  allowEstimate: boolean,
+  onlyDayId?: string,
+  preferredMode?: "walk" | "metro" | "bus" | "taxi" | "drive",
+) {
   let next = onlyDayId ? recomputeDay(trip, onlyDayId) : recomputeTrip(trip);
   const dayIds = onlyDayId ? [onlyDayId] : next.days.map((day) => day.id);
   let level: ProviderLevel = provider.kind === "amap" ? "REAL" : "MOCK";
@@ -165,7 +216,9 @@ async function enrichRoutes(trip: Trip, provider: TravelDataProvider, allowEstim
       const toPlace = next.places.find((place) => place.id === to.placeId);
       if (!fromPlace || !toPlace) continue;
       const baseline = next.segments.find((segment) => segment.dayId === dayId && segment.fromItemId === from.id && segment.toItemId === to.id);
-      const mode = baseline?.mode === "highspeed" || baseline?.mode === "flight" ? "taxi" : baseline?.mode ?? "walk";
+      const mode = baseline?.mode === "highspeed" || baseline?.mode === "flight"
+        ? "taxi"
+        : preferredMode ?? baseline?.mode ?? "walk";
       try {
         const route = await provider.planRoute({ origin: fromPlace, destination: toPlace, mode, city: next.destination });
         resolved.push(routeSegment({ trip: next, dayId, from, to, fromPlace, toPlace, route, estimated: provider.kind !== "amap" }));
@@ -399,18 +452,34 @@ export class VoyageSkillRuntime {
     const input = createTripInputSchema.parse(raw);
     const provider = await this.providerFactory();
     const finish = input.endDate ?? endDate(input.startDate, input.days ?? 1);
-    const candidates = await collectCandidates(provider, input.destination).catch((error) => {
+    const providerCandidates = await collectCandidates(provider, input.destination).catch((error) => {
       throw normalizeProviderError(error, "NO_POI_RESULTS");
     });
+    const profile = input.planningProfile;
+    const candidates = profile
+      ? filterPlanningCandidates(providerCandidates, profile, daysBetween(input.startDate, finish))
+      : providerCandidates;
+    const constraintWarnings = planningConstraintWarnings(profile, providerCandidates, candidates);
+    if (!candidates.length) {
+      throw new SkillError("NO_POI_RESULTS", "旅行画像过滤后没有可用的 provider 候选", { warnings: constraintWarnings });
+    }
+    const planningPrompt = profile
+      ? [input.prompt, planningProfileToPrompt(profile)].filter(Boolean).join("\n")
+      : input.prompt;
+    const effectiveTravelers = profile?.travelers ?? input.travelers ?? input.people;
+    const effectiveBudget = profile?.budget ?? input.budget;
+    const effectiveVibes = profile?.vibes.length ? profile.vibes : input.vibes ?? input.preferences;
+    const includeSocial = input.includeSocialEvidence || Boolean(profile?.socialOptIn || profile?.includeSocialEvidence);
+    const includeOffers = input.includeExternalOffers || Boolean(profile?.includeExternalOffers);
     const forecasts = await provider.getWeather(input.destination).catch((error) => {
       if (input.fallbackPolicy !== "estimated") throw normalizeProviderError(error, "WEATHER_UNAVAILABLE");
       return [];
     });
 
-    const social = input.includeSocialEvidence
+    const social = includeSocial
       ? await collectSocialObservations(this.socialRouterFactory(), {
           city: input.destination,
-          query: input.prompt,
+          query: planningPrompt,
           limit: 5,
         }).catch((error) => ({
           observations: [] as SocialObservation[],
@@ -422,18 +491,18 @@ export class VoyageSkillRuntime {
       ? buildSocialEvidence({ city: input.destination, observations: social.observations, places: candidates })
       : { evidence: [], signals: [] };
     const planResult = await planOutline({
-      prompt: input.prompt,
+      prompt: planningPrompt,
       destination: input.destination,
       startDate: input.startDate,
       endDate: finish,
-      travelers: input.travelers ?? input.people,
-      budget: input.budget,
-      vibes: input.vibes ?? input.preferences,
+      travelers: effectiveTravelers,
+      budget: effectiveBudget,
+      vibes: effectiveVibes,
       candidates,
       ...(socialBuilt.signals.length ? { social: { signals: socialBuilt.signals } } : {}),
     });
     const socialStatus = socialQueryStatus({
-      requested: input.includeSocialEvidence,
+      requested: includeSocial,
       statuses: social?.platformStatus ?? {},
       evidenceCount: socialBuilt.evidence.length,
       usedByPlanner: planResult.source === "llm" && socialBuilt.signals.length > 0,
@@ -463,21 +532,23 @@ export class VoyageSkillRuntime {
       });
     }));
     let trip: Trip = {
-      id: tripId, title: planResult.outline.title, destination: input.destination, origin: input.origin, startDate: input.startDate, endDate: finish,
-      travelers: input.travelers ?? input.people, budget: input.budget, currency: "CNY", status: "ready",
-      estimatedSpend: Math.round(input.budget * 0.85), coverImage: "", vibe: input.vibes ?? input.preferences,
-      prompt: input.prompt, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), days, items,
+      id: tripId, title: planResult.outline.title, destination: input.destination, origin: profile?.origin ?? input.origin, startDate: input.startDate, endDate: finish,
+      travelers: effectiveTravelers, budget: effectiveBudget, currency: "CNY", status: "ready",
+      estimatedSpend: Math.round(effectiveBudget * 0.85), coverImage: "", vibe: effectiveVibes,
+      prompt: planningPrompt, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), days, items,
       segments: [], places: candidates, hotels: [], restaurants: [], activities: [], transports: [], tasks: [], budgetItems: [],
       planningMetadata: {
         source: planResult.source,
         llm: planResult.llm,
         ...(planResult.fallbackReason ? { fallbackReason: planResult.fallbackReason } : {}),
+        ...(input.planningSessionId ? { planningSessionId: input.planningSessionId } : {}),
+        ...(profile ? { planningProfile: profile } : {}),
         social: socialStatus,
       },
       socialQueryStatus: socialStatus,
       ...(social
         ? {
-            socialQueryId: socialQueryId({ city: input.destination, query: input.prompt }),
+            socialQueryId: socialQueryId({ city: input.destination, query: planningPrompt }),
             socialPlatformStatus: social.platformStatus,
             socialEvidence: socialBuilt.evidence,
             socialSignals: socialBuilt.signals,
@@ -486,16 +557,22 @@ export class VoyageSkillRuntime {
         : {}),
     };
     trip = estimateBudgetItems(trip);
-    const routePromise = enrichRoutes(trip, provider, input.fallbackPolicy === "estimated");
-    const offerPromise = input.includeExternalOffers
+    const routePromise = enrichRoutes(
+      trip,
+      provider,
+      input.fallbackPolicy === "estimated",
+      undefined,
+      preferredRouteMode(profile),
+    );
+    const offerPromise = includeOffers
       ? queryMeituan({
-          origin: input.origin,
+          origin: profile?.origin ?? input.origin,
           destination: input.destination,
           startDate: input.startDate,
           endDate: finish,
-          travelers: input.travelers ?? input.people,
-          budget: input.budget,
-          query: input.prompt || `推荐${input.destination}的交通、酒店、景点门票、美食和优惠`,
+          travelers: effectiveTravelers,
+          budget: effectiveBudget,
+          query: planningPrompt || `推荐${input.destination}的交通、酒店、景点门票、美食和优惠`,
           city: input.destination,
           categories: input.offerCategories,
         }).then((result) => ({ result })).catch((error: unknown) => ({ error }))
@@ -506,7 +583,7 @@ export class VoyageSkillRuntime {
     if (coverImage) finalTrip = { ...finalTrip, coverImage };
     let offerLevel: ProviderLevel = "UNKNOWN";
     const offerWarnings: string[] = [];
-    if (input.includeExternalOffers) {
+    if (includeOffers) {
       if ("result" in offerOutcome && offerOutcome.result) {
         const offerResult = offerOutcome.result;
         finalTrip = { ...finalTrip, offers: offerResult.offers, offerProviderStatus: offerResult.status };
@@ -522,20 +599,20 @@ export class VoyageSkillRuntime {
     }
     const stored = await this.repository.createTrip(finalTrip);
     const missingWeather = days.some((day) => day.weather.provenance?.source === "unavailable");
-    const socialLevel = input.includeSocialEvidence
+    const socialLevel = includeSocial
       ? socialLevelFromStatuses(social?.platformStatus ?? {}, socialBuilt.evidence.length)
       : undefined;
     const providerStatus = status(
       placeLevel(provider),
       routed.level,
       weatherLevel(provider, missingWeather),
-      input.includeExternalOffers ? offerLevel : undefined,
+      includeOffers ? offerLevel : undefined,
       socialLevel,
     );
     return successEnvelope(
       { tripId, trip: stored.trip, revision: stored.revision, tripHash: stored.hash },
       providerStatus,
-      [...routed.warnings, ...(social?.warnings ?? []), ...(planResult.fallbackReason ? [planResult.fallbackReason] : []), ...offerWarnings],
+      [...constraintWarnings, ...routed.warnings, ...(social?.warnings ?? []), ...(planResult.fallbackReason ? [planResult.fallbackReason] : []), ...offerWarnings],
     );
   }
 

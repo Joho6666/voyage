@@ -1,5 +1,6 @@
 import type { OfferProviderStatus, TravelOffer } from "./offers";
 import type { SocialEvidence, SocialSignal } from "@/services/social/types";
+import type { PlanningProfile } from "@/schemas/planning";
 
 export type PlaceCategory =
   | "attraction"
@@ -274,6 +275,8 @@ export interface Trip {
     llm: "used" | "unavailable" | "failed" | "skipped";
     fallbackReason?: string;
     social?: "not_requested" | "used" | "queried_not_used" | "unavailable" | "error";
+    planningSessionId?: string;
+    planningProfile?: PlanningProfile;
   };
 }
 

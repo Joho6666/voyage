@@ -29,12 +29,18 @@ test.describe("Voyage Golden Trip E2E Suite", () => {
     await page.waitForURL(/\/new-trip/);
     await expect(page).toHaveURL(/.*new-trip.*/);
 
-    const socialReference = page.getByRole("checkbox", { name: /参考小红书 \/ 抖音 \/ 微信攻略/ });
+    // Conversation-first entry: the social reference stays opt-in and unchecked.
+    await page.getByRole("button", { name: "开始对话" }).click();
+    await expect(page.getByRole("heading", { name: "一起把这趟旅行定下来" })).toBeVisible({ timeout: 15000 });
+
+    const socialReference = page.getByRole("checkbox", { name: /参考社区攻略/ });
     await expect(socialReference).toBeVisible();
     await expect(socialReference).not.toBeChecked();
 
-    // Click Generate Trip
-    const generateBtn = page.getByRole("button", { name: /开始生成|创建|生成完整旅行|AI 创建旅行/i });
+    // Confirm the dates the planner must not invent, then generate.
+    await page.getByLabel("出发日期").fill("2030-05-01");
+    await page.getByLabel("返程日期").fill("2030-05-03");
+    const generateBtn = page.getByRole("button", { name: /生成路线图|直接生成路线/ });
     await expect(generateBtn).toBeVisible({ timeout: 15000 });
     await generateBtn.click();
 

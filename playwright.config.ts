@@ -42,6 +42,7 @@ export default defineConfig({
           VOYAGE_LLM_ENABLED: "0",
           VOYAGE_SKIP_LOCAL_CREDENTIALS: "1",
           VOYAGE_SOCIAL_ENABLED: "0",
+          VOYAGE_SKIP_EXTERNAL_COVER: "1",
         },
         url: `http://localhost:${port}`,
         // Never reuse a server built with a different provider/key environment.

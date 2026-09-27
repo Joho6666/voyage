@@ -12,6 +12,7 @@ export async function resolveCityCoverImage(city: string, places: Place[] = []):
   if (fromPoi) return fromPoi;
   const key = city.trim();
   if (!key) return "";
+  if (process.env.NODE_ENV === "test" || process.env.VOYAGE_SKIP_EXTERNAL_COVER === "1") return "";
   const cached = cache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.url ?? "";
   const deadline = Date.now() + 10_000;

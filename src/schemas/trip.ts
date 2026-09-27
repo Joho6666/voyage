@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { offerProviderStatusSchema, offerSchema } from "./offers";
 import { socialEvidenceSchema, socialPlatformStatusSchema, socialSignalSchema } from "./social";
+import { planningProfileSchema } from "./planning";
 
 export const placeCategorySchema = z.enum([
   "attraction",
@@ -221,6 +222,8 @@ export const tripSchema = z
       llm: z.enum(["used", "unavailable", "failed", "skipped"]),
       fallbackReason: z.string().optional(),
       social: z.enum(["not_requested", "used", "queried_not_used", "unavailable", "error"]).optional(),
+      planningSessionId: z.string().min(1).optional(),
+      planningProfile: planningProfileSchema.optional(),
     }).optional(),
   })
   .superRefine((trip, ctx) => {

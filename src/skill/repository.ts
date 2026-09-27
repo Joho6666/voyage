@@ -6,6 +6,7 @@ import type { TripChangeSet } from "@/types/diff";
 import type { Trip } from "@/types/travel";
 import type { OfferProviderStatus, TravelOffer } from "@/types/offers";
 import { validateTrip } from "@/schemas/trip";
+import { planningProfileSchema, planningSessionSchema, type PlanningProfile, type PlanningSession } from "@/schemas/planning";
 import { SkillError } from "./errors";
 
 export interface StoredTrip {
@@ -13,6 +14,11 @@ export interface StoredTrip {
   revision: number;
   hash: string;
   updatedAt: string;
+}
+
+/** Persisted planning sessions are scoped by the repository root (workspace). */
+export interface StoredPlanningSession extends PlanningSession {
+  hash: string;
 }
 
 export interface ProposalRecord {
@@ -27,8 +33,28 @@ export interface ProposalRecord {
   consumedAt?: string;
 }
 
-function digest(trip: Trip) {
-  return createHash("sha256").update(JSON.stringify(trip)).digest("hex");
+function digest(value: unknown) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function preservePlanningProfile(input: Trip, parsed: Trip): Trip {
+  const metadata = input.planningMetadata;
+  if (!metadata) return parsed;
+  const planningProfile = metadata.planningProfile;
+  if (planningProfile) {
+    const valid = planningProfileSchema.safeParse(planningProfile);
+    if (!valid.success) {
+      throw new SkillError("INVALID_INPUT", "Planning profile failed schema validation", valid.error.flatten());
+    }
+  }
+  return {
+    ...parsed,
+    planningMetadata: {
+      ...metadata,
+      ...(parsed.planningMetadata ?? {}),
+      ...(planningProfile ? { planningProfile: planningProfileSchema.parse(planningProfile) as PlanningProfile } : {}),
+    },
+  };
 }
 
 export class JsonSkillRepository {
@@ -36,6 +62,10 @@ export class JsonSkillRepository {
 
   private tripPath(id: string) {
     return path.join(this.root, "trips", `${encodeURIComponent(id)}.json`);
+  }
+
+  private planningSessionPath(id: string) {
+    return path.join(this.root, "planning-sessions", `${encodeURIComponent(id)}.json`);
   }
 
   private proposalPath(id: string) {
@@ -62,6 +92,86 @@ export class JsonSkillRepository {
     return this.readJson<StoredTrip>(this.tripPath(id));
   }
 
+  async getPlanningSession(id: string): Promise<StoredPlanningSession | null> {
+    const raw = await this.readJson<unknown>(this.planningSessionPath(id));
+    if (!raw) return null;
+    if (typeof raw !== "object" || Array.isArray(raw)) {
+      throw new SkillError("INVALID_INPUT", "Stored planning session is malformed");
+    }
+    const record = raw as Record<string, unknown>;
+    const parsed = planningSessionSchema.safeParse(
+      Object.fromEntries(Object.entries(record).filter(([key]) => key !== "hash")),
+    );
+    if (!parsed.success) {
+      throw new SkillError("INVALID_INPUT", "Stored planning session failed schema validation", parsed.error.flatten());
+    }
+    return {
+      ...(parsed.data as PlanningSession),
+      hash: typeof record.hash === "string" ? record.hash : digest(parsed.data),
+    };
+  }
+
+  async createPlanningSession(session: PlanningSession): Promise<StoredPlanningSession> {
+    const parsed = planningSessionSchema.safeParse(session);
+    if (!parsed.success) {
+      throw new SkillError("INVALID_INPUT", "Planning session failed schema validation", parsed.error.flatten());
+    }
+    const existing = await this.getPlanningSession(parsed.data.id);
+    if (existing) throw new SkillError("REVISION_CONFLICT", "Planning session already exists");
+    const normalized = parsed.data as PlanningSession;
+    const record: StoredPlanningSession = { ...normalized, hash: digest(normalized) };
+    await this.atomicWrite(this.planningSessionPath(normalized.id), record);
+    return record;
+  }
+
+  async updatePlanningSession(input: {
+    sessionId: string;
+    expectedRevision: number;
+    session: PlanningSession;
+  }): Promise<StoredPlanningSession> {
+    const current = await this.getPlanningSession(input.sessionId);
+    if (!current) throw new SkillError("INVALID_INPUT", "Planning session not found");
+    if (current.revision !== input.expectedRevision) {
+      throw new SkillError("REVISION_CONFLICT", "Planning session revision does not match expectedRevision");
+    }
+    if (input.session.id !== input.sessionId) {
+      throw new SkillError("INVALID_INPUT", "Planning session id does not match sessionId");
+    }
+    const parsed = planningSessionSchema.safeParse({
+      ...input.session,
+      revision: current.revision + 1,
+    });
+    if (!parsed.success) {
+      throw new SkillError("INVALID_INPUT", "Planning session failed schema validation", parsed.error.flatten());
+    }
+    const normalized = parsed.data as PlanningSession;
+    const record: StoredPlanningSession = { ...normalized, hash: digest(normalized) };
+    await this.atomicWrite(this.planningSessionPath(input.sessionId), record);
+    return record;
+  }
+
+  /** Compatibility alias for callers that treat a session write as a save. */
+  async savePlanningSession(input: {
+    session: PlanningSession;
+    expectedRevision?: number;
+  }): Promise<StoredPlanningSession> {
+    const current = await this.getPlanningSession(input.session.id);
+    if (!current) return this.createPlanningSession(input.session);
+    return this.updatePlanningSession({
+      sessionId: input.session.id,
+      expectedRevision: input.expectedRevision ?? current.revision,
+      session: input.session,
+    });
+  }
+
+  /** Trip-shaped record helper for code that uses the existing repository convention. */
+  async getPlanningSessionRecord(id: string) {
+    const session = await this.getPlanningSession(id);
+    return session
+      ? { session, revision: session.revision, hash: session.hash, updatedAt: session.updatedAt }
+      : null;
+  }
+
   async listTrips(): Promise<StoredTrip[]> {
     let files: string[];
     try { files = await readdir(path.join(this.root, "trips")); }
@@ -79,7 +189,7 @@ export class JsonSkillRepository {
   async createTrip(trip: Trip): Promise<StoredTrip> {
     const valid = validateTrip(trip);
     if (!valid.success) throw new SkillError("INVALID_INPUT", "Trip failed schema validation", valid.error.flatten());
-    const parsedTrip = valid.data as Trip;
+    const parsedTrip = preservePlanningProfile(trip, valid.data as Trip);
     const record: StoredTrip = { trip: parsedTrip, revision: 1, hash: digest(parsedTrip), updatedAt: new Date().toISOString() };
     await this.atomicWrite(this.tripPath(trip.id), record);
     return record;
@@ -92,7 +202,7 @@ export class JsonSkillRepository {
     const days = input.weatherByDate ? current.trip.days.map((day) => input.weatherByDate?.[day.date] ? { ...day, weather: input.weatherByDate[day.date] } : day) : current.trip.days;
     const valid = validateTrip({ ...current.trip, days, offers: input.offers, offerProviderStatus: input.status, updatedAt: new Date().toISOString() });
     if (!valid.success) throw new SkillError("INVALID_INPUT", "Trip failed schema validation", valid.error.flatten());
-    const trip = valid.data as Trip;
+    const trip = preservePlanningProfile(current.trip, valid.data as Trip);
     const next: StoredTrip = { trip, revision: current.revision + 1, hash: digest(trip), updatedAt: new Date().toISOString() };
     await this.atomicWrite(this.tripPath(input.tripId), next);
     return next;
@@ -104,7 +214,7 @@ export class JsonSkillRepository {
     if (current.revision !== input.expectedRevision) throw new SkillError("REVISION_CONFLICT", "Trip revision does not match expectedTripRevision");
     const valid = validateTrip(input.trip);
     if (!valid.success) throw new SkillError("INVALID_INPUT", "Trip failed schema validation", valid.error.flatten());
-    const trip = valid.data as Trip;
+    const trip = preservePlanningProfile(input.trip, valid.data as Trip);
     const next: StoredTrip = { trip, revision: current.revision + 1, hash: digest(trip), updatedAt: new Date().toISOString() };
     await this.atomicWrite(this.tripPath(input.tripId), next);
     return next;
@@ -136,8 +246,9 @@ export class JsonSkillRepository {
     }
     const valid = validateTrip(proposal.proposedTrip);
     if (!valid.success) throw new SkillError("INVALID_INPUT", "Proposed Trip failed schema validation", valid.error.flatten());
+    const proposedTrip = preservePlanningProfile(proposal.proposedTrip, valid.data as Trip);
     const next: StoredTrip = {
-      trip: { ...(valid.data as Trip), updatedAt: new Date().toISOString() },
+      trip: { ...proposedTrip, updatedAt: new Date().toISOString() },
       revision: current.revision + 1,
       hash: "",
       updatedAt: new Date().toISOString(),

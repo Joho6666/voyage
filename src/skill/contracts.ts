@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { offerKindSchema } from "@/schemas/offers";
 import { socialEvidenceSchema, socialPlatformStatusSchema, socialSignalSchema } from "@/schemas/social";
+import { planningProfileSchema } from "@/schemas/planning";
 
 export const SCHEMA_VERSION = "voyage.skill.v1" as const;
 export type ProviderLevel =
@@ -36,6 +37,8 @@ export const createTripInputSchema = z
     vibes: z.array(z.string().max(30)).max(12).optional(),
     walkingTolerance: z.enum(["low", "medium", "high"]).default("medium"),
     prompt: z.string().max(2000).default(""),
+    planningProfile: planningProfileSchema.optional(),
+    planningSessionId: z.string().min(1).max(100).optional(),
     fallbackPolicy: fallbackPolicySchema,
     includeExternalOffers: z.boolean().default(false),
     includeSocialEvidence: z.boolean().default(false),
