@@ -1,5 +1,5 @@
 import { executeActions } from "@/services/ai/actions/executor";
-import type { AgentMessage, CreateTripInput, TravelAgent } from "./types";
+import type { AgentMessage, AgentTurn, CreateTripInput, TravelAgent } from "./types";
 import { MockTravelAgent } from "./mock";
 import type { Trip } from "@/types/travel";
 
@@ -49,12 +49,16 @@ export class OpenAITravelAgent extends MockTravelAgent implements TravelAgent {
     }
   }
 
-  override async chat(trip: Trip, message: string): Promise<AgentMessage> {
+  override async chat(trip: Trip, message: string, history?: AgentTurn[]): Promise<AgentMessage> {
     try {
       const response = await fetch("/api/agent/tools", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ tripId: trip.id, message }),
+        body: JSON.stringify({
+          tripId: trip.id,
+          message,
+          ...(history?.length ? { history: history.slice(-12) } : {}),
+        }),
       });
       const envelope = await response.json() as { ok?: boolean; content?: string; toolsUsed?: string[]; proposal?: { data?: { proposalId?: string; tripId?: string; baseRevision?: number; changes?: import("@/types/diff").TripChangeSet; summary?: string } }; error?: string };
       if (!response.ok || !envelope.ok) throw new Error(envelope.error ?? "AI 工具调用失败");

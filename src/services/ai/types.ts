@@ -35,6 +35,12 @@ export interface AgentMessage {
   proposal?: AgentProposal;
 }
 
+/** Bounded prior turns sent back to the server so follow-ups keep their context. */
+export interface AgentTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
 export interface TravelAgent {
   readonly id: "mock" | "openai";
   createTrip(input: CreateTripInput): Promise<Trip>;
@@ -48,5 +54,5 @@ export interface TravelAgent {
   moveItem(trip: Trip, itemId: string, toDayId: string): Trip;
   removeItem(trip: Trip, itemId: string): Trip;
   addItem(trip: Trip, placeId: string, dayId: string): Trip;
-  chat(trip: Trip, message: string): Promise<AgentMessage>;
+  chat(trip: Trip, message: string, history?: AgentTurn[]): Promise<AgentMessage>;
 }
