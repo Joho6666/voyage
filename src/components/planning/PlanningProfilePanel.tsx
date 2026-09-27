@@ -22,6 +22,9 @@ export interface PlanningProfilePanelProps {
   llmStatus?: PlanningLlmStatus;
   showStatus?: boolean;
   missingFields?: string[];
+  /** Preconditions the generate endpoint enforces; empty means ready. */
+  blockers?: string[];
+  days?: number;
   direct?: boolean;
 }
 
@@ -38,8 +41,11 @@ export function PlanningProfilePanel({
   llmStatus,
   showStatus = true,
   missingFields = [],
+  blockers = [],
+  days,
   direct = false,
 }: PlanningProfilePanelProps) {
+  const ready = blockers.length === 0;
   return (
     <section className="rounded-[20px] border border-border bg-surface p-4 shadow-[0_12px_35px_rgba(28,25,23,0.045)] sm:p-5">
       <div className="flex items-start justify-between gap-3">
@@ -56,7 +62,13 @@ export function PlanningProfilePanel({
       </div>
 
       {showStatus && llmStatus ? <div className="mt-4"><PlanningStatusCard status={llmStatus} compact /></div> : null}
-      {missingFields.length ? <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/[0.06] px-3 py-2 text-[11px] text-amber-800 dark:text-amber-100"><span className="font-medium">还可以补充：</span>{missingFields.slice(0, 4).join("、")}</div> : null}
+      {onGenerate && !ready ? (
+        <div className="mt-3 rounded-xl border border-amber-500/25 bg-amber-500/[0.07] px-3 py-2 text-[11px] leading-4 text-amber-800 dark:text-amber-100">
+          <span className="font-medium">生成路线图前还需要：</span>{blockers.join("、")}
+          <p className="mt-1 text-amber-800/80 dark:text-amber-100/80">天数可以帮你规划节奏，但出发日期必须有真实日期，我们不能替旅行编一个出发日。</p>
+        </div>
+      ) : null}
+      {missingFields.length ? <div className="mt-3 rounded-xl border border-border bg-muted/35 px-3 py-2 text-[11px] text-muted-foreground"><span className="font-medium text-foreground">还可以补充：</span>{missingFields.slice(0, 4).join("、")}</div> : null}
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <label>
@@ -69,11 +81,25 @@ export function PlanningProfilePanel({
         </label>
         <label>
           <FieldLabel icon={CalendarDays}>出发日期</FieldLabel>
-          <Input type="date" value={profile.startDate} onChange={(event) => onChange({ startDate: event.target.value })} disabled={disabled} />
+          <Input
+            type="date"
+            value={profile.startDate}
+            onChange={(event) => onChange({ startDate: event.target.value })}
+            disabled={disabled}
+            aria-invalid={blockers.includes("出发日期")}
+            className={cn(blockers.includes("出发日期") && !disabled && "border-amber-500/45")}
+          />
         </label>
         <label>
           <FieldLabel icon={CalendarDays}>返程日期</FieldLabel>
-          <Input type="date" value={profile.endDate} onChange={(event) => onChange({ endDate: event.target.value })} disabled={disabled} />
+          <Input
+            type="date"
+            value={profile.endDate}
+            onChange={(event) => onChange({ endDate: event.target.value })}
+            disabled={disabled}
+            aria-invalid={blockers.includes("返程日期或旅行天数")}
+            className={cn(blockers.includes("返程日期或旅行天数") && !disabled && "border-amber-500/45")}
+          />
         </label>
         <label>
           <FieldLabel icon={UsersRound}>同行人数</FieldLabel>
@@ -171,12 +197,20 @@ export function PlanningProfilePanel({
 
       {onGenerate ? (
         <div className="mt-4 border-t border-border/80 pt-4">
-          <Button className="w-full" size="lg" onClick={onGenerate} disabled={disabled || generating || !profile.destination.trim()}>
+          <Button className="w-full" size="lg" onClick={onGenerate} disabled={disabled || generating || !ready}>
             {generating ? "正在生成路线…" : direct ? "直接生成路线" : "生成路线图"}
             {!generating ? <ArrowRight className="ml-1" /> : null}
           </Button>
           <p className="mt-2 text-center text-[10px] leading-4 text-muted-foreground">
-            {direct ? "会把上面的信息作为初始规划意图提交" : "确认后才会创建行程，生成结果可继续调整"}
+            {generating
+              ? "正在调用真实路线与数据能力，请保持页面打开"
+              : !ready
+                ? `补全${blockers.join("、")}后即可生成`
+                : direct
+                  ? "会把上面的信息作为初始规划意图提交"
+                  : days
+                    ? `按 ${days} 天规划；确认后才会创建行程`
+                    : "确认后才会创建行程，生成结果可继续调整"}
           </p>
         </div>
       ) : null}

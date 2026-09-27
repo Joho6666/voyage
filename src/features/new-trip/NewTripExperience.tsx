@@ -23,7 +23,9 @@ const QUICK_PROMPTS = [
 const DEFAULT_SUGGESTIONS = ["轻松一点，少走路", "我想把预算控制住", "有哪些必去但不赶的地方？", "我有一个一定要去的地方"];
 const MISSING_FIELD_LABELS: Record<string, string> = {
   destination: "目的地",
-  dates: "日期或天数",
+  dates: "出发日期（只填天数不够）",
+  startDate: "出发日期",
+  endDate: "返程日期",
   travelers: "同行人数",
   budget: "预算",
   pace: "旅行节奏",
@@ -50,9 +52,12 @@ interface ParsedPlanningPayload {
   suggestedReplies: string[];
   llmStatus: PlanningLlmStatus;
   readyToGenerate?: boolean;
+  /** Day count reported by the planner; a day count alone cannot date a trip. */
+  days?: number;
   missingFields: string[];
   warnings: string[];
   trip?: Trip;
+  tripRevision?: number;
   tripId?: string;
 }
 
@@ -236,16 +241,27 @@ function mapTransport(value: unknown, fallback: string) {
   return text;
 }
 
-function profileFrom(nodes: UnknownRecord[], base: PlanningProfileDraft) {
+/**
+ * Profile facts live one level below the session root, so the same node list
+ * must back every profile read. Reading only the session root silently misses
+ * `profile.days`, which decides whether a day count can stand in for a return
+ * date.
+ */
+function profileNodesOf(nodes: UnknownRecord[]) {
   const profilePatches = nodes.map((node) => node.profilePatch).filter(isRecord);
   const profiles = nodes.map((node) => valueFrom(node, ["profile", "planningProfile", "tripProfile", "preferences"])).filter(isRecord);
-  const profileNodes = [...profilePatches, ...profiles, ...nodes];
+  return [...profilePatches, ...profiles, ...nodes];
+}
+
+function profileFrom(nodes: UnknownRecord[], base: PlanningProfileDraft) {
+  const profileNodes = profileNodesOf(nodes);
   const vibes = asStringArray(firstValue(profileNodes, ["vibes", "interests", "styles"]))
     .filter((item) => !/^(relaxed|standard|intensive|轻松|适中|特种兵)$/i.test(item));
   const mustVisit = asStringArray(firstValue(profileNodes, ["mustVisit", "must_visits", "mustSee"]));
   const avoid = asStringArray(firstValue(profileNodes, ["avoid", "avoidances", "avoidList"]));
   const travelers = asNumber(firstValue(profileNodes, ["travelers", "people", "partySize"]));
-  const budget = asNumber(firstValue(profileNodes, ["budget", "budgetCny", "perPersonBudget"]));
+  // Budget is the trip's total budget; never re-label it as per-person.
+  const budget = asNumber(firstValue(profileNodes, ["budget", "budgetCny", "totalBudget"]));
   return {
     ...base,
     origin: asString(firstValue(profileNodes, ["origin", "from", "startCity"])) ?? base.origin,
@@ -335,9 +351,12 @@ function parsePlanningPayload(payload: unknown, baseProfile: PlanningProfileDraf
   const rawRevision = asNumber(firstValue(sessionNodes, ["revision", "expectedRevision", "version"]));
   const revision = rawRevision !== undefined && rawRevision >= 1 ? Math.floor(rawRevision) : undefined;
   const ready = asBoolean(firstValue(sessionNodes, ["readyToGenerate", "canGenerate", "ready"]));
+  const rawDays = asNumber(firstValue(profileNodesOf(sessionNodes), ["days", "dayCount", "tripDays"]));
+  const days = rawDays !== undefined && rawDays >= 1 && rawDays <= 31 ? Math.floor(rawDays) : undefined;
   const parsed = {
     sessionId: asString(rawId) ?? asString(fallbackId),
     revision,
+    days,
     messages: mergedMessages,
     assistantMessage,
     profile: profileFrom(sessionNodes, baseProfile),
@@ -356,7 +375,27 @@ function parseGenerationPayload(payload: unknown, baseProfile: PlanningProfileDr
   const rawTrip = firstRecord(nodes, ["trip", "generatedTrip", "createdTrip"]);
   const trip = rawTrip && typeof rawTrip.id === "string" && Array.isArray(rawTrip.days) && Array.isArray(rawTrip.items) ? rawTrip as unknown as Trip : undefined;
   const tripId = asString(firstValue(nodes, ["tripId", "createdTripId"])) ?? (trip ? trip.id : undefined);
-  return { ...parsed, trip, tripId };
+  // The planning-session revision and the stored trip revision are different
+  // numbers. Only the Runtime trip envelope carries the trip's own revision, so
+  // read it from the node that actually holds the trip payload.
+  const tripNode = nodes.find((node) => node.trip === rawTrip || (typeof node.tripHash === "string" && node.tripId !== undefined));
+  const rawTripRevision = asNumber(tripNode?.revision) ?? asNumber((trip as unknown as UnknownRecord | undefined)?.revision);
+  const tripRevision = rawTripRevision !== undefined && rawTripRevision >= 1 ? Math.floor(rawTripRevision) : undefined;
+  return { ...parsed, trip, tripRevision, tripId };
+}
+
+/**
+ * Mirrors the generate endpoint's preconditions: a destination, a real
+ * departure date, and either a return date or an explicit day count. A day
+ * count alone must never read as ready, because the Runtime will not invent a
+ * departure date.
+ */
+function generateBlockersFor(profile: PlanningProfileDraft, days?: number) {
+  const blockers: string[] = [];
+  if (!profile.destination.trim()) blockers.push("目的地");
+  if (!profile.startDate) blockers.push("出发日期");
+  if (!profile.endDate && !days) blockers.push("返程日期或旅行天数");
+  return blockers;
 }
 
 async function readPayload(response: Response): Promise<unknown> {
@@ -378,13 +417,33 @@ function errorDetails(payload: unknown) {
   const errorNode = firstRecord(nodes, ["error", "errors"]);
   const code = asString(valueFrom(errorNode, ["code", "type"])) ?? asString(firstValue(nodes, ["errorCode", "code"]));
   const message = safeStatusText(valueFrom(errorNode, ["message", "detail"])) ?? safeStatusText(firstValue(nodes, ["message", "errorMessage"]));
-  return { code, message };
+  const detailNode = firstRecord([errorNode ?? {}, ...nodes], ["details"]);
+  const revision = asNumber(valueFrom(detailNode, ["revision"])) ?? asNumber(firstValue(nodes, ["revision"]));
+  return { code, message, details: detailNode, revision: revision !== undefined && revision >= 1 ? Math.floor(revision) : undefined };
 }
+
+/**
+ * Provider failures must read as actionable Chinese guidance. Raw provider
+ * text is English and leaks no credentials, but it does not tell the traveller
+ * what to do next.
+ */
+const PROVIDER_ERROR_COPY: Array<{ test: RegExp; message: string }> = [
+  { test: /NO_PROVIDER_CONFIGURED/, message: "尚未配置高德服务端 Key。请设置 AMAP_SERVER_KEY 后再创建真实行程。" },
+  { test: /PROVIDER_AUTH_FAILED|AMAP_INVALID_USER_KEY/, message: "高德 Web 服务 Key 无效或未开通 POI 服务，请检查控制台的 Key 类型、服务权限和安全设置。" },
+  { test: /AMAP_NETWORK_UNAVAILABLE/, message: "高德服务连接失败（不是没有地点结果）。请检查本机网络/代理后重试；如果服务刚启动，请刷新页面再试。" },
+  { test: /ROUTE_PROVIDER_UNAVAILABLE/, message: "高德路线服务暂时不可用；可重试，行程中的路线会明确标记为估算。" },
+  { test: /REVISION_CONFLICT/, message: "这条规划刚刚在其他页面更新了。已同步最新版本，可以再点一次生成。" },
+  { test: /CONFIRMATION_REQUIRED/, message: "生成路线图需要你在页面上明确确认一次，请重新点击按钮。" },
+  { test: /PLANNING_SESSION_LOCKED/, message: "这次规划已经在生成中或已完成，请回到行程页继续调整。" },
+  { test: /PLANNING_SESSION_NOT_FOUND/, message: "这次规划会话已失效，请重新开始对话。" },
+  { test: /INVALID_INPUT/, message: "规划信息不完整，请补充目的地、出发日期与返程信息。" },
+];
 
 function friendlyError(payload: unknown, status: number, fallback: string) {
   const details = errorDetails(payload);
-  if (details.code === "REVISION_CONFLICT") return "这条规划刚刚在其他页面更新了，请重新开始会话后再生成。";
-  if (details.code === "INVALID_INPUT") return "规划信息不完整，请补充目的地或重新描述一次。";
+  const haystack = `${details.code ?? ""} ${details.message ?? ""}`;
+  const match = PROVIDER_ERROR_COPY.find((entry) => entry.test.test(haystack));
+  if (match) return match.message;
   if (status >= 500) return "规划服务暂时不可用，请稍后重试；浏览器没有接触任何服务凭据。";
   return details.message ?? fallback;
 }
@@ -487,6 +546,7 @@ export function NewTripExperience() {
   const [suggestedReplies, setSuggestedReplies] = useState(DEFAULT_SUGGESTIONS);
   const [llmStatus, setLlmStatus] = useState<PlanningLlmStatus>({ state: "unknown" });
   const [missingFields, setMissingFields] = useState<string[]>([]);
+  const [plannerDays, setPlannerDays] = useState<number | undefined>(undefined);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState<BusyState>("idle");
@@ -511,6 +571,7 @@ export function NewTripExperience() {
   }, [searchParams]);
 
   const isBusy = busy !== "idle";
+  const blockers = generateBlockersFor(profile, plannerDays);
 
   const replaceMessages = (next: PlanningMessage[]) => {
     const bounded = next.slice(-80);
@@ -527,6 +588,7 @@ export function NewTripExperience() {
     setSuggestedReplies(parsed.suggestedReplies.length ? parsed.suggestedReplies : DEFAULT_SUGGESTIONS);
     setLlmStatus(parsed.llmStatus);
     setMissingFields(parsed.missingFields);
+    setPlannerDays(parsed.days);
     setWarnings(parsed.warnings);
     if (parsed.messages.length) {
       const nextMessages = messagesRef.current.length ? mergeMessages(messagesRef.current, parsed.messages) : parsed.messages;
@@ -653,12 +715,44 @@ export function NewTripExperience() {
     return nextRevision;
   };
 
+  /**
+   * A failed generate still bumps the session revision (generating → failed),
+   * so a retry must resync before it can succeed. Without this the second
+   * attempt would always fail with a revision conflict even though the session
+   * is perfectly retryable.
+   */
+  const resyncRevision = async (currentSessionId: string, revoked?: number) => {
+    if (revoked !== undefined) {
+      setRevision(revoked);
+      return revoked;
+    }
+    try {
+      const response = await fetch(`/api/voyage/planning/session/${encodeURIComponent(currentSessionId)}`, {
+        headers: { accept: "application/json" },
+        cache: "no-store",
+      });
+      const payload = await readPayload(response);
+      if (!response.ok || (isRecord(payload) && payload.ok === false)) return undefined;
+      const parsed = parsePlanningPayload(payload, profileRef.current);
+      adoptPayload(parsed, profileRef.current);
+      return parsed.revision;
+    } catch {
+      return undefined;
+    }
+  };
+
   const generateRoute = async (sessionOverride?: ParsedPlanningPayload) => {
     const currentSessionId = sessionOverride?.sessionId ?? sessionId;
     if (!currentSessionId || (busy !== "idle" && !sessionOverride)) return;
+    const blockers = generateBlockersFor(profileRef.current, sessionOverride?.days ?? plannerDays);
+    if (blockers.length) {
+      setError(`生成路线图前还需要确认：${blockers.join("、")}。只填天数不够，出发日期必须有真实日期。`);
+      return;
+    }
     setBusy("generating");
     setError("");
     setWarnings([]);
+    let payload: unknown;
     try {
       const currentRevision = sessionOverride?.revision ?? revision;
       const expectedRevision = sessionOverride ? currentRevision : await syncProfileBeforeGenerate(currentSessionId, currentRevision);
@@ -668,18 +762,23 @@ export function NewTripExperience() {
         cache: "no-store",
         body: JSON.stringify({ expectedRevision, confirmed: true }),
       });
-      const payload = await readPayload(response);
+      payload = await readPayload(response);
       if (!response.ok || (isRecord(payload) && payload.ok === false)) throw new Error(friendlyError(payload, response.status, "路线生成失败，请检查信息后重试。"));
       const parsed = parseGenerationPayload(payload, profileRef.current);
       const tripId = parsed.trip?.id ?? parsed.tripId;
       if (!tripId) throw new Error("路线服务没有返回行程 ID，请稍后重试。");
-      if (parsed.trip) hydrateTrip(parsed.trip, parsed.revision ?? 1);
+      if (parsed.trip) hydrateTrip(parsed.trip, parsed.tripRevision ?? 1);
       await new Promise((resolve) => window.setTimeout(resolve, 220));
       router.push(`/trip/${encodeURIComponent(tripId)}`);
+      return;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "路线生成失败，请稍后重试。");
       setBusy("idle");
     }
+    // Keep the session retryable: adopt the revision the server actually holds.
+    const details = errorDetails(payload);
+    const resynced = await resyncRevision(currentSessionId, details.revision);
+    if (resynced !== undefined) setWarnings(["可以在修改信息后直接再点一次「生成路线图」，这次会话和偏好都不会丢失。"]);
   };
 
   const generateDirect = async () => {
@@ -712,6 +811,7 @@ export function NewTripExperience() {
     setSuggestedReplies(DEFAULT_SUGGESTIONS);
     setLlmStatus({ state: "unknown" });
     setMissingFields([]);
+    setPlannerDays(undefined);
     setWarnings([]);
     setDraft("");
     setError("");
@@ -755,7 +855,7 @@ export function NewTripExperience() {
               </div>
 
               {directMode ? (
-                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="rounded-[24px] border border-border bg-surface p-1 shadow-[0_14px_45px_rgba(28,25,23,0.05)]"><div className="flex items-center justify-between px-4 pt-3"><button type="button" onClick={() => setDirectMode(false)} className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"><ArrowLeft className="size-3.5" />回到对话入口</button><span className="text-[10px] text-muted-foreground">次要路径</span></div><div className="p-3 sm:p-4"><PlanningProfilePanel profile={profile} onChange={updateProfile} onGenerate={() => void generateDirect()} generating={busy === "starting" || busy === "generating"} disabled={isBusy} showStatus={false} direct /></div></motion.div>
+                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="rounded-[24px] border border-border bg-surface p-1 shadow-[0_14px_45px_rgba(28,25,23,0.05)]"><div className="flex items-center justify-between px-4 pt-3"><button type="button" onClick={() => setDirectMode(false)} className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"><ArrowLeft className="size-3.5" />回到对话入口</button><span className="text-[10px] text-muted-foreground">次要路径</span></div><div className="p-3 sm:p-4"><PlanningProfilePanel profile={profile} onChange={updateProfile} onGenerate={() => void generateDirect()} generating={busy === "starting" || busy === "generating"} disabled={isBusy} showStatus={false} blockers={blockers} days={plannerDays} direct /></div></motion.div>
               ) : (
                 <button type="button" onClick={() => setDirectMode(true)} className="group flex w-full items-center justify-between rounded-[18px] border border-dashed border-border bg-surface/60 px-4 py-3 text-left transition-colors hover:border-primary/35 hover:bg-surface"><span><span className="block text-xs font-medium">不想先聊天？直接填写并生成</span><span className="mt-0.5 block text-[10px] text-muted-foreground">保留原来的快速创建入口，信息会安全地交给规划会话。</span></span><ArrowRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" /></button>
               )}
@@ -769,7 +869,7 @@ export function NewTripExperience() {
             {warnings.length ? <div className="mb-4 rounded-[14px] border border-amber-500/25 bg-amber-500/[0.07] px-3 py-2 text-xs text-amber-900 dark:text-amber-100">{warnings.map((warning) => <p key={warning}>{warning}</p>)}</div> : null}
             <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
               <div className="min-w-0"><PlanningChat messages={messages} suggestedReplies={suggestedReplies} draft={draft} onDraftChange={setDraft} onSend={(message) => void sendMessage(message)} disabled={busy === "sending" || busy === "generating"} isTyping={busy === "sending"} streamingMessageId={streamingMessageId} />{error ? <div role="alert" className="mt-3 flex items-start gap-2 rounded-[14px] border border-rose-500/25 bg-rose-500/[0.06] px-3 py-2.5 text-xs text-rose-800"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{error}</span></div> : null}{busy === "generating" ? <div className="mt-4"><GenerationProgress destination={profile.destination} /></div> : null}</div>
-              <aside className="lg:sticky lg:top-5"><PlanningProfilePanel profile={profile} onChange={updateProfile} onGenerate={() => void generateRoute()} generating={busy === "generating"} disabled={busy !== "idle"} llmStatus={llmStatus} missingFields={missingFields} /><div className="mt-3 rounded-[14px] border border-border bg-surface/60 p-3 text-[11px] leading-5 text-muted-foreground"><div className="flex items-center gap-2 text-foreground"><Check className="size-3.5 text-primary" /><span className="font-medium">确认后才会调用路线与供应商能力</span></div><p className="mt-1">模型只负责理解偏好；地点、路线、天气和报价会在生成阶段按 provider 来源标注。</p>{missingFields.length ? <p className="mt-2 text-amber-700">还可以补充：{missingFields.join("、")}</p> : null}</div></aside>
+              <aside className="lg:sticky lg:top-5"><PlanningProfilePanel profile={profile} onChange={updateProfile} onGenerate={() => void generateRoute()} generating={busy === "generating"} disabled={busy !== "idle"} llmStatus={llmStatus} missingFields={missingFields} blockers={blockers} days={plannerDays} /><div className="mt-3 rounded-[14px] border border-border bg-surface/60 p-3 text-[11px] leading-5 text-muted-foreground"><div className="flex items-center gap-2 text-foreground"><Check className="size-3.5 text-primary" /><span className="font-medium">确认后才会调用路线与供应商能力</span></div><p className="mt-1">模型只负责理解偏好；地点、路线、天气和报价会在生成阶段按 provider 来源标注。</p>{missingFields.length ? <p className="mt-2">还可以补充：{missingFields.join("、")}</p> : null}</div></aside>
             </div>
             <div className="mt-5 flex flex-wrap items-center justify-between gap-3 text-[10px] text-muted-foreground"><p>会话数据只通过当前页面的相对 API 路径传输，不包含任何 API Key。</p><button type="button" onClick={reset} className="inline-flex items-center gap-1 text-foreground hover:text-primary">重新开始 <ArrowRight className="size-3" /></button></div>
           </motion.div>
