@@ -35,9 +35,12 @@ test.describe("Voyage Journey Map E2E Suite", () => {
     await page.goto("/trip/chongqing-2026");
     await expect(page.locator("body")).toBeVisible();
 
-    // Target visible markers on the active map canvas
+    // Target visible markers on the active map canvas. Both the fallback map
+    // and AMap overlays expose the same place id for this contract.
     const markerPins = page.locator('[data-testid="place-marker"]:visible');
     await expect(markerPins.first()).toBeVisible({ timeout: 15000 });
+    const markerPlaceId = await markerPins.first().getAttribute("data-place-id");
+    expect(markerPlaceId).toBeTruthy();
 
     // Use a pointer click so both the fallback map and AMap's overlay event listener run.
     await markerPins.first().click({ force: true });
@@ -48,6 +51,7 @@ test.describe("Voyage Journey Map E2E Suite", () => {
     // The corresponding itinerary card should be selected
     const selectedItem = page.locator('[data-testid="itinerary-card"][data-selected="true"]').first();
     await expect(selectedItem).toBeVisible({ timeout: 5000 });
+    await expect(selectedItem).toHaveAttribute("data-place-id", markerPlaceId!);
   });
 
   test("Map Flow 3: Switch Day in DaySwitcher -> Map active day update", async ({ page }) => {

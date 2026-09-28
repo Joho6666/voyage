@@ -41,11 +41,15 @@ export function AssistantSheet() {
     const content = text.trim();
     if (!content || busy) return;
     const user: AgentMessage = { id: uid("msg"), role: "user", content };
+    const priorTurns = messages
+      .filter((message) => message.id !== "welcome")
+      .slice(-12)
+      .map((message) => ({ role: message.role, content: message.content }));
     setMessages((m) => [...m, user]);
     setDraft("");
     setBusy(true);
     try {
-      const reply = await travelAgent.chat(trip, content);
+      const reply = await travelAgent.chat(trip, content, priorTurns);
       setMessages((m) => [...m, reply]);
     } catch {
       toast.error("AI 请求失败，请重试");

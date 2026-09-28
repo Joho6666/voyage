@@ -8,17 +8,47 @@ import { commandSchemas } from "@/skill/contracts";
 import { guestWorkspace, setGuestCookie } from "@/app/api/voyage/workspace";
 import { JsonSkillRepository } from "@/skill/repository";
 import { chongqingTrip, DEMO_TRIP_ID } from "@/data/demo/chongqing";
+import type { Trip } from "@/types/travel";
+import type { PlanningProfile } from "@/schemas/planning";
 
 export const dynamic = "force-dynamic";
+
+const MAX_AGENT_HISTORY_MESSAGES = 12;
+const MAX_AGENT_HISTORY_CHARS = 12_000;
+const MAX_AGENT_HISTORY_MESSAGE_CHARS = 2_000;
 
 const inputSchema = z.object({
   tripId: z.string().min(1),
   message: z.string().min(1).max(2000),
+  /**
+   * Bounded prior turns so follow-ups like "再少一点" resolve against what was
+   * already said. Callers that only send tripId + message keep working.
+   */
+  history: z
+    .array(z.object({
+      role: z.enum(["user", "assistant"]),
+      content: z.string().trim().min(1).max(MAX_AGENT_HISTORY_MESSAGE_CHARS),
+    }).strict())
+    .max(MAX_AGENT_HISTORY_MESSAGES)
+    .optional(),
   applyConfirmation: z.object({
     proposalId: z.string().min(1),
     expectedTripRevision: z.number().int().min(1),
   }).optional(),
 });
+
+/** Keep the most recent turns within both the count and total size bounds. */
+function boundedHistory(history: z.output<typeof inputSchema>["history"]) {
+  const kept: Array<{ role: "user" | "assistant"; content: string }> = [];
+  let total = 0;
+  for (const entry of [...(history ?? [])].reverse()) {
+    if (kept.length >= MAX_AGENT_HISTORY_MESSAGES) break;
+    if (total + entry.content.length > MAX_AGENT_HISTORY_CHARS) break;
+    kept.push(entry);
+    total += entry.content.length;
+  }
+  return kept.reverse();
+}
 
 const pointSchema = { type: "object", properties: { lat: { type: "number" }, lng: { type: "number" } }, required: ["lat", "lng"], additionalProperties: false } as const;
 
@@ -82,6 +112,88 @@ function safeToolResult(name: string, value: unknown) {
 
 type TripSummary = { destination?: string; origin?: string; days?: Array<{ id: string; date: string; title?: string }>; places?: Array<{ name: string; category: string; lat?: number; lng?: number; id?: string }> };
 
+const PACE_LABEL: Record<NonNullable<PlanningProfile["pace"]>, string> = {
+  relaxed: "轻松慢节奏",
+  balanced: "适中节奏",
+  packed: "紧凑多安排",
+};
+const WALKING_LABEL: Record<NonNullable<PlanningProfile["walkingTolerance"]>, string> = {
+  low: "少走路",
+  medium: "步行适中",
+  high: "可以多走",
+};
+const TRANSPORT_LABEL: Record<NonNullable<PlanningProfile["transportPreference"]>, string> = {
+  mixed: "混合交通",
+  public: "公共交通优先",
+  metro: "地铁优先",
+  bus: "公交优先",
+  taxi: "打车优先",
+  drive: "自驾",
+  walk: "以步行为主",
+};
+const BUDGET_MODE_LABEL: Record<NonNullable<PlanningProfile["budgetMode"]>, string> = {
+  tight: "省钱优先",
+  balanced: "性价比优先",
+  flexible: "预算宽松",
+};
+
+function labeledText(value: PlanningProfile["accessibility"]) {
+  if (value === undefined) return undefined;
+  if (typeof value === "boolean") return value ? "有无障碍需求" : undefined;
+  return value.length ? value.join("、") : undefined;
+}
+
+function companionText(value: PlanningProfile["children"]) {
+  if (value === undefined) return undefined;
+  if (typeof value === "boolean") return value ? "同行" : undefined;
+  return value > 0 ? `同行 ${value} 人` : undefined;
+}
+
+/**
+ * Confirmed preferences come from the trip's own metadata, so the post-generation
+ * agent honours what the traveller already agreed to without re-reading the
+ * planning session.
+ */
+function confirmedPreferenceLine(profile?: PlanningProfile) {
+  if (!profile) return "";
+  const parts = [
+    profile.pace ? `节奏=${PACE_LABEL[profile.pace]}` : "",
+    profile.walkingTolerance ? `步行=${WALKING_LABEL[profile.walkingTolerance]}` : "",
+    profile.transportPreference ? `交通=${TRANSPORT_LABEL[profile.transportPreference]}` : "",
+    profile.budgetMode ? `预算倾向=${BUDGET_MODE_LABEL[profile.budgetMode]}` : "",
+    profile.vibes.length ? `氛围=${profile.vibes.join("、")}` : "",
+    profile.mustVisit.length ? `必去=${profile.mustVisit.join("、")}` : "",
+    profile.avoid.length ? `避开=${profile.avoid.join("、")}` : "",
+    profile.dietary.length ? `饮食=${profile.dietary.join("、")}` : "",
+    labeledText(profile.accessibility) ? `无障碍=${labeledText(profile.accessibility)}` : "",
+    companionText(profile.children) ? `儿童=${companionText(profile.children)}` : "",
+    companionText(profile.elderly) ? `老人=${companionText(profile.elderly)}` : "",
+  ].filter(Boolean);
+  if (!parts.length) return "";
+  return [
+    `用户在规划对话中已确认的偏好：${parts.join("，")}。`,
+    "这些是用户明确确认的约束，必须优先遵守；若用户的请求与之冲突，先说明冲突再给替代方案，不要静默违背，也不要谎称已经满足。",
+  ].join("");
+}
+
+/** Budget and walking facts the agent needs to answer "预算超了吗"/"走太多路了" honestly. */
+function tripStateLine(trip: Trip) {
+  const segments = trip.segments ?? [];
+  const plannedKm = segments.reduce((total, segment) => total + (segment.distanceMeters ?? segment.meters ?? 0), 0) / 1000;
+  const walkingKm = segments
+    .filter((segment) => segment.mode === "walk")
+    .reduce((total, segment) => total + (segment.distanceMeters ?? segment.meters ?? 0), 0) / 1000;
+  const estimatedSegments = segments.filter((segment) => segment.estimated).length;
+  const remaining = trip.budget - trip.estimatedSpend;
+  const parts = [
+    plannedKm > 0
+      ? `已规划路线合计约 ${plannedKm.toFixed(1)} 公里，其中步行约 ${walkingKm.toFixed(1)} 公里（${estimatedSegments}/${segments.length} 段为估算值，不是实测）`
+      : "",
+    `预算 ${trip.budget} 元，预估花费 ${trip.estimatedSpend} 元（预估值，不是实际支出），剩余约 ${Math.round(remaining)} 元`,
+  ].filter(Boolean);
+  return parts.length ? `当前行程状态：${parts.join("；")}。` : "";
+}
+
 function transportContextFromArgs(args: Record<string, unknown>) {
   const context: Record<string, unknown> = {};
   if (typeof args.walkingTolerance === "string") context.walkingTolerance = args.walkingTolerance;
@@ -128,8 +240,10 @@ export async function POST(request: NextRequest) {
       return setGuestCookie(NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "无法生成提案" }, { status: 422 }), workspace);
     }
   }
+  const fullTrip = (tripEnvelope.data as { trip?: Trip } | undefined)?.trip;
   const messages: ChatMessage[] = [
-    { role: "system", content: `你是 Voyage 旅行助手。用中文回答。你可以调用白名单工具获取真实数据。不要编造价格、库存、天气或地点。行程修改只能生成提案，必须让用户确认后才能应用；禁止自行调用 apply_change。当前行程：${trip.origin ?? ""} → ${trip.destination ?? ""}，${trip.startDate ?? ""} 至 ${trip.endDate ?? ""}，${trip.travelers ?? 1} 人，预算 ${trip.budget ?? 0} 元。` },
+    { role: "system", content: `你是 Voyage 旅行助手。用中文回答。你可以调用白名单工具获取真实数据。不要编造价格、库存、天气或地点。行程修改只能生成提案，必须让用户确认后才能应用；禁止自行调用 apply_change。当前行程：${trip.origin ?? ""} → ${trip.destination ?? ""}，${trip.startDate ?? ""} 至 ${trip.endDate ?? ""}，${trip.travelers ?? 1} 人，总预算 ${trip.budget ?? 0} 元。${confirmedPreferenceLine(fullTrip?.planningMetadata?.planningProfile)}${fullTrip ? tripStateLine(fullTrip) : ""}` },
+    ...boundedHistory(parsed.data.history),
     { role: "user", content: parsed.data.message },
   ];
   let proposal: unknown;

@@ -55,8 +55,12 @@ export function buildJourneyRoutes(trip: Trip, options: BuildRoutesOptions): Jou
   const routes: JourneyRoute[] = [];
 
   trip.days.forEach((day) => {
+    // Only the focused day's routes are drawn; every other day used to be drawn
+    // at low opacity, which read as a mess of overlapping lines. "全部" (null)
+    // keeps the whole-trip overview available on demand.
+    if (activeDayId && day.id !== activeDayId) return;
+
     const dayColor = DAY_COLORS[day.index % DAY_COLORS.length];
-    const isDayActive = !activeDayId || activeDayId === day.id;
     const daySegments = trip.segments.filter((s) => s.dayId === day.id);
 
     daySegments.forEach((seg) => {
@@ -148,9 +152,7 @@ export function buildJourneyRoutes(trip: Trip, options: BuildRoutesOptions): Jou
 
       // Determine opacity
       let strokeOpacity = 0.85;
-      if (!isDayActive) {
-        strokeOpacity = 0.18; // non-active days dimmed
-      } else if (state === "COMPLETED") {
+      if (state === "COMPLETED") {
         strokeOpacity = 0.35;
       } else if (state === "ACTIVE") {
         strokeOpacity = 1.0;
@@ -160,7 +162,6 @@ export function buildJourneyRoutes(trip: Trip, options: BuildRoutesOptions): Jou
       // Route capsule (RouteBadge)
       let badge: RouteBadge | undefined = undefined;
       const shouldShowBadge =
-        (isDayActive || isSelected) &&
         (zoom >= 12 || isSelected || mapMode === "TODAY") &&
         path.length >= 2;
 

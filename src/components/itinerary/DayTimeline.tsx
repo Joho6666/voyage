@@ -6,13 +6,11 @@ import { DayHeader } from "./DayHeader";
 import { PoiCard } from "./PoiCard";
 import { TravelSegment } from "./TravelSegment";
 import { useTripStore } from "@/store/trip-store";
-import { useUiStore } from "@/store/ui-store";
 import type { Day } from "@/types/travel";
 
 export function DayTimeline({ day }: { day: Day }) {
   const trip = useTripStore((s) => s.trip);
   const reorder = useTripStore((s) => s.reorder);
-  const setActiveDay = useUiStore((s) => s.setActiveDay);
   const items = trip.items.filter((i) => i.dayId === day.id).sort((a, b) => a.order - b.order);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
@@ -30,7 +28,7 @@ export function DayTimeline({ day }: { day: Day }) {
   };
 
   return (
-    <section onMouseEnter={() => setActiveDay(day.id)} className="border-b border-border last:border-b-0">
+    <section className="border-b border-border last:border-b-0">
       <DayHeader trip={trip} day={day} />
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>

@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { offerProviderStatusSchema, offerSchema } from "./offers";
+import { socialEvidenceSchema, socialPlatformStatusSchema, socialSignalSchema } from "./social";
+import { planningProfileSchema } from "./planning";
 
 export const placeCategorySchema = z.enum([
   "attraction",
@@ -209,6 +211,20 @@ export const tripSchema = z
     budgetItems: z.array(budgetItemSchema),
     offers: z.array(offerSchema).optional(),
     offerProviderStatus: offerProviderStatusSchema.optional(),
+    socialQueryId: z.string().min(1).optional(),
+    socialQueryStatus: z.enum(["not_requested", "used", "queried_not_used", "unavailable", "error"]).optional(),
+    socialPlatformStatus: socialPlatformStatusSchema.optional(),
+    socialEvidence: z.array(socialEvidenceSchema).optional(),
+    socialSignals: z.array(socialSignalSchema).optional(),
+    socialWarnings: z.array(z.string()).optional(),
+    planningMetadata: z.object({
+      source: z.enum(["llm", "rules"]),
+      llm: z.enum(["used", "unavailable", "failed", "skipped"]),
+      fallbackReason: z.string().optional(),
+      social: z.enum(["not_requested", "used", "queried_not_used", "unavailable", "error"]).optional(),
+      planningSessionId: z.string().min(1).optional(),
+      planningProfile: planningProfileSchema.optional(),
+    }).optional(),
   })
   .superRefine((trip, ctx) => {
     const placeIds = new Set(trip.places.map((p) => p.id));

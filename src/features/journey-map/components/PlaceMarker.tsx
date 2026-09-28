@@ -14,12 +14,15 @@ export function PlaceMarker({
   onMouseLeave?: () => void;
 }) {
   const { variant, title, number, time, color, isSelected } = marker;
+  const markerAttributes = {
+    "data-testid": "place-marker",
+    "data-place-id": marker.placeId,
+  };
 
   if (variant === "NEXT") {
     return (
       <div
-        data-testid="place-marker"
-        data-place-id={marker.placeId}
+        {...markerAttributes}
         onClick={onClick}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
@@ -47,6 +50,7 @@ export function PlaceMarker({
   if (variant === "SELECTED") {
     return (
       <div
+        {...markerAttributes}
         onClick={onClick}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
@@ -77,6 +81,7 @@ export function PlaceMarker({
   if (variant === "HOVERED") {
     return (
       <div
+        {...markerAttributes}
         onClick={onClick}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
@@ -99,6 +104,7 @@ export function PlaceMarker({
   if (variant === "COMPLETED") {
     return (
       <div
+        {...markerAttributes}
         onClick={onClick}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
@@ -113,6 +119,7 @@ export function PlaceMarker({
   if (variant === "HOTEL") {
     return (
       <div
+        {...markerAttributes}
         onClick={onClick}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
@@ -127,6 +134,7 @@ export function PlaceMarker({
   if (variant === "FOOD") {
     return (
       <div
+        {...markerAttributes}
         onClick={onClick}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
@@ -141,6 +149,7 @@ export function PlaceMarker({
   if (variant === "TRANSPORT") {
     return (
       <div
+        {...markerAttributes}
         onClick={onClick}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
@@ -155,6 +164,7 @@ export function PlaceMarker({
   if (variant === "EXPLORE") {
     return (
       <div
+        {...markerAttributes}
         onClick={onClick}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
@@ -171,8 +181,7 @@ export function PlaceMarker({
   // DEFAULT
   return (
     <div
-      data-testid="place-marker"
-      data-place-id={marker.placeId}
+      {...markerAttributes}
       onClick={onClick}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
@@ -193,10 +202,11 @@ export function PlaceMarker({
  */
 export function getMarkerHtml(marker: JourneyMarker): string {
   const { variant, title, number, time, color, isSelected } = marker;
+  const dataAttributes = `data-testid="place-marker" data-place-id="${escapeHtml(marker.placeId)}"`;
 
   if (variant === "NEXT") {
     return `
-      <div class="voyage-marker-next" style="display:flex;align-items:center;gap:6px;background:#10b981;color:#fff;padding:4px 10px;border-radius:999px;border:2px solid #fff;box-shadow:0 10px 15px -3px rgba(16,185,129,0.3);font-family:system-ui,-apple-system,sans-serif;white-space:nowrap;cursor:pointer;">
+      <div ${dataAttributes} class="voyage-marker-next" style="display:flex;align-items:center;gap:6px;background:#10b981;color:#fff;padding:4px 10px;border-radius:999px;border:2px solid #fff;box-shadow:0 10px 15px -3px rgba(16,185,129,0.3);font-family:system-ui,-apple-system,sans-serif;white-space:nowrap;cursor:pointer;">
         <span style="display:inline-block;width:6px;height:6px;border-radius:999px;background:#fff;"></span>
         <span style="font-size:10px;font-weight:700;letter-spacing:0.5px;opacity:0.9;">NEXT</span>
         <span style="font-size:12px;font-weight:600;">${number ? number + ". " : ""}${escapeHtml(title)}</span>
@@ -206,7 +216,7 @@ export function getMarkerHtml(marker: JourneyMarker): string {
 
   if (variant === "SELECTED") {
     return `
-      <div class="voyage-marker-selected" style="display:flex;align-items:center;gap:8px;background:#ffffff;color:#18181b;padding:4px 10px;border-radius:999px;border:2px solid ${color};box-shadow:0 10px 20px -3px rgba(0,0,0,0.18);font-family:system-ui,-apple-system,sans-serif;white-space:nowrap;cursor:pointer;transform:scale(1.05);">
+      <div ${dataAttributes} class="voyage-marker-selected" style="display:flex;align-items:center;gap:8px;background:#ffffff;color:#18181b;padding:4px 10px;border-radius:999px;border:2px solid ${color};box-shadow:0 10px 20px -3px rgba(0,0,0,0.18);font-family:system-ui,-apple-system,sans-serif;white-space:nowrap;cursor:pointer;transform:scale(1.05);">
         <div style="width:20px;height:20px;border-radius:999px;background:${color};color:#fff;font-size:11px;font-weight:700;display:grid;place-items:center;">${number ?? "·"}</div>
         <div style="display:flex;flex-direction:column;">
           <span style="font-size:12px;font-weight:600;line-height:1.2;">${escapeHtml(title)}</span>
@@ -218,7 +228,7 @@ export function getMarkerHtml(marker: JourneyMarker): string {
 
   if (variant === "HOVERED") {
     return `
-      <div class="voyage-marker-hover" style="display:flex;align-items:center;gap:6px;background:#ffffff;color:#18181b;padding:3px 8px;border-radius:999px;border:1.5px solid #e4e4e7;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);font-family:system-ui,-apple-system,sans-serif;white-space:nowrap;cursor:pointer;">
+      <div ${dataAttributes} class="voyage-marker-hover" style="display:flex;align-items:center;gap:6px;background:#ffffff;color:#18181b;padding:3px 8px;border-radius:999px;border:1.5px solid #e4e4e7;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);font-family:system-ui,-apple-system,sans-serif;white-space:nowrap;cursor:pointer;">
         <div style="width:18px;height:18px;border-radius:999px;background:${color};color:#fff;font-size:10px;font-weight:600;display:grid;place-items:center;">${number ?? "·"}</div>
         <span style="font-size:11px;font-weight:500;">${escapeHtml(title)}</span>
       </div>
@@ -227,37 +237,37 @@ export function getMarkerHtml(marker: JourneyMarker): string {
 
   if (variant === "COMPLETED") {
     return `
-      <div class="voyage-marker-completed" style="width:22px;height:22px;border-radius:999px;background:#e4e4e7;color:#71717a;font-size:11px;font-weight:700;display:grid;place-items:center;border:2px solid #fff;opacity:0.7;cursor:pointer;">✓</div>
+      <div ${dataAttributes} class="voyage-marker-completed" style="width:22px;height:22px;border-radius:999px;background:#e4e4e7;color:#71717a;font-size:11px;font-weight:700;display:grid;place-items:center;border:2px solid #fff;opacity:0.7;cursor:pointer;">✓</div>
     `;
   }
 
   if (variant === "HOTEL") {
     return `
-      <div class="voyage-marker-hotel" style="width:26px;height:26px;border-radius:999px;background:#2563eb;color:#fff;font-size:12px;font-weight:700;display:grid;place-items:center;border:2px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,0.15);cursor:pointer;">H</div>
+      <div ${dataAttributes} class="voyage-marker-hotel" style="width:26px;height:26px;border-radius:999px;background:#2563eb;color:#fff;font-size:12px;font-weight:700;display:grid;place-items:center;border:2px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,0.15);cursor:pointer;">H</div>
     `;
   }
 
   if (variant === "FOOD") {
     return `
-      <div class="voyage-marker-food" style="width:24px;height:24px;border-radius:999px;background:#ea580c;color:#fff;font-size:11px;display:grid;place-items:center;border:2px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,0.1);cursor:pointer;">🍽</div>
+      <div ${dataAttributes} class="voyage-marker-food" style="width:24px;height:24px;border-radius:999px;background:#ea580c;color:#fff;font-size:11px;display:grid;place-items:center;border:2px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,0.1);cursor:pointer;">🍽</div>
     `;
   }
 
   if (variant === "TRANSPORT") {
     return `
-      <div class="voyage-marker-transport" style="width:24px;height:24px;border-radius:999px;background:#0d9488;color:#fff;font-size:11px;display:grid;place-items:center;border:2px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,0.1);cursor:pointer;">🚇</div>
+      <div ${dataAttributes} class="voyage-marker-transport" style="width:24px;height:24px;border-radius:999px;background:#0d9488;color:#fff;font-size:11px;display:grid;place-items:center;border:2px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,0.1);cursor:pointer;">🚇</div>
     `;
   }
 
   if (variant === "EXPLORE") {
     return `
-      <div class="voyage-marker-explore" style="width:12px;height:12px;border-radius:999px;background:${color};border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.2);cursor:pointer;${isSelected ? "transform:scale(1.4);" : ""}"></div>
+      <div ${dataAttributes} class="voyage-marker-explore" style="width:12px;height:12px;border-radius:999px;background:${color};border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.2);cursor:pointer;${isSelected ? "transform:scale(1.4);" : ""}"></div>
     `;
   }
 
   // DEFAULT
   return `
-    <div class="voyage-marker-default" style="width:24px;height:24px;border-radius:999px;background:${color};color:#fff;font:600 11px/24px system-ui,-apple-system,sans-serif;text-align:center;border:2px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,0.15);cursor:pointer;">${number ?? "·"}</div>
+    <div ${dataAttributes} class="voyage-marker-default" style="width:24px;height:24px;border-radius:999px;background:${color};color:#fff;font:600 11px/24px system-ui,-apple-system,sans-serif;text-align:center;border:2px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,0.15);cursor:pointer;">${number ?? "·"}</div>
   `;
 }
 

@@ -22,6 +22,22 @@ describe("real-world rule planning", () => {
     expect(plan.dayPlans.flatMap((day) => day.stops).every((stop) => candidateIds.has(stop.placeId))).toBe(true);
   });
 
+  it("keeps every requested day populated when candidates are fewer than days", () => {
+    const plan = planWithRules({
+      destination: "广州",
+      startDate: "2026-10-01",
+      endDate: "2026-10-03",
+      travelers: 2,
+      budget: 3000,
+      vibes: [],
+      candidates: [place("gz-only", "attraction", 23.1)],
+    });
+
+    expect(plan.dayPlans).toHaveLength(3);
+    expect(plan.dayPlans.every((day) => day.stops.length > 0)).toBe(true);
+    expect(plan.dayPlans.flatMap((day) => day.stops).every((stop) => stop.placeId === "gz-only")).toBe(true);
+  });
+
   it("creates collision-resistant UUID trip IDs", () => {
     const one = createTripId();
     const two = createTripId();

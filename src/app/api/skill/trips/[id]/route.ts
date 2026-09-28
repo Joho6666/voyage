@@ -1,11 +1,15 @@
-import path from "node:path";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { guestWorkspace, setGuestCookie } from "@/app/api/voyage/workspace";
 import { JsonSkillRepository } from "@/skill/repository";
 
-export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
+export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const workspace = guestWorkspace(request);
+  const reply = (body: unknown, status = 200) => setGuestCookie(
+    NextResponse.json(body, { status, headers: { "cache-control": "no-store" } }),
+    workspace,
+  );
   const { id } = await context.params;
-  const root = process.env.VOYAGE_DATA_DIR ?? path.join(process.cwd(), ".voyage");
-  const stored = await new JsonSkillRepository(root).getTrip(id);
-  if (!stored) return NextResponse.json({ ok: false, error: "TRIP_NOT_FOUND" }, { status: 404 });
-  return NextResponse.json({ ok: true, ...stored });
+  const stored = await new JsonSkillRepository(workspace.root).getTrip(id);
+  if (!stored) return reply({ ok: false, error: "TRIP_NOT_FOUND" }, 404);
+  return reply({ ok: true, ...stored });
 }

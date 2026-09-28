@@ -24,42 +24,45 @@ describe("Journey Map - Model & Controller Unit Tests", () => {
     expect(model.polylines.length).toBe(trip.days.length);
   });
 
-  it("2. activeDay filtering dims non-active day routes and filters markers properly", () => {
-    const activeDayId = "day-1";
-    const routes = buildJourneyRoutes(trip, {
-      activeDayId,
+  it("2. a focused day is the only day drawn; 'all' is an explicit choice", () => {
+    const focusedDayId = "day-1";
+
+    const focusedRoutes = buildJourneyRoutes(trip, {
+      activeDayId: focusedDayId,
       selectedPlaceId: null,
       hoverPlaceId: null,
       selectedRouteId: null,
       mapMode: "PLAN",
       zoom: 13,
     });
+    // Focusing a day must not leak other days' lines onto the map: dimming them
+    // was what made a 3-day trip read as a tangle of overlapping routes.
+    expect(focusedRoutes.length).toBeGreaterThan(0);
+    expect(focusedRoutes.every((route) => route.dayId === focusedDayId)).toBe(true);
 
-    const activeDayRoutes = routes.filter((r) => r.dayId === activeDayId);
-    const otherDayRoutes = routes.filter((r) => r.dayId !== activeDayId);
-
-    expect(activeDayRoutes.length).toBeGreaterThan(0);
-    expect(otherDayRoutes.length).toBeGreaterThan(0);
-
-    // Active day routes have high opacity (>= 0.85)
-    activeDayRoutes.forEach((r) => {
-      expect(r.strokeOpacity).toBeGreaterThanOrEqual(0.85);
-    });
-
-    // Inactive day routes are dimmed (< 0.25)
-    otherDayRoutes.forEach((r) => {
-      expect(r.strokeOpacity).toBeLessThanOrEqual(0.25);
-    });
-
-    // Markers for active day vs others
-    const markers = buildJourneyMarkers(trip, {
-      activeDayId,
+    const focusedMarkers = buildJourneyMarkers(trip, {
+      activeDayId: focusedDayId,
       selectedPlaceId: null,
       hoverPlaceId: null,
       mapMode: "PLAN",
     });
+    const focusedPlaceIds = new Set(
+      trip.items.filter((item) => item.dayId === focusedDayId).map((item) => item.placeId),
+    );
+    const itineraryMarkers = focusedMarkers.filter((marker) => marker.id.startsWith("itinerary-marker-"));
+    expect(itineraryMarkers.length).toBeGreaterThan(0);
+    expect(itineraryMarkers.every((marker) => focusedPlaceIds.has(marker.placeId))).toBe(true);
 
-    expect(markers.length).toBeGreaterThan(0);
+    // "全部" (null) keeps the whole-trip overview available.
+    const allRoutes = buildJourneyRoutes(trip, {
+      activeDayId: null,
+      selectedPlaceId: null,
+      hoverPlaceId: null,
+      selectedRouteId: null,
+      mapMode: "PLAN",
+      zoom: 13,
+    });
+    expect(new Set(allRoutes.map((route) => route.dayId)).size).toBeGreaterThan(1);
   });
 
   it("3. selected marker receives SELECTED variant and hover marker receives HOVERED variant", () => {

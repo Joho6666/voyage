@@ -242,6 +242,8 @@ export class MockTravelAgent implements TravelAgent {
     return recomputeDay(next, dayId);
   }
 
+  // The rule-based fallback answers the current turn only; the optional history
+  // is part of the TravelAgent contract but carries no meaning without an LLM.
   async chat(trip: Trip, message: string): Promise<AgentMessage> {
     const text = message.trim();
     const requestedDayId = text.match(/\[dayId:([^\]]+)\]/)?.[1];

@@ -38,11 +38,10 @@ export function buildJourneyMarkers(trip: Trip, options: BuildMarkersOptions): J
 
   // 1. Process Itinerary Items
   trip.days.forEach((day) => {
-    const isDayActive = !activeDayId || activeDayId === day.id;
-    // If we're in TODAY mode, we only focus on the active day's itinerary unless explicitly viewing all
-    if (mapMode === "TODAY" && activeDayId && day.id !== activeDayId) {
-      return;
-    }
+    // A focused day is the only day drawn. The itinerary column shows one day at
+    // a time, so drawing every other day's pins beside it is what made the map
+    // read as a tangle; "全部" (null) is the explicit way to see everything.
+    if (activeDayId && day.id !== activeDayId) return;
 
     const dayColor = DAY_COLORS[day.index % DAY_COLORS.length];
     const items = trip.items
@@ -81,9 +80,6 @@ export function buildJourneyMarkers(trip: Trip, options: BuildMarkersOptions): J
         variant = "TRANSPORT";
       }
 
-      // If day is not active, slightly adjust color/opacity indication
-      const markerColor = isDayActive ? dayColor : `${dayColor}88`;
-
       markers.push({
         id: `itinerary-marker-${item.id}`,
         placeId: place.id,
@@ -97,7 +93,7 @@ export function buildJourneyMarkers(trip: Trip, options: BuildMarkersOptions): J
         dayId: day.id,
         dayIndex: day.index,
         category: place.category,
-        color: markerColor,
+        color: dayColor,
         isNext,
         isCompleted,
         isSelected,

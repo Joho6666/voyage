@@ -1,4 +1,3 @@
-import "server-only";
 import { assertPublicHttpUrl } from "@/lib/safe-url";
 import { runtimeConfigSync } from "@/services/config/local-credentials";
 
