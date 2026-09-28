@@ -115,14 +115,16 @@ export function buildJourneyMarkers(trip: Trip, options: BuildMarkersOptions): J
       return;
     }
 
-    // Layer visibility filter
-    if (place.category === "hotel" && !layers.hotel) return;
-    if (place.category === "transport" && !layers.transport) return;
-    if (place.category === "food" && !layers.food && mapMode !== "EXPLORE") return;
-    if (mapMode === "PLAN" && !layers.explore && !["hotel", "transport"].includes(place.category)) return;
-
     const isSelected = selectedPlaceId === place.id;
     const isHovered = hoverPlaceId === place.id;
+
+    // Layer visibility filter: when a place is actively selected, always show it
+    if (!isSelected) {
+      if (place.category === "hotel" && !layers.hotel) return;
+      if (place.category === "transport" && !layers.transport) return;
+      if (place.category === "food" && !layers.food && mapMode !== "EXPLORE") return;
+      if (mapMode === "PLAN" && !layers.explore && !["hotel", "transport"].includes(place.category)) return;
+    }
 
     let variant: MarkerVariant = "EXPLORE";
     if (isSelected) {

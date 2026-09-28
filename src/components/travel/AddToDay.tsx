@@ -14,13 +14,25 @@ import { toast } from "sonner";
  * provider provenance are refused server-side; the dialog reports that
  * honestly instead of toasting a fake success.
  */
-export function AddToDay({ placeId, label = "＋ 添加" }: { placeId: string; label?: string }) {
+export function AddToDay({
+  placeId,
+  place: providedPlace,
+  label = "＋ 添加",
+  size = "sm",
+  variant = "outline",
+}: {
+  placeId?: string;
+  place?: import("@/types/travel").Place;
+  label?: string;
+  size?: "sm" | "default" | "icon";
+  variant?: "outline" | "default" | "ghost" | "secondary";
+}) {
   const [open, setOpen] = useState(false);
   const [busyDayId, setBusyDayId] = useState<string | null>(null);
   const trip = useTripStore((s) => s.trip);
   const revision = useTripStore((s) => s.revision);
   const setTrip = useTripStore((s) => s.setTrip);
-  const place = trip.places.find((candidate) => candidate.id === placeId);
+  const place = providedPlace ?? trip.places.find((candidate) => candidate.id === placeId);
 
   const add = async (dayId: string, dayLabel: string) => {
     if (!place) {
@@ -31,7 +43,7 @@ export function AddToDay({ placeId, label = "＋ 添加" }: { placeId: string; l
     try {
       const result = await addPlaceItemToDay({ tripId: trip.id, place, dayId, expectedTripRevision: revision });
       setTrip(result.trip, result.revision);
-      toast.success(`已加入 ${dayLabel}，刷新后依然保存`);
+      toast.success(`已加入 ${dayLabel}，并在地图生成连线`);
       setOpen(false);
     } catch (error) {
       toast.error(error instanceof TripCommandError ? error.message : "加入行程失败，请重试");
@@ -42,7 +54,7 @@ export function AddToDay({ placeId, label = "＋ 添加" }: { placeId: string; l
 
   return (
     <>
-      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+      <Button size={size} variant={variant} onClick={() => setOpen(true)}>
         {label}
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>

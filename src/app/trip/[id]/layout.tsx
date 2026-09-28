@@ -30,7 +30,14 @@ export default function TripLayout({ children }: { children: React.ReactNode }) 
 
   const mapMode: MapMode = useMemo(() => {
     if (pathname.includes("/today")) return "TODAY";
-    if (pathname.includes("/explore")) return "EXPLORE";
+    if (
+      pathname.includes("/explore") ||
+      pathname.includes("/food") ||
+      pathname.includes("/hotels") ||
+      pathname.includes("/activities")
+    ) {
+      return "EXPLORE";
+    }
     return "PLAN";
   }, [pathname]);
 

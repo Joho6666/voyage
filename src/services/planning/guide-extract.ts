@@ -45,18 +45,34 @@ export interface GuidePostsResult {
 }
 
 const ROUTE_MARKERS = /(→|➜|—|–|\bday\s*\d|第[一二三四五六七]天|[四五六七]天[三四五]晚|路线|行程|攻略)/i;
+const FOOD_MARKERS = /(美食|必吃|好吃|探店|老字号|火锅|小吃|烧烤|面馆|茶楼|餐厅|私房菜|甜品|早茶|夜市|小酒馆|特色菜)/i;
 
-/** Viral-guide posts: prefer texts that actually describe a route. */
+export type GuideCategory = "route" | "food" | "latest" | "custom";
+
+/** Viral-guide posts: supports routes, food/dining notes, and the latest published posts. */
 export async function collectGuidePosts(
   router: SocialProviderRouter,
   city: string,
   query = "旅游攻略 路线",
-  limit = 8,
+  limit = 10,
+  category: GuideCategory = "route",
 ): Promise<GuidePostsResult> {
   const result = await router.searchContent({ city, query: `${city} ${query}`, platform: "xiaohongshu", limit });
   const observations = result.data
-    .filter((item) => item.content.length >= 60)
+    .filter((item) => item.content.length >= 40)
     .sort((left, right) => {
+      if (category === "latest") {
+        const leftTime = Date.parse(left.publishedAt ?? left.fetchedAt);
+        const rightTime = Date.parse(right.publishedAt ?? right.fetchedAt);
+        if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
+          return rightTime - leftTime;
+        }
+      }
+      if (category === "food") {
+        const leftFood = (FOOD_MARKERS.test(left.content) ? 3 : 0) + ((left.metrics?.likes ?? 0) > 100 ? 1 : 0);
+        const rightFood = (FOOD_MARKERS.test(right.content) ? 3 : 0) + ((right.metrics?.likes ?? 0) > 100 ? 1 : 0);
+        if (leftFood !== rightFood) return rightFood - leftFood;
+      }
       const leftScore = (ROUTE_MARKERS.test(left.content) ? 2 : 0) + Math.min(left.content.length / 400, 1);
       const rightScore = (ROUTE_MARKERS.test(right.content) ? 2 : 0) + Math.min(right.content.length / 400, 1);
       return rightScore - leftScore;
@@ -97,7 +113,7 @@ function isPlausibleName(value: string) {
   // A real place name in this corpus is Chinese, or a Latin brand name of at
   // least four characters ("M Stand"); two-letter Latin fragments are noise.
   if (!/[\u4e00-\u9fa5]/.test(trimmed) && !/^[A-Za-z][A-Za-z0-9'&.\- ]{3,}$/.test(trimmed)) return false;
-  if (STOPWORDS.test(trimmed) && !/[\u4e00-\u9fa5]{2}(路|街|巷|广场|公园|博物馆|纪念馆|寺|庙|塔|楼|桥|湖|山|湾|滩|岛|村|镇|市场|中心)/.test(trimmed)) return false;
+  if (STOPWORDS.test(trimmed) && !/[\u4e00-\u9fa5]{2}(路|街|巷|广场|公园|博物馆|纪念馆|寺|庙|塔|楼|桥|湖|山|湾|滩|岛|村|镇|市场|中心|火锅|面馆|串串|茶楼|茶馆|茶社|烧烤|烤肉|饭店|酒楼|私房菜|大排档|菜馆|餐厅|餐馆|甜品|小吃|排档|汤包|咖啡|居酒屋|旅社|客栈|酒店)/.test(trimmed)) return false;
   return true;
 }
 

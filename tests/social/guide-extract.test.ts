@@ -83,6 +83,16 @@ describe("guide place-name extraction (rules)", () => {
     expect(names.indexOf("先锋书店")).toBeLessThan(names.indexOf("金银街"));
   });
 
+  it("extracts food and restaurant spots without dropping them as stopwords", () => {
+    const text = "重庆火锅必吃榜：老巷子火锅、九街淑芬串串、赵记牛肉面馆、山城老茶楼、顺风大排档。";
+    const names = extractCandidatesWithRules(text);
+    expect(names).toContain("老巷子火锅");
+    expect(names).toContain("九街淑芬串串");
+    expect(names).toContain("赵记牛肉面馆");
+    expect(names).toContain("山城老茶楼");
+    expect(names).toContain("顺风大排档");
+  });
+
   it("dedupes and caps at 8 candidates", () => {
     const text = Array.from({ length: 14 }, (_, index) => `景点${index}路`).join("→");
     const names = extractCandidatesWithRules(text);
@@ -170,6 +180,25 @@ describe("guide post collection", () => {
     expect(result.posts[0].sourceUrl).toContain("xiaohongshu.com/explore/");
     expect(result.posts[0].sourceUrlKind).toBe("derived");
     expect(result.posts[0].content.length).toBeLessThanOrEqual(2000);
+  });
+
+  it("prioritizes food content when category is food", async () => {
+    const router = new SocialProviderRouter([new FakeXhsProvider([
+      observation({ sourceId: "route-only", content: `${"南京三日游路线推荐：明孝陵—玄武湖—夫子庙。".repeat(5)}` }),
+      observation({ sourceId: "food-spot", content: `${"南京必吃美食老字号火锅与鸭血粉丝汤推荐探店。".repeat(5)}`, metrics: { likes: 500 } }),
+    ])]);
+    const result = await collectGuidePosts(router, "南京", "美食 必吃", 10, "food");
+    expect(result.posts[0].sourceId).toBe("food-spot");
+  });
+
+  it("orders posts by published date descending when category is latest", async () => {
+    const router = new SocialProviderRouter([new FakeXhsProvider([
+      observation({ sourceId: "older", content: `${"南京游记分享攻略内容充足。".repeat(8)}`, publishedAt: "2026-08-01T10:00:00Z" }),
+      observation({ sourceId: "newest", content: `${"南京最新游记体验刚刚从鸡鸣寺回来。".repeat(8)}`, publishedAt: "2026-09-27T12:00:00Z" }),
+      observation({ sourceId: "mid", content: `${"南京旅行路线分享。".repeat(8)}`, publishedAt: "2026-09-10T10:00:00Z" }),
+    ])]);
+    const result = await collectGuidePosts(router, "南京", "最新 攻略", 10, "latest");
+    expect(result.posts.map((p) => p.sourceId)).toEqual(["newest", "mid", "older"]);
   });
 
   it("reports an unconfigured platform honestly", async () => {

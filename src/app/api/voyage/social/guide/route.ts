@@ -13,6 +13,7 @@ export const dynamic = "force-dynamic";
 const inputSchema = z.object({
   city: z.string().trim().min(1).max(80),
   query: z.string().trim().max(120).optional(),
+  category: z.enum(["route", "food", "latest", "custom"]).optional(),
 }).strict();
 
 export async function POST(request: NextRequest) {
@@ -22,7 +23,13 @@ export async function POST(request: NextRequest) {
   }
   const router = new SocialProviderRouter([createTikHubProvider(), createRedFoxProvider()]);
   try {
-    const result = await collectGuidePosts(router, parsed.data.city, parsed.data.query);
+    const result = await collectGuidePosts(
+      router,
+      parsed.data.city,
+      parsed.data.query,
+      10,
+      parsed.data.category,
+    );
     // ok stays true with an empty list when the platform is down or unconfigured:
     // the panel renders the honest status instead of an error wall.
     return NextResponse.json({

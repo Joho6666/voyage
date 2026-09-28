@@ -88,6 +88,43 @@ describe("Journey Map - Model & Controller Unit Tests", () => {
     expect(hoverMarker?.isHovered).toBe(true);
   });
 
+  it("3b. actively selected food/hotel places stay visible even when category layer is disabled", () => {
+    // Add a food extraPlace (not in itinerary)
+    const foodPlace: Place = {
+      id: "extra-hotpot-999",
+      name: "老巷子火锅",
+      category: "food",
+      lat: 29.56,
+      lng: 106.57,
+      rating: 4.8,
+      reviewCount: 100,
+      image: "",
+      priceLevel: 2,
+      address: "解放碑",
+      openingStatus: "open",
+      stayMinutes: 90,
+      description: "特色火锅",
+      tags: ["火锅"],
+      district: "渝中区",
+      source: "amap",
+    };
+    const tripWithFood = { ...trip, places: [...trip.places, foodPlace] };
+
+    // With food layer disabled and food place selected
+    const markers = buildJourneyMarkers(tripWithFood, {
+      activeDayId: "day-1",
+      selectedPlaceId: foodPlace.id,
+      hoverPlaceId: null,
+      mapMode: "PLAN",
+      layers: { trip: true, explore: false, hotel: false, food: false, transport: false },
+    });
+
+    const foodMarker = markers.find((m) => m.placeId === foodPlace.id);
+    expect(foodMarker).toBeDefined();
+    expect(foodMarker?.variant).toBe("SELECTED");
+    expect(foodMarker?.isSelected).toBe(true);
+  });
+
   it("4. route mode styles correctly differentiate walking, metro, taxi, bus, and driving", () => {
     const testTrip = structuredClone(chongqingTrip);
     testTrip.segments[0].mode = "walk";

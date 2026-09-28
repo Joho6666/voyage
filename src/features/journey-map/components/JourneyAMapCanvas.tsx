@@ -61,6 +61,16 @@ export function JourneyAMapCanvas({
     transport: true,
   });
 
+  // When map mode transitions (e.g. into food discovery or hotels), update layer visibility
+  useEffect(() => {
+    setLayers((prev) => ({
+      ...prev,
+      explore: mode === "EXPLORE",
+      food: mode === "EXPLORE",
+      hotel: true,
+    }));
+  }, [mode]);
+
   const { location: userLocation, error: locationError, requestLocation } = useUserLocation();
   const { isOnline, isCached, isCaching, cacheTrip } = useOfflineJourney(trip);
 
