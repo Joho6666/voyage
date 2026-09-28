@@ -3,8 +3,9 @@ import "server-only";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { planningProfileSchema } from "@/schemas/planning";
-import { planningProfileToPrompt } from "@/services/planning/profile";
+import { alignPlanningDays, effectiveTripDays } from "@/services/planning/profile";
 import { createRuntime } from "@/skill/runtime";
+import { MAX_TRIP_DAYS } from "@/skill/contracts";
 import { JsonSkillRepository, type StoredPlanningSession } from "@/skill/repository";
 import { SkillError } from "@/skill/errors";
 import { guestWorkspace } from "@/app/api/voyage/workspace";
@@ -33,41 +34,50 @@ function runtimeData(value: unknown) {
   return value.data;
 }
 
-function promptFromSession(session: StoredPlanningSession, profilePrompt: string) {
+function promptFromSession(session: StoredPlanningSession) {
   const userMessages = session.messages
     .filter((message) => message.role === "user")
     .slice(-3)
     .map((message) => message.content.trim())
     .filter(Boolean)
     .join("\n");
-  return [userMessages, profilePrompt].filter(Boolean).join("\n").slice(0, 2000);
+  return userMessages.slice(0, 2000);
 }
 
 function generationInput(session: StoredPlanningSession) {
-  const profile = planningProfileSchema.parse(session.profile);
+  // The profile may have been written before the dates were known; normalise it
+  // so the day count and the date span cannot disagree downstream.
+  const profile = alignPlanningDays(planningProfileSchema.parse(session.profile));
   if (!profile.destination) {
     throw new SkillError("INVALID_INPUT", "请先确认目的地", { missingFields: ["destination"] });
   }
   if (!profile.startDate) {
     throw new SkillError("INVALID_INPUT", "请先确认出发日期；只填写天数还不足以创建带日期的行程", { missingFields: ["startDate"] });
   }
-  if (!profile.endDate && !profile.days) {
+  const days = effectiveTripDays(profile);
+  if (!days) {
     throw new SkillError("INVALID_INPUT", "请先确认返程日期或旅行天数", { missingFields: ["dates"] });
   }
+  if (days > MAX_TRIP_DAYS) {
+    throw new SkillError("INVALID_INPUT", `当前版本最多支持 ${MAX_TRIP_DAYS} 天的行程，这条需求是 ${days} 天`, { maxDays: MAX_TRIP_DAYS, days });
+  }
 
-  const profilePrompt = planningProfileToPrompt(profile);
   return {
     origin: profile.origin ?? "",
     destination: profile.destination,
     startDate: profile.startDate,
-    ...(profile.endDate ? { endDate: profile.endDate } : {}),
-    ...(profile.days ? { days: profile.days } : {}),
+    // One truth for the trip length: prefer the resolved return date, and only
+    // send a day count when no end date exists. Sending both let the compiler
+    // and the planner disagree.
+    ...(profile.endDate ? { endDate: profile.endDate } : { days }),
     ...(profile.travelers !== undefined ? { travelers: profile.travelers, people: profile.travelers } : {}),
     ...(profile.budget !== undefined ? { budget: profile.budget } : {}),
     preferences: profile.vibes,
     vibes: profile.vibes,
     ...(profile.walkingTolerance ? { walkingTolerance: profile.walkingTolerance } : {}),
-    prompt: promptFromSession(session, profilePrompt),
+    // The profile block is appended once by the Runtime; repeating it here put a
+    // second, competing day count into the model's prompt.
+    prompt: promptFromSession(session),
     planningProfile: profile,
     planningSessionId: session.id,
     fallbackPolicy: "estimated" as const,

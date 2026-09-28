@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { createTikHubProvider } from "./tikhub";
 import { extractSocialSignals } from "./signal-extractor";
+import { resolveSourceLink } from "./source-link";
 import type { SocialEvidence, SocialObservation, SocialPlatform, SocialSignal } from "./types";
 
 const PLATFORMS: SocialPlatform[] = ["douyin", "xiaohongshu", "weibo", "wechat_search"];
@@ -57,11 +58,16 @@ export async function searchTravelSocial(input: LiveSocialSearchInput, providerO
   const platformStatus = Object.fromEntries(settled.map(({ platform, result }) => [platform, result.status === "ok" && result.data.length === 0 ? "unavailable" : result.status]));
   const evidence = observations.map((observation) => {
     const related = signals.filter((signal) => signal.sources.some((source) => source.sourceId === observation.sourceId && source.platform === observation.platform));
+    const link = resolveSourceLink({
+      platform: observation.platform,
+      sourceId: observation.sourceId,
+      upstreamUrl: observation.sourceUrl,
+    });
     return {
       provider: observation.provider,
       platform: observation.platform,
       sourceId: observation.sourceId,
-      sourceUrl: observation.sourceUrl,
+      ...(link ? { sourceUrl: link.url, sourceUrlKind: link.kind } : {}),
       summary: observation.summary ?? observation.content.slice(0, 180),
       city: observation.city,
       publishedAt: observation.publishedAt,

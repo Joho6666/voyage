@@ -57,20 +57,31 @@ test.describe("Voyage Golden Trip E2E Suite", () => {
     await page.goto("/trip/chongqing-2026");
     await expect(page.locator("body")).toBeVisible();
 
-    // Verify day timeline items exist
-    const items = page.locator("article");
-    await expect(items.first()).toBeVisible({ timeout: 15000 });
+    // Wait for the client tree to be mounted before clicking: otherwise the
+    // click can land before React attaches its handler and is silently lost.
+    await expect(page.getByRole("tablist", { name: "选择日期" })).toBeVisible({ timeout: 15000 });
 
-    // Click on the first item
-    await items.first().click();
+    const card = page.locator('[data-testid="itinerary-card"]').first();
+    await expect(card).toBeVisible({ timeout: 15000 });
+    await expect(card).toHaveAttribute("data-selected", "false");
 
-    // Verify item has active/selected styling or focus
-    await expect(items.first()).toHaveClass(/border-primary|bg-accent/);
+    await card.click();
+
+    // Selection is a behavioural contract carried by data-selected; the class
+    // list is only how it is styled.
+    await expect(card).toHaveAttribute("data-selected", "true", { timeout: 10000 });
+    await expect(card).toHaveClass(/border-primary|bg-accent/);
   });
 
   test("Flow 3: AI Action '今晚少走一点' -> Proposal Diff Modal -> Apply", async ({ page }) => {
     await page.goto("/trip/chongqing-2026/today");
     await expect(page.getByText("今日行程")).toBeVisible({ timeout: 15000 });
+
+    // Adjustments are collapsed by default so the day itself leads; one tap
+    // reveals them. Assert that contract before using the actions.
+    const helper = page.getByText(/需要帮忙/).first();
+    await expect(helper).toBeVisible({ timeout: 10000 });
+    await helper.click();
 
     // Tap "少走路" quick action button
     const reduceWalkBtn = page.getByRole("button", { name: /少走路|太累了/i }).first();
@@ -105,6 +116,10 @@ test.describe("Voyage Golden Trip E2E Suite", () => {
   test("Flow 5: Weather -> Rain Plan -> Proposal Diff -> Apply", async ({ page }) => {
     await page.goto("/trip/chongqing-2026/today");
     await expect(page.getByText("今日行程")).toBeVisible({ timeout: 15000 });
+
+    const helper = page.getByText(/需要帮忙/).first();
+    await expect(helper).toBeVisible({ timeout: 10000 });
+    await helper.click();
 
     // Click "下雨方案" button
     const rainPlanBtn = page.getByRole("button", { name: /下雨方案|换下雨方案/i }).first();

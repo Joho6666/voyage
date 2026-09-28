@@ -94,12 +94,94 @@ export function mergePlanningProfiles(
   if (right.accessibility !== undefined) merged.accessibility = right.accessibility;
   if (right.socialOptIn !== undefined) merged.socialOptIn = right.socialOptIn;
 
-  const normalized = planningProfileSchema.parse(merged);
-  if (!normalized.days && normalized.startDate && normalized.endDate) {
-    const days = daysBetween(normalized.startDate, normalized.endDate);
-    if (days) return planningProfileSchema.parse({ ...normalized, days });
+  // Reconcile before validating: the schema rejects a return date that precedes
+  // departure, and a stale one must be cleared rather than fail the whole merge.
+  const reconciled = reconcileDays({
+    ...(typeof merged.startDate === "string" ? { startDate: merged.startDate } : {}),
+    ...(typeof merged.endDate === "string" ? { endDate: merged.endDate } : {}),
+    ...(typeof merged.days === "number" ? { days: merged.days } : {}),
+  }, right);
+  const normalized = planningProfileSchema.parse({ ...merged, ...reconciled });
+  return alignPlanningDays(normalized);
+}
+
+function shiftDate(date: string, offsetDays: number) {
+  return new Date(new Date(`${date}T12:00:00Z`).getTime() + offsetDays * DAY_MS)
+    .toISOString()
+    .slice(0, 10);
+}
+
+interface DayFacts {
+  startDate?: string;
+  endDate?: string;
+  days?: number;
+}
+
+/**
+ * Whichever of "days" and the date pair the user just changed wins, so editing
+ * one field never silently contradicts the other.
+ *
+ * - they stated a day count -> the return date moves to match
+ * - they picked a return date -> the day count follows the span (in align)
+ * - they moved only the departure date -> the trip length is preserved
+ */
+function reconcileDays(profile: DayFacts, patch: PlanningProfilePatch): DayFacts {
+  const statedDays = patch.days !== undefined && patch.endDate === undefined;
+  const statedDates = patch.startDate !== undefined || patch.endDate !== undefined;
+
+  if (statedDays && profile.startDate) {
+    const days = patch.days!;
+    return { ...profile, days, endDate: shiftDate(profile.startDate, days - 1) };
   }
-  return normalized;
+  if (statedDays) {
+    // A day count with no departure date yet: keep it, and let the span be
+    // derived once a real date exists.
+    return { ...profile, endDate: undefined };
+  }
+  if (statedDates && patch.endDate === undefined && profile.startDate) {
+    if (profile.days) return { ...profile, endDate: shiftDate(profile.startDate, profile.days - 1) };
+    // No length to preserve; a return date before the new departure would make
+    // the profile invalid, so it is cleared for the traveller to re-pick.
+    if (profile.endDate && profile.endDate < profile.startDate) {
+      return { ...profile, endDate: undefined };
+    }
+  }
+  return profile;
+}
+
+/**
+ * Final normalisation for profiles that arrive without patch context (loaded
+ * from storage, or built by hand): the date span is the more specific fact, so
+ * a day count that disagrees with it is corrected rather than trusted.
+ */
+export function alignPlanningDays(profile: PlanningProfile): PlanningProfile {
+  const { startDate, endDate, days } = profile;
+  if (startDate && endDate) {
+    const span = daysBetween(startDate, endDate);
+    if (span && span !== days) return { ...profile, days: span };
+    return profile;
+  }
+  // Only one date plus an explicit day count: the missing date is arithmetic,
+  // never a guess about when the traveller leaves.
+  if (startDate && !endDate && days) {
+    return { ...profile, endDate: shiftDate(startDate, days - 1) };
+  }
+  if (!startDate && endDate && days) {
+    return { ...profile, startDate: shiftDate(endDate, -(days - 1)) };
+  }
+  return profile;
+}
+
+/**
+ * The day count the planner will actually verify against, derived from the same
+ * input the trip compiler uses.  Callers must not carry a second, competing
+ * number into the prompt.
+ */
+export function effectiveTripDays(profile: PlanningProfile) {
+  const span = profile.startDate && profile.endDate
+    ? daysBetween(profile.startDate, profile.endDate)
+    : undefined;
+  return span ?? profile.days;
 }
 
 export function missingPlanningFields(profile: PlanningProfile): PlanningField[] {
@@ -117,7 +199,9 @@ export function planningProfileToPrompt(profile: PlanningProfile) {
     profile.origin ? `出发地：${profile.origin}` : "",
     profile.startDate ? `出发日期：${profile.startDate}` : "",
     profile.endDate ? `结束日期：${profile.endDate}` : "",
-    profile.days ? `天数：${profile.days}` : "",
+    // The date pair already states the length; repeating a day count here put a
+    // second, competing number in front of the model.
+    !profile.endDate && profile.days ? `天数：${profile.days}` : "",
     profile.travelers ? `人数：${profile.travelers}` : "",
     profile.budget !== undefined ? `总预算：¥${profile.budget}` : "",
     profile.pace ? `节奏：${profile.pace}` : "",

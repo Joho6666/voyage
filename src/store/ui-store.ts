@@ -11,7 +11,10 @@ interface UiState {
   commandOpen: boolean;
   selectedPlaceId: string | null;
   hoverPlaceId: string | null;
+  /** null means "全部" — every day is shown. */
   activeDayId: string | null;
+  /** Which trip the current day focus belongs to, so it resets across trips. */
+  dayScopeTripId: string | null;
   workspaceTab: WorkspaceTab;
   mapFilters: MapFilter[];
   mapSearch: string;
@@ -23,6 +26,8 @@ interface UiState {
   selectPlace: (id: string | null) => void;
   hoverPlace: (id: string | null) => void;
   setActiveDay: (id: string | null) => void;
+  /** Focus today when the trip covers it, otherwise the first day. */
+  focusDefaultDay: (tripId: string, days: Array<{ id: string; date: string }>, today?: string) => void;
   setWorkspaceTab: (tab: WorkspaceTab) => void;
   toggleMapFilter: (filter: MapFilter) => void;
   setMapSearch: (q: string) => void;
@@ -38,7 +43,8 @@ export const useUiStore = create<UiState>()(
       commandOpen: false,
       selectedPlaceId: null,
       hoverPlaceId: null,
-      activeDayId: "day-1",
+      activeDayId: null,
+      dayScopeTripId: null,
       workspaceTab: "itinerary",
       mapFilters: [],
       mapSearch: "",
@@ -50,6 +56,15 @@ export const useUiStore = create<UiState>()(
       selectPlace: (selectedPlaceId) => set({ selectedPlaceId }),
       hoverPlace: (hoverPlaceId) => set({ hoverPlaceId }),
       setActiveDay: (activeDayId) => set({ activeDayId }),
+      focusDefaultDay: (tripId, days, today) =>
+        set((s) => {
+          // Keep whatever the traveller chose while they stay on this trip,
+          // including the explicit "全部" choice.
+          if (s.dayScopeTripId === tripId) return {};
+          const stamp = today ?? new Date().toISOString().slice(0, 10);
+          const day = days.find((candidate) => candidate.date === stamp) ?? days[0];
+          return { dayScopeTripId: tripId, activeDayId: day?.id ?? null };
+        }),
       setWorkspaceTab: (workspaceTab) => set({ workspaceTab }),
       toggleMapFilter: (filter) =>
         set((s) => ({
@@ -63,7 +78,14 @@ export const useUiStore = create<UiState>()(
     }),
     {
       name: "voyage-ui",
-      partialize: (s) => ({ sidebarCollapsed: s.sidebarCollapsed }),
+      // The focused day is remembered across reloads. It is stored together with
+      // the trip it belongs to, so opening a different trip re-derives the focus
+      // instead of inheriting a day id that may not exist there.
+      partialize: (s) => ({
+        sidebarCollapsed: s.sidebarCollapsed,
+        activeDayId: s.activeDayId,
+        dayScopeTripId: s.dayScopeTripId,
+      }),
     },
   ),
 );

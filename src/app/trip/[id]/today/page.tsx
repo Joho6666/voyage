@@ -20,6 +20,8 @@ import { TravelImage } from "@/components/travel/TravelImage";
 import { travelAgent } from "@/services/ai";
 import { useHistoryStore } from "@/store/history-store";
 import { useTripStore } from "@/store/trip-store";
+import { useUiStore } from "@/store/ui-store";
+import { useDayFocus } from "@/components/itinerary/useDayFocus";
 import { dayStats } from "@/services/routing";
 import { buildWeatherContext } from "@/services/weather/context";
 import { TripDiffModal } from "@/components/ai/TripDiffModal";
@@ -34,6 +36,7 @@ export default function TodayPage() {
   const persist = useTripStore((s) => s.persist);
   const pushHistory = useHistoryStore((s) => s.push);
   const undo = useHistoryStore((s) => s.undo);
+  const setActiveDay = useUiStore((s) => s.setActiveDay);
 
   const [busy, setBusy] = useState(false);
   const [activeDiff, setActiveDiff] = useState<TripChangeSet | null>(null);
@@ -43,7 +46,10 @@ export default function TodayPage() {
   // Determine current day (matches system date if within range, else default to Day 2 or Day 1)
   const todayIso = new Date().toISOString().slice(0, 10);
   const defaultDay = trip.days.find((d) => d.date === todayIso) ?? trip.days[1] ?? trip.days[0];
-  const [selectedDayId, setSelectedDayId] = useState<string>(defaultDay?.id ?? "day-1");
+  // The focused day is shared with the map and the itinerary column, so the
+  // three views can no longer disagree about which day is being shown.
+  const focusedDayId = useDayFocus();
+  const selectedDayId = focusedDayId ?? defaultDay?.id ?? trip.days[0]?.id;
 
   const day = trip.days.find((d) => d.id === selectedDayId) ?? defaultDay;
   const weatherCtx = useMemo(() => buildWeatherContext(trip), [trip]);
@@ -173,7 +179,7 @@ export default function TodayPage() {
           <button
             key={d.id}
             type="button"
-            onClick={() => setSelectedDayId(d.id)}
+            onClick={() => setActiveDay(d.id)}
             className={`rounded-full px-3 py-1 text-[12px] font-medium transition-colors shrink-0 ${
               d.id === day.id
                 ? "bg-primary text-white"
@@ -273,69 +279,70 @@ export default function TodayPage() {
         </div>
       ) : null}
 
-      {/* Core Action Thumb Grid (Section 五 Requirement) */}
+      {/* Adjustments stay behind one tap: eight always-visible buttons competed
+          with the itinerary for attention, and most days need none of them. */}
       <section className="mt-5">
-        <p className="text-[12px] font-medium text-muted-foreground px-1 mb-2">
-          现场快速调整（单手操作）
-        </p>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <ActionButton
-            icon={BedDouble}
-            label="我累了"
-            sub="减少爬坡与步行"
-            disabled={busy}
-            onClick={() => void handleAction("今天太累了，减少走路")}
-          />
-          <ActionButton
-            icon={Footprints}
-            label="少走路"
-            sub="长距离自动改打车"
-            disabled={busy}
-            onClick={() => void handleAction("减少走路")}
-          />
-          <ActionButton
-            icon={Umbrella}
-            label="下雨方案"
-            sub="切换室内文化展馆"
-            disabled={busy}
-            onClick={() => void handleAction("下雨方案")}
-          />
-          <ActionButton
-            icon={Clock}
-            label="推迟一小时"
-            sub="今天全天行程延后"
-            disabled={busy}
-            onClick={() => void handleAction("推迟一小时")}
-          />
-          <ActionButton
-            icon={FastForward}
-            label="跳过这一站"
-            sub="直奔下一目的地"
-            disabled={busy}
-            onClick={() => void handleAction("跳过当前这站")}
-          />
-          <ActionButton
-            icon={Utensils}
-            label="找附近吃的"
-            sub="推荐顺路正宗美食"
-            disabled={busy}
-            onClick={() => void handleAction("多安排当地美食")}
-          />
-          <ActionButton
-            icon={Coins}
-            label="今天省100"
-            sub="打车改地铁与平价餐"
-            disabled={busy}
-            onClick={() => void handleAction("今天帮我省100块钱")}
-          />
-          <ActionButton
-            icon={RefreshCw}
-            label="换个地方"
-            sub="替换为同类好评地标"
-            disabled={busy}
-            onClick={() => void handleAction("换个地方")}
-          />
-        </div>
+        <details className="rounded-[14px] border border-border bg-surface/60">
+          <summary className="cursor-pointer px-3 py-2.5 text-[12px] font-medium text-muted-foreground">需要帮忙？（临时调整今天的安排）</summary>
+          <div className="grid grid-cols-2 gap-2 p-3 pt-1 sm:grid-cols-4">
+            <ActionButton
+              icon={BedDouble}
+              label="我累了"
+              sub="减少爬坡与步行"
+              disabled={busy}
+              onClick={() => void handleAction("今天太累了，减少走路")}
+            />
+            <ActionButton
+              icon={Footprints}
+              label="少走路"
+              sub="长距离自动改打车"
+              disabled={busy}
+              onClick={() => void handleAction("减少走路")}
+            />
+            <ActionButton
+              icon={Umbrella}
+              label="下雨方案"
+              sub="切换室内文化展馆"
+              disabled={busy}
+              onClick={() => void handleAction("下雨方案")}
+            />
+            <ActionButton
+              icon={Clock}
+              label="推迟一小时"
+              sub="今天全天行程延后"
+              disabled={busy}
+              onClick={() => void handleAction("推迟一小时")}
+            />
+            <ActionButton
+              icon={FastForward}
+              label="跳过这一站"
+              sub="直奔下一目的地"
+              disabled={busy}
+              onClick={() => void handleAction("跳过当前这站")}
+            />
+            <ActionButton
+              icon={Utensils}
+              label="找附近吃的"
+              sub="推荐顺路正宗美食"
+              disabled={busy}
+              onClick={() => void handleAction("多安排当地美食")}
+            />
+            <ActionButton
+              icon={Coins}
+              label="今天省100"
+              sub="打车改地铁与平价餐"
+              disabled={busy}
+              onClick={() => void handleAction("今天帮我省100块钱")}
+            />
+            <ActionButton
+              icon={RefreshCw}
+              label="换个地方"
+              sub="替换为同类好评地标"
+              disabled={busy}
+              onClick={() => void handleAction("换个地方")}
+            />
+          </div>
+        </details>
       </section>
 
       {/* Day Timeline Execution List */}

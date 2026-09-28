@@ -59,6 +59,7 @@ export const socialEvidenceSchema = z.object({
   platform: socialPlatformSchema,
   sourceId: z.string().min(1),
   sourceUrl: z.string().url().optional(),
+  sourceUrlKind: z.enum(["upstream", "derived"]).optional(),
   title: z.string().optional(),
   summary: z.string().min(1),
   city: z.string().min(1),

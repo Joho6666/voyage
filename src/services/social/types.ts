@@ -93,6 +93,12 @@ export interface SocialEvidence {
   platform: SocialPlatform;
   sourceId: string;
   sourceUrl?: string;
+  /**
+   * Whether `sourceUrl` is the URL the provider returned, or one derived from the
+   * platform's id shape.  Optional for backward compatibility with stored
+   * evidence written before links were resolved.
+   */
+  sourceUrlKind?: "upstream" | "derived";
   title?: string;
   summary: string;
   city: string;

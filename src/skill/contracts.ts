@@ -20,6 +20,9 @@ export interface ProviderStatus {
 
 export const fallbackPolicySchema = z.enum(["deny", "estimated"]).default("deny");
 
+/** The trip compiler, the outline schema, and the planner prompt share this cap. */
+export const MAX_TRIP_DAYS = 7;
+
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "expected YYYY-MM-DD");
 const point = z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) });
 
@@ -29,7 +32,7 @@ export const createTripInputSchema = z
     destination: z.string().min(1).max(80),
     startDate: isoDate,
     endDate: isoDate.optional(),
-    days: z.number().int().min(1).max(7).optional(),
+    days: z.number().int().min(1).max(MAX_TRIP_DAYS).optional(),
     people: z.number().int().min(1).max(20).default(1),
     travelers: z.number().int().min(1).max(20).optional(),
     budget: z.number().min(0).max(1_000_000).default(2500),

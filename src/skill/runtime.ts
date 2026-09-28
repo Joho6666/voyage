@@ -12,6 +12,7 @@ import { haversineMeters, estimateTransit } from "@/lib/utils";
 import { createTripId } from "@/services/planning/rule-planner";
 import { planOutline } from "@/services/planning/outline-planner";
 import {
+  alignPlanningDays,
   filterPlanningCandidates,
   planningProfileToPrompt,
 } from "@/services/planning/profile";
@@ -57,6 +58,7 @@ import { SocialProviderRouter } from "@/services/social/router";
 import { createTikHubProvider } from "@/services/social/tikhub";
 import { createRedFoxProvider } from "@/services/social/redfox";
 import { extractSocialSignals } from "@/services/social/signal-extractor";
+import { resolveSourceLink } from "@/services/social/source-link";
 import { buildSocialContext } from "@/services/social/context-builder";
 import type { SocialEvidence, SocialObservation, SocialPlatform, SocialProviderStatus } from "@/services/social/types";
 
@@ -416,11 +418,16 @@ function buildSocialEvidence(input: { city: string; poi?: string; observations: 
   const signals = extractSocialSignals(input.observations);
   const evidence = input.observations.map((observation) => {
     const related = signals.filter((signal) => signal.sources.some((source) => source.sourceId === observation.sourceId && source.platform === observation.platform));
+    const link = resolveSourceLink({
+      platform: observation.platform,
+      sourceId: observation.sourceId,
+      upstreamUrl: observation.sourceUrl,
+    });
     return {
       provider: observation.provider,
       platform: observation.platform,
       sourceId: observation.sourceId,
-      sourceUrl: observation.sourceUrl,
+      ...(link ? { sourceUrl: link.url, sourceUrlKind: link.kind } : {}),
       summary: observation.summary ?? observation.content.slice(0, 180),
       city: observation.city,
       publishedAt: observation.publishedAt,
@@ -456,21 +463,24 @@ export class VoyageSkillRuntime {
       throw normalizeProviderError(error, "NO_POI_RESULTS");
     });
     const profile = input.planningProfile;
-    const candidates = profile
-      ? filterPlanningCandidates(providerCandidates, profile, daysBetween(input.startDate, finish))
+    // One truth for the trip length: every prompt, filter and validation below
+    // must agree, so the profile is normalised before anything reads it.
+    const alignedProfile = profile ? alignPlanningDays(profile) : undefined;
+    const candidates = alignedProfile
+      ? filterPlanningCandidates(providerCandidates, alignedProfile, daysBetween(input.startDate, finish))
       : providerCandidates;
-    const constraintWarnings = planningConstraintWarnings(profile, providerCandidates, candidates);
+    const constraintWarnings = planningConstraintWarnings(alignedProfile, providerCandidates, candidates);
     if (!candidates.length) {
       throw new SkillError("NO_POI_RESULTS", "旅行画像过滤后没有可用的 provider 候选", { warnings: constraintWarnings });
     }
-    const planningPrompt = profile
-      ? [input.prompt, planningProfileToPrompt(profile)].filter(Boolean).join("\n")
+    const planningPrompt = alignedProfile
+      ? [input.prompt, planningProfileToPrompt(alignedProfile)].filter(Boolean).join("\n")
       : input.prompt;
-    const effectiveTravelers = profile?.travelers ?? input.travelers ?? input.people;
-    const effectiveBudget = profile?.budget ?? input.budget;
-    const effectiveVibes = profile?.vibes.length ? profile.vibes : input.vibes ?? input.preferences;
-    const includeSocial = input.includeSocialEvidence || Boolean(profile?.socialOptIn || profile?.includeSocialEvidence);
-    const includeOffers = input.includeExternalOffers || Boolean(profile?.includeExternalOffers);
+    const effectiveTravelers = alignedProfile?.travelers ?? input.travelers ?? input.people;
+    const effectiveBudget = alignedProfile?.budget ?? input.budget;
+    const effectiveVibes = alignedProfile?.vibes.length ? alignedProfile.vibes : input.vibes ?? input.preferences;
+    const includeSocial = input.includeSocialEvidence || Boolean(alignedProfile?.socialOptIn || alignedProfile?.includeSocialEvidence);
+    const includeOffers = input.includeExternalOffers || Boolean(alignedProfile?.includeExternalOffers);
     const forecasts = await provider.getWeather(input.destination).catch((error) => {
       if (input.fallbackPolicy !== "estimated") throw normalizeProviderError(error, "WEATHER_UNAVAILABLE");
       return [];
@@ -532,7 +542,7 @@ export class VoyageSkillRuntime {
       });
     }));
     let trip: Trip = {
-      id: tripId, title: planResult.outline.title, destination: input.destination, origin: profile?.origin ?? input.origin, startDate: input.startDate, endDate: finish,
+      id: tripId, title: planResult.outline.title, destination: input.destination, origin: alignedProfile?.origin ?? input.origin, startDate: input.startDate, endDate: finish,
       travelers: effectiveTravelers, budget: effectiveBudget, currency: "CNY", status: "ready",
       estimatedSpend: Math.round(effectiveBudget * 0.85), coverImage: "", vibe: effectiveVibes,
       prompt: planningPrompt, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), days, items,
@@ -542,7 +552,7 @@ export class VoyageSkillRuntime {
         llm: planResult.llm,
         ...(planResult.fallbackReason ? { fallbackReason: planResult.fallbackReason } : {}),
         ...(input.planningSessionId ? { planningSessionId: input.planningSessionId } : {}),
-        ...(profile ? { planningProfile: profile } : {}),
+        ...(alignedProfile ? { planningProfile: alignedProfile } : {}),
         social: socialStatus,
       },
       socialQueryStatus: socialStatus,
@@ -562,11 +572,11 @@ export class VoyageSkillRuntime {
       provider,
       input.fallbackPolicy === "estimated",
       undefined,
-      preferredRouteMode(profile),
+      preferredRouteMode(alignedProfile),
     );
     const offerPromise = includeOffers
       ? queryMeituan({
-          origin: profile?.origin ?? input.origin,
+          origin: alignedProfile?.origin ?? input.origin,
           destination: input.destination,
           startDate: input.startDate,
           endDate: finish,

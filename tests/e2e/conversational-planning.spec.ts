@@ -18,6 +18,14 @@ test.describe("conversation-first planning", () => {
     await page.waitForURL(/\/trip\//, { timeout: 30_000 });
     await expect(page.locator("body")).toContainText("重庆");
     await expect(page.locator("body")).toContainText(/规则规划|确定性规则规划|规划来源/);
+
+    // A generated trip carries provenance: the panel starts collapsed so the
+    // itinerary leads, and the full chain is one click away.
+    const panel = page.getByRole("region", { name: "本次规划来源" });
+    await expect(panel).toBeVisible({ timeout: 15_000 });
+    await expect(panel.getByText("联网攻略参考")).toHaveCount(0);
+    await panel.getByRole("button", { expanded: false }).click();
+    await expect(panel.getByRole("button", { expanded: true })).toBeVisible();
   });
 
   test("treats a stated day count as a substitute for a return date", async ({ page }) => {

@@ -1,6 +1,7 @@
 import { z } from "zod";
-import { getLlmConfig, chatJson } from "@/services/ai/llm";
+import { getLlmConfig, chatJson, type ChatMessage } from "@/services/ai/llm";
 import { planWithRules } from "./rule-planner";
+import { MAX_TRIP_DAYS } from "@/skill/contracts";
 import type { Place } from "@/types/travel";
 import type { SocialSignal } from "@/services/social/types";
 
@@ -17,7 +18,7 @@ export const outlineSchema = z.object({
       durationMinutes: z.number().int().min(15).max(480),
       meal: z.enum(["breakfast", "lunch", "dinner", "snack"]).optional(),
     })).min(1).max(10),
-  })).min(1).max(7),
+  })).min(1).max(MAX_TRIP_DAYS),
   tasks: z.array(z.object({ title: z.string().min(1).max(60), group: z.enum(["before", "day"]) })).max(16).optional(),
 });
 
@@ -54,7 +55,7 @@ const SYSTEM_PROMPT = [
 ].join("\n");
 
 function dayCount(startDate: string, endDate: string) {
-  return Math.max(1, Math.min(7, Math.floor((new Date(`${endDate}T12:00:00`).getTime() - new Date(`${startDate}T12:00:00`).getTime()) / 86_400_000) + 1));
+  return Math.max(1, Math.min(MAX_TRIP_DAYS, Math.floor((new Date(`${endDate}T12:00:00`).getTime() - new Date(`${startDate}T12:00:00`).getTime()) / 86_400_000) + 1));
 }
 
 function ruleOutline(input: OutlinePlanningInput): Outline {
@@ -81,36 +82,58 @@ async function llmOutline(input: OutlinePlanningInput): Promise<Outline> {
   const candidateLines = input.candidates
     .map((place) => `${place.id} ${place.name} [${place.category}] (${place.district || place.address})`)
     .join("\n");
+  const expectedDays = dayCount(input.startDate, input.endDate);
   const userMessage = [
     `用户需求：${input.prompt}`,
-    `天数：${dayCount(input.startDate, input.endDate)}，人数：${input.travelers}，预算：¥${input.budget}`,
+    `天数：${expectedDays}，人数：${input.travelers}，预算：¥${input.budget}`,
     input.vibes.length ? `偏好：${input.vibes.join("、")}` : "",
     "",
     "候选地点：",
     candidateLines,
     input.social?.signals.length ? "\n社交平台信号（仅作参考，不得创建候选地点或替代实时事实）：" : "",
     ...(input.social?.signals ?? []).map((signal) => `${signal.signalType}=${JSON.stringify(signal.value)} confidence=${signal.confidence.toFixed(2)} sources=${signal.sources.length}`),
+    "",
+    // The traveller's earlier words can state a different length than the dates
+    // they finally confirmed ("玩3天" then picking a 4-day window). The date pair
+    // is the decision of record, so say so instead of leaving the model to guess.
+    `注意：本次行程必须是 ${expectedDays} 天，dayPlans 必须恰好 ${expectedDays} 项。用户需求里若出现别的天数说法，那是确认日期之前的旧说法，一律以 ${expectedDays} 天为准。`,
   ].filter(Boolean).join("\n");
-  const parsed = outlineSchema.safeParse(await chatJson({
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: userMessage },
-    ],
-    maxTokens: 3500,
-  }));
-  if (!parsed.success) throw new Error("LLM outline failed schema validation");
+
+  const messages: ChatMessage[] = [
+    { role: "system", content: SYSTEM_PROMPT },
+    { role: "user", content: userMessage },
+  ];
   const candidateIds = new Set(input.candidates.map((candidate) => candidate.id));
-  const referencesOnlyCandidates = parsed.data.dayPlans.every((day) =>
-    day.stops.every((stop) => candidateIds.has(stop.placeId)),
-  );
-  if (!referencesOnlyCandidates) {
-    throw new Error("LLM outline referenced a place outside provider candidates");
+  let lastError = "LLM outline failed";
+
+  // One corrective retry: a model that miscounts days usually fixes it when told
+  // what it returned, and a silent fallback would hide the real reason.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const parsed = outlineSchema.safeParse(await chatJson({ messages, maxTokens: 3500 }));
+    if (!parsed.success) {
+      lastError = "LLM outline failed schema validation";
+      continue;
+    }
+    const referencesOnlyCandidates = parsed.data.dayPlans.every((day) =>
+      day.stops.every((stop) => candidateIds.has(stop.placeId)),
+    );
+    if (!referencesOnlyCandidates) {
+      lastError = "LLM outline referenced a place outside provider candidates";
+      continue;
+    }
+    if (parsed.data.dayPlans.length !== expectedDays) {
+      const returned = parsed.data.dayPlans.length;
+      lastError = `LLM outline returned ${returned} days; expected ${expectedDays}`;
+      messages.push({ role: "assistant", content: JSON.stringify(parsed.data) });
+      messages.push({
+        role: "user",
+        content: `你上次返回了 ${returned} 天，但这次旅行是 ${expectedDays} 天（${input.startDate} 至 ${input.endDate}）。请重新输出恰好 ${expectedDays} 项 dayPlans 的完整 JSON，placeId 仍然只能来自候选列表。`,
+      });
+      continue;
+    }
+    return parsed.data;
   }
-  const expectedDays = dayCount(input.startDate, input.endDate);
-  if (parsed.data.dayPlans.length !== expectedDays) {
-    throw new Error(`LLM outline returned ${parsed.data.dayPlans.length} days; expected ${expectedDays}`);
-  }
-  return parsed.data;
+  throw new Error(lastError);
 }
 
 /** LLM selects and orders provider candidates; deterministic rules remain the fallback. */

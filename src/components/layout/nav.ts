@@ -37,10 +37,12 @@ export function tripNavGroups(tripId: string): NavGroupDef[] {
   const base = `/trip/${tripId}`;
   return [
     {
-      title: "规划",
+      title: "今天",
       items: [
-        { href: `${base}/today`, label: "总览", icon: LayoutDashboard },
-        { href: base, label: "行程", icon: Route },
+        // "今天做什么" leads: the first question a traveller has is what to do
+        // now, not which dashboard to open.
+        { href: `${base}/today`, label: "今天做什么", icon: LayoutDashboard },
+        { href: base, label: "当天行程", icon: Route },
         { href: `${base}/explore`, label: "地图", icon: MapIcon },
       ],
     },

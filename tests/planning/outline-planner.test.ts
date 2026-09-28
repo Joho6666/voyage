@@ -107,6 +107,55 @@ describe("shared outline planner provenance", () => {
     expect(result.outline.dayPlans.every((day) => day.stops.length > 0)).toBe(true);
   });
 
+  it("retries once with a correction when the model miscounts the days", async () => {
+    const place = candidates[0];
+    llm.getLlmConfig.mockReturnValue({ baseUrl: "https://llm.example.com/v1/", model: "test-model" });
+    llm.chatJson
+      .mockResolvedValueOnce({
+        title: "重庆多日行程",
+        dayPlans: [{ title: "第一天", summary: "模型只返回了一天", stops: [{ placeId: place.id, startTime: "09:00", durationMinutes: 90 }] }],
+        tasks: [],
+      })
+      .mockResolvedValueOnce({
+        title: "重庆三日行程",
+        dayPlans: [1, 2, 3].map((index) => ({
+          title: `第${index}天`,
+          summary: "修正后覆盖全部天数",
+          stops: [{ placeId: place.id, startTime: "09:00", durationMinutes: 90 }],
+        })),
+        tasks: [],
+      });
+
+    const result = await planOutline({ ...input(), endDate: "2030-05-03" });
+
+    expect(result.source).toBe("llm");
+    expect(result.llm).toBe("used");
+    expect(result.fallbackReason).toBeUndefined();
+    expect(result.outline.dayPlans).toHaveLength(3);
+    expect(llm.chatJson).toHaveBeenCalledTimes(2);
+    // The correction must state the required length and the dates of record.
+    const correction = JSON.stringify(llm.chatJson.mock.calls[1][0]);
+    expect(correction).toContain("恰好 3 项");
+    expect(correction).toContain("2030-05-03");
+  });
+
+  it("reports the day-count mismatch when the corrective retry also fails", async () => {
+    const place = candidates[0];
+    llm.getLlmConfig.mockReturnValue({ baseUrl: "https://llm.example.com/v1/", model: "test-model" });
+    llm.chatJson.mockResolvedValue({
+      title: "重庆多日行程",
+      dayPlans: [{ title: "第一天", summary: "两次都只返回一天", stops: [{ placeId: place.id, startTime: "09:00", durationMinutes: 90 }] }],
+      tasks: [],
+    });
+
+    const result = await planOutline({ ...input(), endDate: "2030-05-03" });
+
+    expect(result.source).toBe("rules");
+    expect(result.llm).toBe("failed");
+    expect(result.fallbackReason).toContain("expected 3");
+    expect(llm.chatJson).toHaveBeenCalledTimes(2);
+  });
+
   it("records LLM use when the model returns a schema-valid candidate-only outline", async () => {
     const place = candidates[0];
     llm.getLlmConfig.mockReturnValue({ baseUrl: "https://llm.example.com/v1/", model: "test-model" });
