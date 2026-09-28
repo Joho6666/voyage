@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { PlaceCard } from "@/components/travel/PlaceCard";
+import { XhsGuidePanel } from "@/components/travel/XhsGuidePanel";
 import { useTripStore } from "@/store/trip-store";
 import type { Place, PlaceCategory } from "@/types/travel";
 import { uid, haversineMeters } from "@/lib/utils";
@@ -176,6 +177,10 @@ export default function ExplorePage() {
             ? "高德实时 POI 数据 · 真实坐标与营业状态"
             : "暂无实时高德搜索结果 · 展示当前行程中已有地点，并保留其原始数据来源"}
         </p>
+      </div>
+
+      <div className="mt-4">
+        <XhsGuidePanel city={trip.destination} />
       </div>
 
       {/* Search Bar */}
