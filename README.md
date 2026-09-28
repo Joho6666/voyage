@@ -19,6 +19,38 @@ Voyage 在几秒钟内生成一个**真实的、结构化的、带高德坐标�
 
 ---
 
+## 界面预览
+
+先和 Agent 把需求聊清楚，确认后再生成真实路线；生成之后仍然可以在行程里继续调整。
+
+### 1. 对话式规划 · 边聊边形成旅行画像
+
+<img src="docs/assets/screenshots/01-conversation-planning.png" alt="对话式规划：左侧对话，右侧实时更新的路线画像" width="880" />
+
+### 2. 行程工作区 · 看哪一天就只显示哪一天
+
+左侧只显示选中当天的行程，右侧地图只画当天的标记与路线；每条路线标注来源（高德实时 / 估算）。
+
+<img src="docs/assets/screenshots/02-trip-workspace.png" alt="行程工作区：单日聚焦的行程列表与地图" width="880" />
+
+### 3. 当天行程 + AI 助手 · 旅途中直接改
+
+顶部直接给出「下一站」与一键导航，不需要自己解读整屏信息；右侧助手可以按天改行程，且只生成提案，需在 Diff 里确认才会写回。
+
+<img src="docs/assets/screenshots/03-day-focus-assistant.png" alt="当天行程的下一站卡片与 AI 助手面板" width="880" />
+
+### 4. 我的旅行 · 所有行程项目
+
+<img src="docs/assets/screenshots/04-my-trips.png" alt="我的旅行列表" width="880" />
+
+### 5. 数据源设置 · 密钥只在服务端
+
+只显示每项能力「是否已配置」，不显示也不接收密钥值，避免凭据暴露到浏览器。
+
+<img src="docs/assets/screenshots/05-data-sources.png" alt="API 与数据源设置页，只展示配置状态" width="880" />
+
+---
+
 ## 核心四大阶段 (Four Pillars)
 
 | 阶段 | 职责定位 | 核心能力 |
