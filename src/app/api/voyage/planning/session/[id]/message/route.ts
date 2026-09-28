@@ -11,6 +11,7 @@ import {
   appendPlanningMessages,
   now,
   planningError,
+  planningFailureMessage,
   planningReply,
   planningSessionValue,
   sessionPayload,
@@ -79,6 +80,6 @@ export async function POST(request: NextRequest, context: Context) {
     return planningReply(workspace, sessionPayload(updated, turn, turn.fallbackReason ? [turn.fallbackReason] : []));
   } catch (error) {
     if (error instanceof SkillError) return planningError(workspace, error.code, error.message, 409, error.details);
-    return planningError(workspace, "PLANNING_MESSAGE_FAILED", error instanceof Error ? error.message : "无法处理规划消息", 422);
+    return planningError(workspace, "PLANNING_MESSAGE_FAILED", planningFailureMessage(error, "无法处理规划消息，请重试"), 422);
   }
 }

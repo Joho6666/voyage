@@ -9,6 +9,7 @@ import {
   newPlanningId,
   now,
   planningError,
+  planningFailureMessage,
   planningReply,
   planInitialSession,
   sessionFromTurn,
@@ -48,6 +49,6 @@ export async function POST(request: NextRequest) {
     const stored = await new JsonSkillRepository(workspace.root).createPlanningSession(session);
     return planningReply(workspace, sessionPayload(stored, turn));
   } catch (error) {
-    return planningError(workspace, "PLANNING_SESSION_FAILED", error instanceof Error ? error.message : "无法创建规划会话", 422);
+    return planningError(workspace, "PLANNING_SESSION_FAILED", planningFailureMessage(error, "无法创建规划会话，请重试"), 422);
   }
 }

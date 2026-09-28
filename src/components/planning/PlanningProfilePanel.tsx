@@ -24,6 +24,8 @@ export interface PlanningProfilePanelProps {
   missingFields?: string[];
   /** Preconditions the generate endpoint enforces; empty means ready. */
   blockers?: string[];
+  /** A date range problem the traveller should fix; shown even when not blocking. */
+  rangeWarning?: string;
   days?: number;
   direct?: boolean;
 }
@@ -42,6 +44,7 @@ export function PlanningProfilePanel({
   showStatus = true,
   missingFields = [],
   blockers = [],
+  rangeWarning = "",
   days,
   direct = false,
 }: PlanningProfilePanelProps) {
@@ -62,6 +65,11 @@ export function PlanningProfilePanel({
       </div>
 
       {showStatus && llmStatus ? <div className="mt-4"><PlanningStatusCard status={llmStatus} compact /></div> : null}
+      {rangeWarning ? (
+        <div role="alert" className="mt-3 rounded-xl border border-rose-500/25 bg-rose-500/[0.06] px-3 py-2 text-[11px] leading-4 text-rose-800 dark:text-rose-200">
+          {rangeWarning}
+        </div>
+      ) : null}
       {onGenerate && !ready ? (
         <div className="mt-3 rounded-xl border border-amber-500/25 bg-amber-500/[0.07] px-3 py-2 text-[11px] leading-4 text-amber-800 dark:text-amber-100">
           <span className="font-medium">生成路线图前还需要：</span>{blockers.join("、")}

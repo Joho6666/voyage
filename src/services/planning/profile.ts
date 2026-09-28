@@ -1,5 +1,6 @@
 import type { Place } from "@/types/travel";
 import {
+  MAX_PLANNING_DAYS,
   planningProfilePatchSchema,
   planningProfileSchema,
   type PlanningField,
@@ -35,8 +36,21 @@ function daysBetween(startDate: string, endDate: string) {
   return Math.floor((end - start) / DAY_MS) + 1;
 }
 
+/**
+ * A stored profile may predate a bound tightening, so an unrepresentable day
+ * count is dropped rather than thrown: an unopenable session would strand the
+ * traveller's whole conversation. `dateRangeIssue` still reports the range.
+ */
+function withoutUnrepresentableDays(input: unknown) {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) return input;
+  const record = { ...(input as Record<string, unknown>) };
+  const days = record.days;
+  if (typeof days === "number" && (days < 1 || days > MAX_PLANNING_DAYS)) delete record.days;
+  return record;
+}
+
 export function canonicalPlanningProfile(input: unknown): PlanningProfile {
-  const parsed = planningProfileSchema.parse(input ?? {});
+  const parsed = planningProfileSchema.parse(withoutUnrepresentableDays(input) ?? {});
   const { includeSocialEvidence, accessibilityNeeds, ...rest } = parsed;
   const accessibility = rest.accessibility ?? accessibilityNeeds;
   return planningProfileSchema.parse({
@@ -153,13 +167,24 @@ function reconcileDays(profile: DayFacts, patch: PlanningProfilePatch): DayFacts
  * Final normalisation for profiles that arrive without patch context (loaded
  * from storage, or built by hand): the date span is the more specific fact, so
  * a day count that disagrees with it is corrected rather than trusted.
+ *
+ * The derived count is only written when the profile schema can represent it.
+ * A span beyond `MAX_PLANNING_DAYS` is not a trip this product can describe, and
+ * writing it used to produce a profile that its own schema rejects — which
+ * surfaced as a raw Zod error in the UI. Such a range is reported separately by
+ * `dateRangeIssue`, so nothing is hidden.
  */
 export function alignPlanningDays(profile: PlanningProfile): PlanningProfile {
   const { startDate, endDate, days } = profile;
   if (startDate && endDate) {
     const span = daysBetween(startDate, endDate);
-    if (span && span !== days) return { ...profile, days: span };
-    return profile;
+    if (span === undefined) return profile;
+    if (span > MAX_PLANNING_DAYS) {
+      // Unrepresentable: keep whatever explicit count exists, drop it if it is
+      // also out of range, and let the range issue speak.
+      return days !== undefined && days > MAX_PLANNING_DAYS ? { ...profile, days: undefined } : profile;
+    }
+    return span === days ? profile : { ...profile, days: span };
   }
   // Only one date plus an explicit day count: the missing date is arithmetic,
   // never a guess about when the traveller leaves.
@@ -170,6 +195,34 @@ export function alignPlanningDays(profile: PlanningProfile): PlanningProfile {
     return { ...profile, startDate: shiftDate(endDate, -(days - 1)) };
   }
   return profile;
+}
+
+export interface DateRangeIssue {
+  code: "span_too_long" | "past_departure";
+  message: string;
+}
+
+/**
+ * Problems with the chosen dates that the traveller can act on. These are
+ * reported, never auto-corrected: silently shrinking a 365-day range into
+ * something plannable would be inventing a trip the user did not ask for.
+ */
+export function dateRangeIssue(profile: PlanningProfile, today?: string): DateRangeIssue | undefined {
+  const { startDate, endDate } = profile;
+  if (startDate && endDate) {
+    const span = daysBetween(startDate, endDate);
+    if (span !== undefined && span > MAX_PLANNING_DAYS) {
+      return {
+        code: "span_too_long",
+        message: `出发和返程相隔 ${span} 天，超过可规划的上限 ${MAX_PLANNING_DAYS} 天，请确认日期是否填错。`,
+      };
+    }
+  }
+  const stamp = today ?? new Date().toISOString().slice(0, 10);
+  if (startDate && startDate < stamp) {
+    return { code: "past_departure", message: `出发日期 ${startDate} 已经过去，请选择今天或之后的日期。` };
+  }
+  return undefined;
 }
 
 /**
@@ -187,7 +240,12 @@ export function effectiveTripDays(profile: PlanningProfile) {
 export function missingPlanningFields(profile: PlanningProfile): PlanningField[] {
   const missing: PlanningField[] = [];
   if (!profile.destination) missing.push("destination");
-  if (!profile.startDate || !(profile.endDate || profile.days)) missing.push("dates");
+  // A span beyond what the profile can represent is not a usable date range, so
+  // the planner should keep asking about dates instead of treating them as done.
+  const rangeIssue = dateRangeIssue(profile);
+  if (!profile.startDate || !(profile.endDate || profile.days) || rangeIssue?.code === "span_too_long") {
+    missing.push("dates");
+  }
   if (!profile.travelers) missing.push("travelers");
   if (profile.budget === undefined) missing.push("budget");
   return missing;

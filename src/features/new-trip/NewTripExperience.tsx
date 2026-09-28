@@ -390,11 +390,41 @@ function parseGenerationPayload(payload: unknown, baseProfile: PlanningProfileDr
  * count alone must never read as ready, because the Runtime will not invent a
  * departure date.
  */
+/** Days between two ISO dates, inclusive; undefined when the range is invalid. */
+const MAX_PLANNING_DAYS = 31;
+
+function draftDateSpan(profile: PlanningProfileDraft) {
+  if (!profile.startDate || !profile.endDate) return undefined;
+  const start = Date.parse(`${profile.startDate}T12:00:00Z`);
+  const end = Date.parse(`${profile.endDate}T12:00:00Z`);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return undefined;
+  return Math.floor((end - start) / 86_400_000) + 1;
+}
+
+/**
+ * A date range the planner cannot represent is a blocker, not a warning: it
+ * cannot become a trip at all. A past departure is only warned about, because
+ * planning a trip that already started is a legitimate choice.
+ */
+function dateRangeWarning(profile: PlanningProfileDraft) {
+  const span = draftDateSpan(profile);
+  if (span !== undefined && span > MAX_PLANNING_DAYS) {
+    return `出发与返程相隔 ${span} 天，超过可规划上限 ${MAX_PLANNING_DAYS} 天，请确认日期是否填错。`;
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  if (profile.startDate && profile.startDate < today) {
+    return `出发日期 ${profile.startDate} 已经过去，如果不是有意的请重新选择。`;
+  }
+  return "";
+}
+
 function generateBlockersFor(profile: PlanningProfileDraft, days?: number) {
   const blockers: string[] = [];
   if (!profile.destination.trim()) blockers.push("目的地");
   if (!profile.startDate) blockers.push("出发日期");
   if (!profile.endDate && !days) blockers.push("返程日期或旅行天数");
+  const span = draftDateSpan(profile);
+  if (span !== undefined && span > MAX_PLANNING_DAYS) blockers.push("日期跨度");
   return blockers;
 }
 
@@ -572,6 +602,7 @@ export function NewTripExperience() {
 
   const isBusy = busy !== "idle";
   const blockers = generateBlockersFor(profile, plannerDays);
+  const rangeWarning = dateRangeWarning(profile);
 
   const replaceMessages = (next: PlanningMessage[]) => {
     const bounded = next.slice(-80);
@@ -869,7 +900,7 @@ export function NewTripExperience() {
             {warnings.length ? <div className="mb-4 rounded-[14px] border border-amber-500/25 bg-amber-500/[0.07] px-3 py-2 text-xs text-amber-900 dark:text-amber-100">{warnings.map((warning) => <p key={warning}>{warning}</p>)}</div> : null}
             <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
               <div className="min-w-0"><PlanningChat messages={messages} suggestedReplies={suggestedReplies} draft={draft} onDraftChange={setDraft} onSend={(message) => void sendMessage(message)} disabled={busy === "sending" || busy === "generating"} isTyping={busy === "sending"} streamingMessageId={streamingMessageId} />{error ? <div role="alert" className="mt-3 flex items-start gap-2 rounded-[14px] border border-rose-500/25 bg-rose-500/[0.06] px-3 py-2.5 text-xs text-rose-800"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{error}</span></div> : null}{busy === "generating" ? <div className="mt-4"><GenerationProgress destination={profile.destination} /></div> : null}</div>
-              <aside className="lg:sticky lg:top-5"><PlanningProfilePanel profile={profile} onChange={updateProfile} onGenerate={() => void generateRoute()} generating={busy === "generating"} disabled={busy !== "idle"} llmStatus={llmStatus} missingFields={missingFields} blockers={blockers} days={plannerDays} /><div className="mt-3 rounded-[14px] border border-border bg-surface/60 p-3 text-[11px] leading-5 text-muted-foreground"><div className="flex items-center gap-2 text-foreground"><Check className="size-3.5 text-primary" /><span className="font-medium">确认后才会调用路线与供应商能力</span></div><p className="mt-1">模型只负责理解偏好；地点、路线、天气和报价会在生成阶段按 provider 来源标注。</p>{missingFields.length ? <p className="mt-2">还可以补充：{missingFields.join("、")}</p> : null}</div></aside>
+              <aside className="lg:sticky lg:top-5"><PlanningProfilePanel profile={profile} onChange={updateProfile} onGenerate={() => void generateRoute()} generating={busy === "generating"} disabled={busy !== "idle"} llmStatus={llmStatus} missingFields={missingFields} blockers={blockers} days={plannerDays} rangeWarning={rangeWarning} /><div className="mt-3 rounded-[14px] border border-border bg-surface/60 p-3 text-[11px] leading-5 text-muted-foreground"><div className="flex items-center gap-2 text-foreground"><Check className="size-3.5 text-primary" /><span className="font-medium">确认后才会调用路线与供应商能力</span></div><p className="mt-1">模型只负责理解偏好；地点、路线、天气和报价会在生成阶段按 provider 来源标注。</p>{missingFields.length ? <p className="mt-2">还可以补充：{missingFields.join("、")}</p> : null}</div></aside>
             </div>
             <div className="mt-5 flex flex-wrap items-center justify-between gap-3 text-[10px] text-muted-foreground"><p>会话数据只通过当前页面的相对 API 路径传输，不包含任何 API Key。</p><button type="button" onClick={reset} className="inline-flex items-center gap-1 text-foreground hover:text-primary">重新开始 <ArrowRight className="size-3" /></button></div>
           </motion.div>

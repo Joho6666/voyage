@@ -10,6 +10,13 @@ export const MAX_PLANNING_MESSAGES = 24;
 export const MAX_PLANNING_TOTAL_MESSAGE_CHARS = 24_000;
 export const MAX_PLANNING_LIST_ITEMS = 20;
 export const MAX_PLANNING_LIST_ITEM_CHARS = 80;
+/**
+ * The longest trip a planning profile can describe at all. Anything above this
+ * cannot be represented here, so helpers must never derive such a value — a
+ * profile that its own schema rejects is unusable and used to surface as a raw
+ * Zod error in the UI.
+ */
+export const MAX_PLANNING_DAYS = 31;
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "expected YYYY-MM-DD");
 const boundedText = (max: number) => z.string().trim().min(1).max(max);
@@ -48,7 +55,7 @@ const planningProfileFields = {
   origin: z.string().trim().max(80).optional(),
   startDate: isoDate.optional(),
   endDate: isoDate.optional(),
-  days: z.number().int().min(1).max(31).optional(),
+  days: z.number().int().min(1).max(MAX_PLANNING_DAYS).optional(),
   travelers: z.number().int().min(1).max(20).optional(),
   budget: z.number().min(0).max(1_000_000).optional(),
   pace: planningPaceSchema.optional(),

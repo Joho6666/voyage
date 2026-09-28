@@ -9,7 +9,7 @@ import { MAX_TRIP_DAYS } from "@/skill/contracts";
 import { JsonSkillRepository, type StoredPlanningSession } from "@/skill/repository";
 import { SkillError } from "@/skill/errors";
 import { guestWorkspace } from "@/app/api/voyage/workspace";
-import { now, planningError, planningReply, planningSessionValue } from "../../../helpers";
+import { now, planningError, planningFailureMessage, planningReply, planningSessionValue } from "../../../helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -19,11 +19,6 @@ const inputSchema = z.object({
   expectedRevision: z.number().int().min(1),
   confirmed: z.literal(true),
 }).strict();
-
-function safeErrorMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : "路线生成失败";
-  return message.replace(/([A-Za-z0-9_-]{24,})/g, "[REDACTED]").slice(0, 240);
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -183,7 +178,7 @@ export async function POST(request: NextRequest, context: Context) {
       },
     });
   } catch (error) {
-    const reason = safeErrorMessage(error);
+    const reason = planningFailureMessage(error, "路线生成失败");
     await markFailed(repository, generating, reason);
     if (error instanceof SkillError) {
       const status = error.code === "CONFIRMATION_REQUIRED" ? 409 : 422;
