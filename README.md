@@ -101,3 +101,13 @@ npm run test:e2e     # Playwright 端到端 Golden Trip 自动化验证
 - [`docs/TRAVEL_ACTIONS.md`](docs/TRAVEL_ACTIONS.md) — 24 项 TravelAction 规格与 Diff 预览说明
 - [`docs/BETA_ACCEPTANCE.md`](docs/BETA_ACCEPTANCE.md) — 18 项 Beta 用户路径通关报告
 - [`knowledge/README.md`](knowledge/README.md) — Travel Knowledge RAG 数据格式、入库与检索说明
+
+---
+
+## 联系作者
+
+使用中遇到问题、想提建议、或者想聊聊这个项目，欢迎直接加微信：
+
+<img src="docs/assets/wechat-joho.jpg" alt="作者微信二维码" width="280" />
+
+> 也可以在 GitHub Issues 里留言。微信个人二维码会定期更换，若扫码失效请先提 Issue。
