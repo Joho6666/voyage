@@ -40,6 +40,7 @@ import {
   proposeChangeInputSchema,
   searchPlacesInputSchema,
   reorderDayInputSchema,
+  addPlaceItemInputSchema,
   updateTripInputSchema,
   successEnvelope,
   type ProviderLevel,
@@ -1015,6 +1016,42 @@ export class VoyageSkillRuntime {
     return successEnvelope({ tripId: input.tripId, trip: saved.trip, revision: saved.revision, tripHash: saved.hash });
   }
 
+  async addPlaceItem(raw: unknown) {
+    const input = addPlaceItemInputSchema.parse(raw);
+    const stored = await this.repository.getTrip(input.tripId);
+    if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+    if (stored.revision !== input.expectedTripRevision) throw new SkillError("REVISION_CONFLICT", "Trip revision does not match expectedTripRevision");
+    if (!stored.trip.days.some((day) => day.id === input.dayId)) {
+      throw new SkillError("INVALID_INPUT", "目标日期不存在");
+    }
+    const place = input.place;
+    // Provenance guard: the place must be traceable to real provider data. A
+    // hand-built or LLM-invented object can never enter a trip through here.
+    const provenanceOk = place.provenance?.source === "amap" || place.provenance?.source === "demo"
+      || ((place.source === "amap" || place.source === "demo") && Boolean(place.sourceId));
+    if (!provenanceOk) {
+      throw new SkillError("PLACE_SOURCE_UNVERIFIED", "该地点缺少可核实的真实数据来源，不能加入行程");
+    }
+    let trip = structuredClone(stored.trip);
+    if (!trip.items.some((item) => item.dayId === input.dayId && item.placeId === place.id)) {
+      if (!trip.places.some((existing) => existing.id === place.id)) trip.places.push(place);
+      const order = trip.items.filter((item) => item.dayId === input.dayId).length;
+      trip.items.push({
+        id: crypto.randomUUID(),
+        dayId: input.dayId,
+        type: itemType(place),
+        placeId: place.id,
+        startTime: "10:00",
+        duration: place.stayMinutes || 60,
+        order,
+        status: "planned",
+      });
+      trip = recomputeDay(trip, input.dayId);
+    }
+    const saved = await this.repository.updateTrip({ tripId: input.tripId, expectedRevision: stored.revision, trip });
+    return successEnvelope({ tripId: input.tripId, trip: saved.trip, revision: saved.revision, tripHash: saved.hash });
+  }
+
   async proposeChange(raw: unknown) {
     const input = proposeChangeInputSchema.parse(raw);
     const stored = await this.repository.getTrip(input.tripId);
@@ -1212,6 +1249,7 @@ export class VoyageSkillRuntime {
       case "search-travel-offers": return this.searchTravelOffers(input);
       case "refresh-travel-offers": return this.refreshTravelOffers(input);
       case "reorder-day": return this.reorderDay(input);
+      case "add-place-item": return this.addPlaceItem(input);
       case "propose-change": return this.proposeChange(input);
       case "apply-change": return this.applyChange(input);
       case "get-place": return this.getPlace(input);

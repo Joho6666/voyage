@@ -15,7 +15,7 @@ const providers = [
   { name: "AI 模型（可选）", usage: "DeepSeek、通义、Kimi、GLM、硅基流动、OpenAI 或自定义兼容接口", keys: [] as string[], fields: ["llm"], url: "https://platform.openai.com/api-keys", link: "AI 供应商文档" },
   { name: "Supabase（可选）", usage: "用户认证及云端数据；Guest 可使用本地工作区", keys: ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY"], fields: ["supabase"], url: "https://supabase.com/dashboard", link: "Supabase 控制台" },
   { name: "TikHub 社交数据（TikTok 搜索）", usage: "按关键词搜索公开 TikTok 内容；当前只接入搜索端点", keys: ["TIKHUB_API_KEY"], fields: ["tikhub"], url: "https://user.tikhub.io", link: "TikHub 控制台" },
-  { name: "RedFox 社交数据（抖音账号搜索）", usage: "按关键词获取抖音账号资料；当前不提供帖子、评论或趋势数据", keys: ["REDFOX_API_KEY"], fields: ["redfox"], url: "https://redfox.hk/apis/douyin/P5CHB3BZ", link: "RedFox API 文档" },
+  { name: "RedFox 社交数据（抖音账号搜索）", usage: "按关键词获取抖音账号资料；当前不提供帖子、评论或趋势数据", keys: ["REDFOX_API_KEY"], fields: ["redfox"], url: "https://redfox.hk/apis/douyin/P5CHB3BZ", link: "RedFox API 文档", note: "已保存 Key 也只代表凭据存在：当前版本 RedFox 不会参与行程的社交证据查询，社交内容仍由 TikHub 提供。" },
 ] as const;
 
 export default async function SettingsPage() {
@@ -45,6 +45,7 @@ export default async function SettingsPage() {
             return <article key={provider.name} className="rounded-2xl border border-border bg-surface p-5">
               <div className="flex items-start justify-between gap-3"><div><h2 className="font-semibold">{provider.name}</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">{provider.usage}</p></div><span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] ${ready ? "bg-emerald-50 text-emerald-700" : "bg-secondary text-muted-foreground"}`}>{ready ? "已配置" : "未配置"}</span></div>
               <div className="mt-4 flex flex-wrap gap-1.5">{provider.keys.map((key) => <code key={key} className="rounded-md bg-secondary px-2 py-1 text-[11px]">{key}</code>)}</div>
+              {"note" in provider && provider.note ? <p className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-[11px] leading-4 text-amber-800 dark:text-amber-200">{provider.note}</p> : null}
               {editable && provider.name === "AI 模型（可选）" ? <LlmProviderEditor configured={configured} /> : null}
               {editable && provider.name !== "AI 模型（可选）" ? <CredentialEditor fields={provider.keys} configured={configured} /> : null}
               <Button asChild size="sm" variant="outline" className="mt-4"><a href={provider.url} target="_blank" rel="noopener noreferrer">{provider.link}<ExternalLink /></a></Button>

@@ -25,6 +25,7 @@ import { useDayFocus } from "@/components/itinerary/useDayFocus";
 import { dayStats } from "@/services/routing";
 import { buildWeatherContext } from "@/services/weather/context";
 import { TripDiffModal } from "@/components/ai/TripDiffModal";
+import { weatherDisplay } from "@/lib/weather-display";
 import type { TripChangeSet } from "@/types/diff";
 import { formatKm } from "@/lib/utils";
 import { toast } from "sonner";
@@ -150,7 +151,7 @@ export default function TodayPage() {
             {trip.destination} · Day {day.index + 1}
           </h1>
           <p className="mt-0.5 text-[13px] text-muted-foreground">
-            {day.date} · {day.weather.tempC}°C {day.weather.condition}
+            {day.date} · {weatherDisplay(day.weather).text}
           </p>
         </div>
         <Button

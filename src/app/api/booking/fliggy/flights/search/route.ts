@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { FliggyTopError, createFliggyTopClient } from "@/services/booking/fliggy-top";
+import { failureMessage } from "@/lib/failure-message";
 
 const querySchema = z.object({
   departureCityCode: z.string().regex(/^[A-Z]{3}$/),
@@ -35,6 +36,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: true, source: "fliggy", data });
   } catch (error) {
     const code = error instanceof FliggyTopError ? error.code || "FLIGGY_API_ERROR" : "FLIGGY_API_ERROR";
-    return NextResponse.json({ ok: false, code, message: error instanceof Error ? error.message : "Fliggy request failed" }, { status: 502 });
+    return NextResponse.json({ ok: false, code, message: failureMessage(error, "Fliggy request failed") }, { status: 502 });
   }
 }

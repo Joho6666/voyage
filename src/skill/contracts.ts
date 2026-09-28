@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { offerKindSchema } from "@/schemas/offers";
 import { socialEvidenceSchema, socialPlatformStatusSchema, socialSignalSchema } from "@/schemas/social";
+import { placeSchema } from "@/schemas/trip";
 import { planningProfileSchema } from "@/schemas/planning";
+import { MAX_TRIP_DAYS } from "@/lib/trip-limits";
 
 export const SCHEMA_VERSION = "voyage.skill.v1" as const;
 export type ProviderLevel =
@@ -19,9 +21,6 @@ export interface ProviderStatus {
 }
 
 export const fallbackPolicySchema = z.enum(["deny", "estimated"]).default("deny");
-
-/** The trip compiler, the outline schema, and the planner prompt share this cap. */
-export const MAX_TRIP_DAYS = 7;
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "expected YYYY-MM-DD");
 const point = z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) });
@@ -147,6 +146,19 @@ export const reorderDayInputSchema = z.object({
   expectedTripRevision: z.number().int().min(1),
 });
 
+/**
+ * A traveller adding a provider place to a day. Like reorder-day this is a
+ * direct user action (not an LLM proposal), but the place must carry real
+ * provider provenance — the runtime rejects anything that cannot be traced to
+ * AMap/demo data, so a hand-built object can never enter a trip.
+ */
+export const addPlaceItemInputSchema = z.object({
+  tripId: z.string().min(1),
+  dayId: z.string().min(1),
+  place: placeSchema,
+  expectedTripRevision: z.number().int().min(1),
+});
+
 export const proposeChangeInputSchema = z.object({
   tripId: z.string().min(1),
   instruction: z.string().min(1).max(2000),
@@ -219,6 +231,7 @@ export const commandSchemas = {
   "search-travel-offers": searchTravelOffersInputSchema,
   "refresh-travel-offers": refreshTravelOffersInputSchema,
   "reorder-day": reorderDayInputSchema,
+  "add-place-item": addPlaceItemInputSchema,
   "propose-change": proposeChangeInputSchema,
   "apply-change": applyChangeInputSchema,
   "get-place": getPlaceInputSchema,
@@ -269,6 +282,7 @@ export const outputSchemas = {
   "update-trip": tripDataSchema,
   "apply-change": tripDataSchema,
   "reorder-day": tripDataSchema,
+  "add-place-item": tripDataSchema,
   "search-places": z.object({ places: z.array(z.object({ id: z.string(), name: z.string(), category: z.string() }).passthrough()) }).passthrough(),
   "get-place": z.object({ place: z.object({ id: z.string(), name: z.string() }).passthrough(), matchBasis: z.enum(["trip_lookup", "provider_search"]) }).passthrough(),
   "plan-route": z.object({ route: z.object({ mode: z.string(), distanceMeters: z.number(), durationMinutes: z.number(), estimated: z.boolean() }).passthrough() }).passthrough(),

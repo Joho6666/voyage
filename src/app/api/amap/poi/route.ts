@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { amapSearchPois, isAmapConfigured } from "@/services/map/amap-rest";
+import { failureMessage } from "@/lib/failure-message";
 
 const querySchema = z.object({
   city: z.string().min(1).max(40),
@@ -28,7 +29,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ source: "amap", pois });
   } catch (error) {
     return NextResponse.json(
-      { source: "mock", pois: [], error: error instanceof Error ? error.message : "poi search failed" },
+      { source: "mock", pois: [], error: failureMessage(error, "poi search failed") },
       { status: 200 },
     );
   }

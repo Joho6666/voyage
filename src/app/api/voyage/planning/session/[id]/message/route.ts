@@ -3,6 +3,8 @@ import "server-only";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { MAX_PLANNING_MESSAGE_CHARS, planningProfilePatchSchema } from "@/schemas/planning";
+import { effectiveTripDays } from "@/services/planning/profile";
+import { MAX_TRIP_DAYS } from "@/lib/trip-limits";
 import { mergePlanningProfiles, planConversationTurn } from "@/services/planning/conversation-planner";
 import { JsonSkillRepository } from "@/skill/repository";
 import { SkillError } from "@/skill/errors";
@@ -77,7 +79,15 @@ export async function POST(request: NextRequest, context: Context) {
         updatedAt: now(),
       },
     });
-    return planningReply(workspace, sessionPayload(updated, turn, turn.fallbackReason ? [turn.fallbackReason] : []));
+    const warnings = [
+      ...(turn.fallbackReason ? [turn.fallbackReason] : []),
+      // The conversation may legitimately discuss a longer trip, but generation
+      // caps at MAX_TRIP_DAYS — say so here rather than failing at generate.
+      ...(effectiveTripDays(turn.profile) !== undefined && effectiveTripDays(turn.profile)! > MAX_TRIP_DAYS
+        ? [`当前版本最多生成 ${MAX_TRIP_DAYS} 天的行程；请把日期或天数调整到 ${MAX_TRIP_DAYS} 天以内再生成。`]
+        : []),
+    ];
+    return planningReply(workspace, sessionPayload(updated, turn, warnings));
   } catch (error) {
     if (error instanceof SkillError) return planningError(workspace, error.code, error.message, 409, error.details);
     return planningError(workspace, "PLANNING_MESSAGE_FAILED", planningFailureMessage(error, "无法处理规划消息，请重试"), 422);

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { amapGeocode, amapWeather, isAmapConfigured } from "@/services/map/amap-rest";
 import type { WeatherDay } from "@/services/weather/types";
+import { failureMessage } from "@/lib/failure-message";
 
 const querySchema = z.object({
   city: z.string().min(1).max(40),
@@ -35,7 +36,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ source: "amap", days });
   } catch (error) {
     return NextResponse.json(
-      { source: "mock", days: [], error: error instanceof Error ? error.message : "weather failed" },
+      { source: "mock", days: [], error: failureMessage(error, "weather failed") },
       { status: 200 },
     );
   }

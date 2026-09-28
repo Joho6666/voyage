@@ -5,7 +5,7 @@ import { z } from "zod";
 import { planningProfileSchema } from "@/schemas/planning";
 import { alignPlanningDays, effectiveTripDays } from "@/services/planning/profile";
 import { createRuntime } from "@/skill/runtime";
-import { MAX_TRIP_DAYS } from "@/skill/contracts";
+import { MAX_TRIP_DAYS } from "@/lib/trip-limits";
 import { JsonSkillRepository, type StoredPlanningSession } from "@/skill/repository";
 import { SkillError } from "@/skill/errors";
 import { guestWorkspace } from "@/app/api/voyage/workspace";

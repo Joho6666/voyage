@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { getLlmConfig, chatJson, type ChatMessage } from "@/services/ai/llm";
 import { planWithRules } from "./rule-planner";
-import { MAX_TRIP_DAYS } from "@/skill/contracts";
+import { MAX_TRIP_DAYS } from "@/lib/trip-limits";
 import type { Place } from "@/types/travel";
 import type { SocialSignal } from "@/services/social/types";
 

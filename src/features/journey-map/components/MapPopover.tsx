@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { TravelImage } from "@/components/travel/TravelImage";
 import { PLACE_CATEGORY_LABEL, type Place, type RouteSegment, type Trip } from "@/types/travel";
-import { travelAgent } from "@/services/ai";
+import { addPlaceItemToDay, TripCommandError } from "@/services/trip-commands";
 import { useTripStore } from "@/store/trip-store";
 import { useUiStore } from "@/store/ui-store";
 import { toast } from "sonner";
@@ -24,9 +24,26 @@ export function MapPopover({
   trip: Trip;
   onClose: () => void;
 }) {
-  const patch = useTripStore((s) => s.patchTrip);
+  const setTrip = useTripStore((s) => s.setTrip);
+  const revision = useTripStore((s) => s.revision);
+  const [adding, setAdding] = useState(false);
   const activeDayId = useUiStore((s) => s.activeDayId) ?? trip.days[0]?.id;
   const [mobileExpanded, setMobileExpanded] = useState(false);
+
+  /** Real runtime add: validated, revision-locked, and persisted server-side. */
+  const addToDay = async () => {
+    if (!place || !activeDayId || adding) return;
+    setAdding(true);
+    try {
+      const result = await addPlaceItemToDay({ tripId: trip.id, place, dayId: activeDayId, expectedTripRevision: revision });
+      setTrip(result.trip, result.revision);
+      toast.success(`已加入 ${trip.days.find((d) => d.id === activeDayId)?.title ?? "行程"}`);
+    } catch (error) {
+      toast.error(error instanceof TripCommandError ? error.message : "加入行程失败，请重试");
+    } finally {
+      setAdding(false);
+    }
+  };
 
   // If a route segment is selected, show Route Detail Popover
   if (segment && !place) {
@@ -182,11 +199,8 @@ export function MapPopover({
               <Button
                 size="sm"
                 className="flex-1 text-[11px] h-7.5 px-2"
-                onClick={() => {
-                  if (!activeDayId) return;
-                  patch((t) => travelAgent.addItem(t, place.id, activeDayId));
-                  toast.success(`已加入 ${trip.days.find((d) => d.id === activeDayId)?.title ?? "行程"}`);
-                }}
+                disabled={adding}
+                onClick={() => void addToDay()}
               >
                 加入
               </Button>
@@ -245,11 +259,8 @@ export function MapPopover({
                 <Button
                   size="sm"
                   className="flex-1 text-[12px] h-8"
-                  onClick={() => {
-                    if (!activeDayId) return;
-                    patch((t) => travelAgent.addItem(t, place.id, activeDayId));
-                    toast.success("已加入今日行程");
-                  }}
+                  disabled={adding}
+                  onClick={() => void addToDay()}
                 >
                   加入今日
                 </Button>

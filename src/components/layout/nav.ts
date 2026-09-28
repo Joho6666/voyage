@@ -1,19 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import {
-  Bookmark,
-  Compass,
-  LayoutDashboard,
-  Map as MapIcon,
-  Route,
-  Utensils,
-  Hotel,
-  Sparkles,
-  Bus,
-  Ticket,
-  CheckSquare,
-  Wallet,
-  Settings,
-} from "lucide-react";
+import { Compass, LayoutDashboard, Map as MapIcon, Route, Utensils, Hotel, Sparkles, Bus, Ticket, CheckSquare, Wallet, Settings } from "lucide-react";
 
 export interface NavItem {
   href: string;
@@ -24,7 +10,6 @@ export interface NavItem {
 export const globalNav: NavItem[] = [
   { href: "/trips", label: "我的旅行", icon: Route },
   { href: "/new-trip", label: "探索", icon: Compass },
-  { href: "/trips?tab=saved", label: "收藏", icon: Bookmark },
 ];
 
 export interface NavGroupDef {

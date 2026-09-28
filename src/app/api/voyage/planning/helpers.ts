@@ -2,7 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { ZodError } from "zod";
+import { failureMessage } from "@/lib/failure-message";
 import {
   MAX_PLANNING_MESSAGES,
   MAX_PLANNING_TOTAL_MESSAGE_CHARS,
@@ -63,21 +63,11 @@ export function planningError(
 }
 
 /**
- * Every planning route must answer with something a traveller can act on.
- * A ZodError's `message` is a JSON dump of issues, which is how
- * `Too big: expected number to be <=31` ended up rendered in the chat.
+ * Planning-specific alias of the shared sanitizer. Kept so existing call sites
+ * read naturally; the behaviour lives in `src/lib/failure-message.ts`.
  */
 export function planningFailureMessage(error: unknown, fallback: string) {
-  if (error instanceof ZodError) {
-    const issue = error.issues[0];
-    const field = issue?.path.join(".") ?? "";
-    return field
-      ? `规划信息里的「${field}」不合法，请检查后重试。`
-      : "规划信息不合法，请检查后重试。";
-  }
-  const message = error instanceof Error ? error.message : fallback;
-  if (!message || /^\s*[\[{]/.test(message)) return fallback;
-  return message.replace(/([A-Za-z0-9_-]{24,})/g, "[REDACTED]").slice(0, 200);
+  return failureMessage(error, fallback);
 }
 
 export function parseProfilePatch(value: unknown): PlanningProfilePatch {

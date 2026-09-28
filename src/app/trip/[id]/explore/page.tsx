@@ -75,6 +75,9 @@ function toPlace(poi: RemotePoi): Place {
     district: "",
     source: "amap",
     sourceId: poi.sourceId,
+    // The POI came straight from the AMap search above; recording that here is
+    // what lets add-place-item accept it server-side.
+    provenance: { source: "amap", estimated: false },
   };
 }
 

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { amapSearchPois, isAmapConfigured } from "@/services/map/amap-rest";
+import { failureMessage } from "@/lib/failure-message";
 
 type DiscoverKind = "hotel" | "food" | "activity";
 
@@ -57,6 +58,6 @@ export async function POST(request: Request) {
     cache.set(key, { data: payload, expiresAt: Date.now() + 5 * 60_000 });
     return NextResponse.json(payload);
   } catch (error) {
-    return NextResponse.json({ ok: false, status: "UNAVAILABLE", error: error instanceof Error ? error.message : "discover failed" }, { status: 502 });
+    return NextResponse.json({ ok: false, status: "UNAVAILABLE", error: failureMessage(error, "discover failed") }, { status: 502 });
   }
 }

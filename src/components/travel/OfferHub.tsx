@@ -376,7 +376,7 @@ function OfferCard({ offer }: { offer: TravelOffer }) {
           </div>
           <h3 className="text-[14px] font-semibold">{offer.title}</h3>
         </div>
-        {offer.priceLabel ? <span className="shrink-0 text-sm font-semibold">{offer.priceLabel}</span> : null}
+        {offer.priceLabel ? <span className="shrink-0 text-sm font-semibold">{offer.structured ? offer.priceLabel : `参考 ${offer.priceLabel}`}</span> : null}
       </div>
       {offer.description ? <p className="mt-2 text-[12px] text-muted-foreground">{offer.description}</p> : null}
       {offer.departureTime || offer.arrivalTime ? <p className="mt-2 text-[12px] text-muted-foreground">{offer.departureTime ?? "出发时间未知"} → {offer.arrivalTime ?? "到达时间未知"}</p> : null}

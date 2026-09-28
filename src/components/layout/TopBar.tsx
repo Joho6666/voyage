@@ -4,6 +4,7 @@ import { CloudRain, MoreHorizontal, Share2, Sparkles, Users } from "lucide-react
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { formatCny, formatMonthDay, tripDurationLabel } from "@/lib/utils";
+import { weatherDisplay } from "@/lib/weather-display";
 import { useTripStore } from "@/store/trip-store";
 import { useUiStore } from "@/store/ui-store";
 import { toast } from "sonner";
@@ -19,6 +20,29 @@ export function TopBar() {
     const url = `${window.location.origin}/share/${data.token}`;
     await navigator.clipboard?.writeText(url);
     toast.success("只读分享链接已复制");
+  };
+
+  /** A real clipboard write of a real summary — the old version only toasted. */
+  const copySummary = async () => {
+    const summary = [
+      `${trip.destination} · ${tripDurationLabel(trip.startDate, trip.endDate)} · ${trip.travelers} 人 · 预算 ${formatCny(trip.budget)}`,
+      trip.days
+        .map((day) => {
+          const stops = trip.items
+            .filter((item) => item.dayId === day.id)
+            .sort((a, b) => a.order - b.order)
+            .map((item) => trip.places.find((place) => place.id === item.placeId)?.name ?? "")
+            .filter(Boolean);
+          return `Day ${day.index + 1}（${day.date}）：${stops.join(" → ") || "暂无安排"}`;
+        })
+        .join("\n"),
+    ].join("\n");
+    try {
+      await navigator.clipboard.writeText(summary);
+      toast.success("行程摘要已复制");
+    } catch {
+      toast.error("复制失败，浏览器可能未授权剪贴板访问");
+    }
   };
 
   return (
@@ -38,9 +62,8 @@ export function TopBar() {
           {weather ? (
             <span className="inline-flex items-center gap-1 text-muted-foreground">
               <CloudRain className="size-3.5" />
-              {weather.provenance?.source === "unavailable" || weather.condition === "天气未知"
-                ? `${weather.condition} · ${trip.days[0]?.date ?? ""}`
-                : `${weather.tempC}°C ${weather.condition}`}
+              {weatherDisplay(weather).text}
+              {weather.provenance?.source === "unavailable" ? ` · ${trip.days[0]?.date ?? ""}` : ""}
             </span>
           ) : null}
           <span className="text-muted-foreground">预算 {formatCny(trip.budget)}</span>
@@ -61,8 +84,7 @@ export function TopBar() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent>
-            <DropdownMenuItem onSelect={() => toast.message("已复制行程摘要")}>复制摘要</DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => toast.message("导出 PDF 将在后续版本提供")}>导出 PDF</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => void copySummary()}>复制摘要</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

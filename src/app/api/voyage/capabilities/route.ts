@@ -19,6 +19,11 @@ export async function GET() {
       fliggy: configured.FLIGGY_APP_KEY && configured.FLIGGY_APP_SECRET,
       llm: configured.LLM_BASE_URL && configured.LLM_API_KEY,
       supabase: configured.NEXT_PUBLIC_SUPABASE_URL && configured.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      tikhub: configured.TIKHUB_API_KEY,
+      // Presence only. RedFox is currently wired for nothing in the social
+      // pipeline (no transport injected), so callers must not treat this as
+      // "RedFox results will appear".
+      redfox: configured.REDFOX_API_KEY,
     },
   }, { headers: { "cache-control": "no-store" } });
 }

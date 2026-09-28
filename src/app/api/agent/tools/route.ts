@@ -8,6 +8,7 @@ import { commandSchemas } from "@/skill/contracts";
 import { guestWorkspace, setGuestCookie } from "@/app/api/voyage/workspace";
 import { JsonSkillRepository } from "@/skill/repository";
 import { chongqingTrip, DEMO_TRIP_ID } from "@/data/demo/chongqing";
+import { failureMessage, toolContextMessage } from "@/lib/failure-message";
 import type { Trip } from "@/types/travel";
 import type { PlanningProfile } from "@/schemas/planning";
 
@@ -224,7 +225,7 @@ export async function POST(request: NextRequest) {
       const result = await runtime.execute("apply-change", { tripId: parsed.data.tripId, proposalId: parsed.data.applyConfirmation.proposalId, expectedTripRevision: parsed.data.applyConfirmation.expectedTripRevision, confirmed: true });
       return setGuestCookie(NextResponse.json({ ok: true, content: "已应用用户确认的修改", toolsUsed: ["apply_change"], proposal: result }), workspace);
     } catch (error) {
-      return setGuestCookie(NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "应用失败" }, { status: 422 }), workspace);
+      return setGuestCookie(NextResponse.json({ ok: false, error: failureMessage(error, "应用失败") }, { status: 422 }), workspace);
     }
   }
 
@@ -237,7 +238,7 @@ export async function POST(request: NextRequest) {
       }));
       return setGuestCookie(NextResponse.json({ ok: true, content: "已生成行程修改建议", toolsUsed: ["propose_change"], proposal }), workspace);
     } catch (error) {
-      return setGuestCookie(NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "无法生成提案" }, { status: 422 }), workspace);
+      return setGuestCookie(NextResponse.json({ ok: false, error: failureMessage(error, "无法生成提案") }, { status: 422 }), workspace);
     }
   }
   const fullTrip = (tripEnvelope.data as { trip?: Trip } | undefined)?.trip;
@@ -315,12 +316,13 @@ export async function POST(request: NextRequest) {
           }
           messages.push({ role: "tool", tool_call_id: call.id, content: safeToolResult(call.name, result) });
         } catch (error) {
-          messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ error: error instanceof Error ? error.message.slice(0, 200) : "Tool failed" }) });
+          // A raw Zod dump in tool context gets echoed back to the user by the model.
+          messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ error: toolContextMessage(error) }) });
         }
       }
     }
     return setGuestCookie(NextResponse.json({ ok: false, error: "TOOL_LOOP_LIMIT", toolsUsed: toolTrace }, { status: 422 }), workspace);
   } catch (error) {
-    return setGuestCookie(NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Tool call failed", toolsUsed: toolTrace }, { status: 502 }), workspace);
+    return setGuestCookie(NextResponse.json({ ok: false, error: failureMessage(error, "工具调用失败，请稍后重试") }, { status: 502 }), workspace);
   }
 }
