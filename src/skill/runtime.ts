@@ -314,9 +314,9 @@ function restoreLockedItems(original: Trip, proposed: Trip, locked: Set<string>)
 }
 
 function socialRouter(): SocialProviderRouter {
-  // RedFox stays out of the evidence pipeline: its only documented endpoint
-  // returns douyin account profiles, not posts, so it can never produce a
-  // valid SocialObservation. The account-search channel remains in redfox.ts.
+  // TikHub is the only social provider: its endpoints return posts that can be
+  // verified into SocialObservations. (RedFox was removed — its documented
+  // endpoint returned douyin account profiles, which can never produce a post.)
   return new SocialProviderRouter([createTikHubProvider()]);
 }
 

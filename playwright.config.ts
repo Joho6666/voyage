@@ -40,7 +40,6 @@ export default defineConfig({
           FLIGGY_API_URL: "",
           FLIGGY_EXTERNAL_AGENT_NAME: "",
           TIKHUB_API_KEY: "",
-          REDFOX_API_KEY: "",
           VOYAGE_DEMO_MODE: "true",
           VOYAGE_LLM_ENABLED: "0",
           VOYAGE_SKIP_LOCAL_CREDENTIALS: "1",

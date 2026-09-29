@@ -133,7 +133,6 @@ npm run test:e2e     # Playwright 端到端验证 (25 条，含移动端导航�
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase 项目地址 | 未配置时自动无感运行在内存 Demo 模式 |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase 客户端匿名密钥 | 严格受 `0002_rls_secure.sql` 行级安全控制 |
 | `TIKHUB_API_KEY` | TikHub 社交检索（小红书 / 抖音 / 微博 / 微信搜一搜） | 未配置时社交证据如实显示为不可用 |
-| `REDFOX_API_KEY` | RedFox 抖音账号搜索（备用通道，不参与社交证据管线） | 未配置时无影响 |
 | `VOYAGE_GUEST_TTL_DAYS` | 访客工作区过期天数 | 默认 `30`，设为 `0` 关闭自动清理 |
 
 ---

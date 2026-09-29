@@ -20,10 +20,6 @@ export async function GET() {
       llm: configured.LLM_BASE_URL && configured.LLM_API_KEY,
       supabase: configured.NEXT_PUBLIC_SUPABASE_URL && configured.NEXT_PUBLIC_SUPABASE_ANON_KEY,
       tikhub: configured.TIKHUB_API_KEY,
-      // Presence only. RedFox does not participate in the social evidence
-      // pipeline (its documented endpoint returns account profiles, not
-      // posts); the douyin account-search channel stays available separately.
-      redfox: configured.REDFOX_API_KEY,
     },
   }, { headers: { "cache-control": "no-store" } });
 }

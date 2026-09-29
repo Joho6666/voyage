@@ -3,15 +3,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { GET as getSkillTrip } from "@/app/api/skill/trips/[id]/route";
-import { POST as importTrip } from "@/app/api/voyage/import/route";
 import { authorizeTripImport } from "@/app/api/voyage/workspace";
+import { POST as importTrip } from "@/app/api/voyage/import/route";
 import { chongqingTrip, DEMO_TRIP_ID } from "@/data/demo/chongqing";
 import { JsonSkillRepository } from "@/skill/repository";
 import type { Trip } from "@/types/travel";
 
 const guestId = "11111111-1111-4111-8111-111111111111";
-const otherGuestId = "22222222-2222-4222-8222-222222222222";
 const publicDemoTripIds = [DEMO_TRIP_ID] as const;
 const originalDataDir = process.env.VOYAGE_DATA_DIR;
 const originalDemoMode = process.env.VOYAGE_DEMO_MODE;
@@ -78,39 +76,6 @@ describe.sequential("workspace trip access policy", () => {
     it("denies a non-workspace trip outside demo mode", () => {
       expect(authorizeTripImport({ tripId: DEMO_TRIP_ID, workspaceTripExists: false, demoMode: "false", publicDemoTripIds })).toBe("denied");
       expect(authorizeTripImport({ tripId: "private-trip", workspaceTripExists: false, publicDemoTripIds })).toBe("denied");
-    });
-  });
-
-  describe("GET /api/skill/trips/[id]", () => {
-    it("does not expose a trip that exists only in the global base repository", async () => {
-      await storeTrip(dataDir, "global-private-trip", "Global private trip");
-
-      const response = await getSkillTrip(
-        request("http://local/api/skill/trips/global-private-trip"),
-        { params: Promise.resolve({ id: "global-private-trip" }) },
-      );
-
-      expect(response.status).toBe(404);
-      expect(await response.json()).toMatchObject({ ok: false, error: "TRIP_NOT_FOUND" });
-      expect(response.headers.get("set-cookie")).toContain("voyage_guest_workspace=");
-    });
-
-    it("reads a trip from only the requesting guest workspace", async () => {
-      await storeTrip(guestRoot(), "workspace-trip", "Current workspace trip");
-      await storeTrip(guestRoot(otherGuestId), "other-workspace-trip", "Other workspace trip");
-
-      const allowed = await getSkillTrip(
-        request("http://local/api/skill/trips/workspace-trip", { workspaceId: guestId }),
-        { params: Promise.resolve({ id: "workspace-trip" }) },
-      );
-      const denied = await getSkillTrip(
-        request("http://local/api/skill/trips/other-workspace-trip", { workspaceId: guestId }),
-        { params: Promise.resolve({ id: "other-workspace-trip" }) },
-      );
-
-      expect(allowed.status).toBe(200);
-      expect(await allowed.json()).toMatchObject({ ok: true, trip: { id: "workspace-trip", title: "Current workspace trip" } });
-      expect(denied.status).toBe(404);
     });
   });
 

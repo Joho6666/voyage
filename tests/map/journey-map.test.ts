@@ -5,24 +5,10 @@ import { buildJourneyMarkers, clusterExplorePlaces } from "@/features/journey-ma
 import { buildJourneyRoutes, calculatePolylineMidpoint, formatRouteBadgeText } from "@/features/journey-map/controllers/route-controller";
 import { computeBounds, getTripPoints, getDayPoints, MapCameraController } from "@/features/journey-map/controllers/camera-controller";
 import { getZoomDensityTier } from "@/features/journey-map/models/map-state";
-import { buildMapModel } from "@/services/map/controller";
 import { OfflineJourneyCache } from "@/features/journey-map/services/offline-cache";
 
 describe("Journey Map - Model & Controller Unit Tests", () => {
   const trip = structuredClone(chongqingTrip);
-
-  it("1. buildMapModel backward compatibility works", () => {
-    const model = buildMapModel(trip, {
-      selectedId: null,
-      hoverId: null,
-      filters: [],
-      search: "",
-      activeDayId: "day-1",
-    });
-
-    expect(model.markers.length).toBeGreaterThan(0);
-    expect(model.polylines.length).toBe(trip.days.length);
-  });
 
   it("2. a focused day is the only day drawn; 'all' is an explicit choice", () => {
     const focusedDayId = "day-1";

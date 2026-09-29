@@ -2,7 +2,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { SocialProviderRouter } from "@/services/social/router";
 import { createTikHubProvider, tikHubSearchTransport } from "@/services/social/tikhub";
-import { createRedFoxProvider, searchRedFoxDouyinAccounts } from "@/services/social/redfox";
 
 // Built at runtime so no fixture string can be mistaken for a real credential;
 // providers under test only verify that the value is forwarded verbatim.
@@ -28,28 +27,7 @@ describe("social providers", () => {
     expect(urls.some((url) => url.includes("/wechat_search/v2/fetch_search"))).toBe(true);
     vi.unstubAllGlobals();
   });
-  it("maps documented RedFox Douyin account search without treating profiles as social content", async () => {
-    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-      expect(init?.method).toBe("POST");
-      expect(new Headers(init?.headers).get("REDFOX_API_KEY")).toBe(FIXTURE_API_KEY);
-      expect(JSON.parse(String(init?.body))).toEqual({ keyword: "重庆旅行", offset: 0, sortType: "_0" });
-      return new Response(JSON.stringify({ code: 2000, msg: "成功", data: { total: 1, hasMore: false, list: [{ accountId: "dy-1", nickname: "重庆旅行号", city: "重庆", followerCount: 1200 }] } }), { status: 200 });
-    });
-    const result = await searchRedFoxDouyinAccounts({ apiKey: FIXTURE_API_KEY, keyword: "重庆旅行", fetchImpl: fetchMock as typeof fetch });
-    expect(result).toMatchObject({ total: 1, hasMore: false, accounts: [{ accountId: "dy-1", nickname: "重庆旅行号", city: "重庆", followerCount: 1200 }] });
 
-    const provider = createRedFoxProvider({ apiKey: FIXTURE_API_KEY, accountSearch: async () => result });
-    expect((await provider.searchAccounts({ city: "重庆", query: "重庆旅行", platform: "douyin" })).data).toEqual(result.accounts);
-    expect((await provider.searchContent({ city: "重庆", query: "重庆旅行", platform: "douyin" })).status).toBe("unavailable");
-    expect((await provider.getComments({ platform: "douyin", sourceId: "dy-1" })).status).toBe("unavailable");
-  });
-
-  it("reports RedFox auth, rate limit and application errors without retrying a billed call", async () => {
-    for (const [status, message] of [[401, "authorization"], [429, "rate limit"]] as const) {
-      await expect(searchRedFoxDouyinAccounts({ apiKey: FIXTURE_API_KEY, keyword: "重庆", fetchImpl: (async () => new Response("{}", { status })) as typeof fetch })).rejects.toThrow(message);
-    }
-    await expect(searchRedFoxDouyinAccounts({ apiKey: FIXTURE_API_KEY, keyword: "重庆", fetchImpl: (async () => new Response(JSON.stringify({ code: 4001, msg: "no permission" }), { status: 200 })) as typeof fetch })).rejects.toThrow("code 4001");
-  });
   it("normalizes all four TikHub operations through the injected transport", async () => {
     const transport = vi.fn(async ({ operation }: { operation: string }) => {
       if (operation === "getComments") return { comments: [{ id: "comment-1", text: "晚上人多" }] };
@@ -75,9 +53,10 @@ describe("social providers", () => {
     const missing = createTikHubProvider({ apiKey: "", transport });
     expect((await missing.searchContent({ city: "重庆", query: "洪崖洞" })).status).toBe("unavailable");
     expect(transport).not.toHaveBeenCalled();
-    const provider = createRedFoxProvider({ apiKey: FIXTURE_API_KEY, transport });
-    expect((await provider.getTrending({ city: "重庆", platform: "instagram" })).status).toBe("unavailable");
-    expect(transport).not.toHaveBeenCalled();
+    // Without an injected transport, TikHub supports only its five documented
+    // platforms; anything else is rejected by the router before any request.
+    const configured = createTikHubProvider({ apiKey: FIXTURE_API_KEY });
+    expect((await configured.getTrending({ city: "重庆", platform: "instagram" })).status).toBe("unavailable");
   });
 
   it("maps TikHub's nested TikTok general-search response envelope", async () => {
@@ -114,12 +93,12 @@ describe("social providers", () => {
 
   it("keeps results from a healthy provider when another provider fails", async () => {
     const failed = createTikHubProvider({ apiKey: FIXTURE_API_KEY, transport: async () => { throw new Error("upstream failed"); }, now });
-    const healthy = createRedFoxProvider({ apiKey: FIXTURE_API_KEY, transport: async () => ({
-      items: [{ id: "redfox-1", platform: "douyin", text: "洪崖洞人很多", city: "重庆" }],
+    const healthy = createTikHubProvider({ apiKey: FIXTURE_API_KEY, transport: async () => ({
+      items: [{ id: "healthy-1", platform: "douyin", text: "洪崖洞人很多", city: "重庆" }],
     }), now });
     const result = await new SocialProviderRouter([failed, healthy]).searchContent({ city: "重庆", platform: "douyin", query: "洪崖洞" });
     expect(result.status).toBe("ok");
-    expect(result.data.map((item) => item.provider)).toEqual(["redfox"]);
+    expect(result.data).toHaveLength(1);
     expect(result.warnings).toContain("tikhub request failed");
   });
 
