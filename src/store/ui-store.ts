@@ -7,7 +7,6 @@ export type SheetSnap = "collapsed" | "half" | "full";
 
 interface UiState {
   sidebarCollapsed: boolean;
-  assistantOpen: boolean;
   commandOpen: boolean;
   selectedPlaceId: string | null;
   hoverPlaceId: string | null;
@@ -20,7 +19,6 @@ interface UiState {
   mapSearch: string;
   sheetSnap: SheetSnap;
   toggleSidebar: () => void;
-  setAssistantOpen: (open: boolean) => void;
   setCommandOpen: (open: boolean) => void;
   selectPlace: (id: string | null) => void;
   hoverPlace: (id: string | null) => void;
@@ -37,7 +35,6 @@ export const useUiStore = create<UiState>()(
   persist(
     (set) => ({
       sidebarCollapsed: false,
-      assistantOpen: false,
       commandOpen: false,
       selectedPlaceId: null,
       hoverPlaceId: null,
@@ -48,7 +45,6 @@ export const useUiStore = create<UiState>()(
       mapSearch: "",
       sheetSnap: "half",
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
-      setAssistantOpen: (assistantOpen) => set({ assistantOpen }),
       setCommandOpen: (commandOpen) => set({ commandOpen }),
       selectPlace: (selectedPlaceId) => set({ selectedPlaceId }),
       hoverPlace: (hoverPlaceId) => set({ hoverPlaceId }),

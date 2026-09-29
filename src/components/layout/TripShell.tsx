@@ -4,7 +4,6 @@ import { CommandPalette } from "./CommandPalette";
 import { MobileNav } from "./MobileNav";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
-import { AssistantSheet } from "@/components/ai/AssistantSheet";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 export function TripShell({
@@ -29,7 +28,6 @@ export function TripShell({
             <section className="relative hidden min-w-0 flex-1 md:block">{map}</section>
           </div>
         </div>
-        <AssistantSheet />
         <CommandPalette />
         <MobileNav tripId={tripId} />
       </div>

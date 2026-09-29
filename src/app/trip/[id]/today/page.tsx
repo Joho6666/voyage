@@ -14,8 +14,10 @@ import {
   FastForward,
   Utensils,
   RefreshCw,
+  WandSparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { TravelImage } from "@/components/travel/TravelImage";
 import { travelAgent } from "@/services/ai";
 import { setItemStatus, restoreTrip, TripCommandError } from "@/services/trip-commands";
@@ -43,6 +45,7 @@ export default function TodayPage() {
   const setActiveDay = useUiStore((s) => s.setActiveDay);
 
   const [busy, setBusy] = useState(false);
+  const [freeText, setFreeText] = useState("");
   const [activeDiff, setActiveDiff] = useState<TripChangeSet | null>(null);
   const [diffOpen, setDiffOpen] = useState(false);
   const [activeRemote, setActiveRemote] = useState<{ tripId: string; proposalId: string; baseRevision: number } | null>(null);
@@ -364,6 +367,32 @@ export default function TodayPage() {
               onClick={() => void handleAction("换个地方")}
             />
           </div>
+          {/* Free-form AI input: the AssistantSheet chat was removed to keep a
+              single AI surface, so natural language lives here beside the
+              one-tap buttons. */}
+          <form
+            className="flex gap-2 px-3 pb-3 pt-1"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const text = freeText.trim();
+              if (!text) return;
+              setFreeText("");
+              void handleAction(text);
+            }}
+          >
+            <Input
+              value={freeText}
+              onChange={(e) => setFreeText(e.target.value)}
+              placeholder="或直接说：把明早改成 9 点出发 / 想去能看江景的咖啡店…"
+              className="h-9 text-[13px]"
+              aria-label="自由描述今天的调整"
+              disabled={busy}
+            />
+            <Button type="submit" size="sm" disabled={busy || !freeText.trim()} className="shrink-0">
+              <WandSparkles className="size-3.5" />
+              发送
+            </Button>
+          </form>
         </details>
       </section>
 

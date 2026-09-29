@@ -1,6 +1,6 @@
 "use client";
 
-import { CloudRain, Command, MoreHorizontal, Share2, Sparkles, Users } from "lucide-react";
+import { CloudRain, Command, MoreHorizontal, Share2, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { formatCny, formatMonthDay, tripDurationLabel } from "@/lib/utils";
@@ -11,7 +11,6 @@ import { toast } from "sonner";
 
 export function TopBar() {
   const trip = useTripStore((s) => s.trip);
-  const setAssistantOpen = useUiStore((s) => s.setAssistantOpen);
   const setCommandOpen = useUiStore((s) => s.setCommandOpen);
   const weather = trip.days[1]?.weather ?? trip.days[0]?.weather;
   const share = async () => {
@@ -97,13 +96,11 @@ export function TopBar() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      {/* Phones have no Cmd+K, so the command palette needs a real button. */}
-      <Button variant="ghost" size="icon" className="sm:hidden" aria-label="AI 指令" onClick={() => setCommandOpen(true)}>
+      {/* Phones have no Cmd+K, so the command palette needs a real button.
+          (This is now navigation + place search only — AI adjustments live on
+          the today page.) */}
+      <Button variant="ghost" size="icon" className="sm:hidden" aria-label="快捷面板" onClick={() => setCommandOpen(true)}>
         <Command />
-      </Button>
-      <Button size="sm" onClick={() => setAssistantOpen(true)}>
-        <Sparkles className="size-3.5" />
-        AI 助手
       </Button>
     </header>
   );
