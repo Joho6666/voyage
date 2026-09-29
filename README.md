@@ -51,6 +51,17 @@ Voyage 在几秒钟内生成一个**真实的、结构化的、带高德坐标�
 
 ---
 
+## 功能亮点
+
+- **小红书爆款攻略 → 一键入行程**：行程内嵌攻略面板，支持四类检索——精选路线、必吃美食（按探店关键词加权）、最新笔记（按发布时间排序）、自定义搜索。帖子正文抽取地点名（LLM 优先、规则兜底），逐个经高德 POI 解析为真实地点；解析成功的可直接「地图定位 / 加入地图标记 / 排入某天行程」，解析失败的名字如实标注、绝不被编造替换。
+- **美食 / 酒店地图集成**：美食页与酒店页的发现结果均可直接落到地图，选中地点在任意图层下保持可见。
+- **单日聚焦**：看哪一天就只显示哪一天的列表与路线，「全部」一键切回全程视图。
+- **移动端完整导航**：底部导航新增「今天」与「更多」抽屉（住宿 / 美食 / 活动 / 交通 / 预订推荐 / 任务 / 预算），分享按钮手机可见；非行程页（我的旅行 / 设置）有全局底栏。
+- **规划会话不再怕刷新**：会话 ID 持久化在本机、对话保存在服务端；回到规划页可「继续上次规划」，失效会话如实提示并清理。
+- **运维加固**：付费接口（高德 / TikHub / LLM / 飞猪 / 规划）按调用方滑动窗口限流，超限返回 429 + Retry-After（单实例内存实现）；服务端结构化 JSON 日志覆盖降级与失败路径；访客工作区按 TTL 自动清理（默认 30 天，`VOYAGE_GUEST_TTL_DAYS` 可调，`0` 关闭）。
+
+---
+
 ## 核心四大阶段 (Four Pillars)
 
 | 阶段 | 职责定位 | 核心能力 |
@@ -99,9 +110,9 @@ npm run dev
 ```bash
 npm run lint         # ESLint 代码规范检查 (0 errors, 0 warnings)
 npm run typecheck    # TypeScript 严格类型检查 (0 errors)
-npm test             # Vitest 单元与集成测试 (23 tests passed)
+npm test             # Vitest 单元与集成测试 (221 tests passed)
 npm run build        # 生产环境 Turbopack 打包编译
-npm run test:e2e     # Playwright 端到端 Golden Trip 自动化验证
+npm run test:e2e     # Playwright 端到端验证 (25 条，含移动端导航与会话恢复)
 ```
 
 ---
@@ -121,6 +132,9 @@ npm run test:e2e     # Playwright 端到端 Golden Trip 自动化验证
 | `EMBEDDING_MODEL` | 1536 维 Embedding 模型 | 未配置时不执行语义向量检索 |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase 项目地址 | 未配置时自动无感运行在内存 Demo 模式 |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase 客户端匿名密钥 | 严格受 `0002_rls_secure.sql` 行级安全控制 |
+| `TIKHUB_API_KEY` | TikHub 社交检索（小红书 / 抖音 / 微博 / 微信搜一搜） | 未配置时社交证据如实显示为不可用 |
+| `REDFOX_API_KEY` | RedFox 抖音账号搜索（备用通道，不参与社交证据管线） | 未配置时无影响 |
+| `VOYAGE_GUEST_TTL_DAYS` | 访客工作区过期天数 | 默认 `30`，设为 `0` 关闭自动清理 |
 
 ---
 

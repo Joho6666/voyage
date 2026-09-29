@@ -1,6 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const port = process.env.PLAYWRIGHT_PORT || "3005";
+// CI builds once for the whole pipeline; setting PLAYWRIGHT_REUSE_BUILD=1
+// makes the webServer start that artifact instead of building a second time.
+const reuseBuild = Boolean(process.env.PLAYWRIGHT_REUSE_BUILD);
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -22,7 +25,7 @@ export default defineConfig({
   webServer: process.env.PLAYWRIGHT_SKIP_SERVER
     ? undefined
     : {
-        command: `npx next build --turbopack && npx next start -p ${port}`,
+        command: reuseBuild ? `npx next start -p ${port}` : `npx next build --turbopack && npx next start -p ${port}`,
         // E2E is deterministic and explicit demo mode. Live AMap validation runs separately.
         env: {
           ...process.env,

@@ -26,3 +26,5 @@ jobs:
         run: npm run test:e2e
         env:
           CI: "true"
+          # Reuse the artifact from the build step above; one build per CI run.
+          PLAYWRIGHT_REUSE_BUILD: "1"

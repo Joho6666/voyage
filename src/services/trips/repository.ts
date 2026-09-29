@@ -1,6 +1,11 @@
 import { chongqingTrip, DEMO_TRIP_ID } from "@/data/demo/chongqing";
 import type { Trip, TripSummary } from "@/types/travel";
-import { SupabaseTripRepository, isSupabaseConfigured } from "./supabase";
+import type { SupabaseTripRepository } from "./supabase";
+
+/** Duplicated from ./supabase so importing it does not pull the supabase-js bundle. */
+function isSupabaseConfigured(): boolean {
+  return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+}
 
 export interface TripRepository {
   list(): Promise<TripSummary[]>;
@@ -91,19 +96,29 @@ export class MemoryTripRepository implements TripRepository {
 
 function createRepository(): TripRepository {
   if (isSupabaseConfigured()) {
-    try {
-      const local = new MemoryTripRepository();
-      const remote = new SupabaseTripRepository();
-      return {
-        list: async () => (await remote.hasAuthenticatedUser()) ? remote.list() : local.list(),
-        get: async (id) => (await remote.hasAuthenticatedUser()) ? remote.get(id) : local.get(id),
-        save: async (trip) => (await remote.hasAuthenticatedUser()) ? remote.save(trip) : local.save(trip),
-        update: async (trip) => (await remote.hasAuthenticatedUser()) ? remote.update(trip) : local.update(trip),
-        delete: async (id) => (await remote.hasAuthenticatedUser()) ? remote.delete(id) : local.delete(id),
-      };
-    } catch {
-      return new MemoryTripRepository();
-    }
+    const local = new MemoryTripRepository();
+    // The remote repository — and the supabase-js bundle it pulls in — loads
+    // on first data call, not at module import, so guest mode never pays for
+    // it. A failed load falls back to the local repository permanently.
+    let remotePromise: Promise<SupabaseTripRepository | null> | null = null;
+    const loadRemote = () => {
+      remotePromise ??= import("./supabase")
+        .then(({ SupabaseTripRepository: Repository }) => new Repository())
+        .catch(() => null);
+      return remotePromise;
+    };
+    const withRemote = async <T>(action: (remote: SupabaseTripRepository) => Promise<T>, fallback: () => Promise<T>): Promise<T> => {
+      const remote = await loadRemote();
+      if (!remote) return fallback();
+      return (await remote.hasAuthenticatedUser()) ? action(remote) : fallback();
+    };
+    return {
+      list: () => withRemote((remote) => remote.list(), () => local.list()),
+      get: (id) => withRemote((remote) => remote.get(id), () => local.get(id)),
+      save: (trip) => withRemote((remote) => remote.save(trip), () => local.save(trip)),
+      update: (trip) => withRemote((remote) => remote.update(trip), () => local.update(trip)),
+      delete: (id) => withRemote((remote) => remote.delete(id), () => local.delete(id)),
+    };
   }
   return new MemoryTripRepository();
 }
