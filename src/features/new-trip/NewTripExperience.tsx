@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "motion/react";
-import { ArrowLeft, ArrowRight, Check, CircleAlert, Compass, LoaderCircle, RotateCcw, ShieldCheck, Sparkles, WandSparkles } from "lucide-react";
+import { ArrowRight, Check, CircleAlert, Compass, LoaderCircle, RotateCcw, ShieldCheck, Sparkles, WandSparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { brand } from "@/lib/brand";
@@ -14,7 +14,7 @@ import { PlanningChat } from "@/components/planning/PlanningChat";
 import { PlanningProfilePanel } from "@/components/planning/PlanningProfilePanel";
 import { PlanningStatusCard } from "@/components/planning/PlanningStatusCard";
 import type { PlanningLlmState, PlanningLlmStatus, PlanningMessage, PlanningProfileDraft } from "@/components/planning/types";
-import { dateRangeWarning, directPrompt, generateBlockersFor, profilePatchFromDraft } from "./planning-client";
+import { dateRangeWarning, generateBlockersFor, profilePatchFromDraft } from "./planning-client";
 
 const QUICK_PROMPTS = [
   "从桂林出发，去南京玩 3 天，喜欢美食，不想走太多路",
@@ -495,7 +495,6 @@ export function NewTripExperience() {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState<BusyState>("idle");
   const [error, setError] = useState("");
-  const [directMode, setDirectMode] = useState(false);
   const [profileDirty, setProfileDirty] = useState(false);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [resumable, setResumable] = useState<{ sessionId: string; destination: string; updatedAt: string | null } | null>(null);
@@ -771,27 +770,6 @@ export function NewTripExperience() {
     if (resynced !== undefined) setWarnings(["可以在修改信息后直接再点一次「生成路线图」，这次会话和偏好都不会丢失。"]);
   };
 
-  const generateDirect = async () => {
-    if (busy !== "idle") return;
-    if (!profileRef.current.destination.trim()) {
-      setError("请先填写目的地，或者回到对话模式让 Voyage 帮你确定。");
-      return;
-    }
-    setBusy("starting");
-    setError("");
-    try {
-      const parsed = await requestSession(directPrompt(prompt, profileRef.current), profileRef.current);
-      setSessionId(parsed.sessionId ?? null);
-      usePlanningStore.getState().setSession({ sessionId: parsed.sessionId ?? "", destination: parsed.profile.destination });
-      setRevision(parsed.revision ?? 1);
-      adoptPayload(parsed, profileRef.current);
-      await generateRoute({ ...parsed, sessionId: parsed.sessionId, revision: parsed.revision ?? 1 });
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "直接生成失败，请稍后重试。");
-      setBusy("idle");
-    }
-  };
-
   const reset = () => {
     const fresh = createDefaultProfile();
     setView("landing");
@@ -809,7 +787,6 @@ export function NewTripExperience() {
     setDraft("");
     setError("");
     setBusy("idle");
-    setDirectMode(false);
     setProfileDirty(false);
     setProfile(fresh);
     profileRef.current = fresh;
@@ -862,11 +839,6 @@ export function NewTripExperience() {
                 </div>
               ) : null}
 
-              {directMode ? (
-                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="rounded-[24px] border border-border bg-surface p-1 shadow-[0_14px_45px_rgba(28,25,23,0.05)]"><div className="flex items-center justify-between px-4 pt-3"><button type="button" onClick={() => setDirectMode(false)} className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"><ArrowLeft className="size-3.5" />回到对话入口</button><span className="text-[10px] text-muted-foreground">次要路径</span></div><div className="p-3 sm:p-4"><PlanningProfilePanel profile={profile} onChange={updateProfile} onGenerate={() => void generateDirect()} generating={busy === "starting" || busy === "generating"} disabled={isBusy} showStatus={false} blockers={blockers} days={plannerDays} direct /></div></motion.div>
-              ) : (
-                <button type="button" onClick={() => setDirectMode(true)} className="group flex w-full items-center justify-between rounded-[18px] border border-dashed border-border bg-surface/60 px-4 py-3 text-left transition-colors hover:border-primary/35 hover:bg-surface"><span><span className="block text-xs font-medium">不想先聊天？直接填写并生成</span><span className="mt-0.5 block text-[10px] text-muted-foreground">保留原来的快速创建入口，信息会安全地交给规划会话。</span></span><ArrowRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" /></button>
-              )}
               {error ? <div role="alert" className="flex items-start gap-2 rounded-[14px] border border-rose-500/25 bg-rose-500/[0.06] px-3 py-2.5 text-xs text-rose-800"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{error}</span></div> : null}
               {busy === "generating" ? <GenerationProgress destination={profile.destination} /> : null}
             </motion.section>

@@ -76,28 +76,3 @@ export function profilePatchFromDraft(profile: PlanningProfileDraft) {
     socialOptIn: profile.includeSocialEvidence,
   };
 }
-
-/** Human-readable profile recap used when handing a direct-form entry to the planner. */
-export function profileContext(profile: PlanningProfileDraft) {
-  const fields = [
-    profile.origin && `出发地：${profile.origin}`,
-    profile.destination && `目的地：${profile.destination}`,
-    profile.startDate && profile.endDate && `日期：${profile.startDate} 至 ${profile.endDate}`,
-    profile.travelers && `人数：${profile.travelers}`,
-    profile.budget && `总预算：${profile.budget} 元`,
-    profile.pace && `节奏：${profile.pace}`,
-    profile.walkingTolerance && `步行：${profile.walkingTolerance}`,
-    profile.transportPreference && `交通：${profile.transportPreference}`,
-    profile.vibes.length && `兴趣：${profile.vibes.join("、")}`,
-    profile.mustVisit && `一定要去：${profile.mustVisit}`,
-    profile.avoid && `想避开：${profile.avoid}`,
-    profile.includeOffers ? "同步酒店、交通、门票和美食的供应商推荐" : "不需要同步供应商推荐",
-    profile.includeSocialEvidence ? "参考小红书、抖音和社交攻略" : "不需要参考小红书、抖音或社交攻略",
-  ].filter(Boolean);
-  return fields.join("；");
-}
-
-export function directPrompt(prompt: string, profile: PlanningProfileDraft) {
-  const note = prompt.trim() && prompt.trim() !== "喜欢美食和夜景，安排轻松一点。" ? `补充说明：${prompt.trim()}` : "";
-  return ["请按以下已确认信息直接生成一条可执行的旅行路线。", profileContext(profile), note].filter(Boolean).join("\n");
-}

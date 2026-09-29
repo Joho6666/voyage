@@ -27,7 +27,6 @@ export interface PlanningProfilePanelProps {
   /** A date range problem the traveller should fix; shown even when not blocking. */
   rangeWarning?: string;
   days?: number;
-  direct?: boolean;
 }
 
 function FieldLabel({ icon: Icon, children }: { icon: typeof MapPin; children: React.ReactNode }) {
@@ -46,7 +45,6 @@ export function PlanningProfilePanel({
   blockers = [],
   rangeWarning = "",
   days,
-  direct = false,
 }: PlanningProfilePanelProps) {
   const ready = blockers.length === 0;
   return (
@@ -206,7 +204,7 @@ export function PlanningProfilePanel({
       {onGenerate ? (
         <div className="mt-4 border-t border-border/80 pt-4">
           <Button className="w-full" size="lg" onClick={onGenerate} disabled={disabled || generating || !ready}>
-            {generating ? "正在生成路线…" : direct ? "直接生成路线" : "生成路线图"}
+            {generating ? "正在生成路线…" : "生成路线图"}
             {!generating ? <ArrowRight className="ml-1" /> : null}
           </Button>
           <p className="mt-2 text-center text-[10px] leading-4 text-muted-foreground">
@@ -214,11 +212,9 @@ export function PlanningProfilePanel({
               ? "正在调用真实路线与数据能力，请保持页面打开"
               : !ready
                 ? `补全${blockers.join("、")}后即可生成`
-                : direct
-                  ? "会把上面的信息作为初始规划意图提交"
-                  : days
-                    ? `按 ${days} 天规划；确认后才会创建行程`
-                    : "确认后才会创建行程，生成结果可继续调整"}
+                : days
+                  ? `按 ${days} 天规划；确认后才会创建行程`
+                  : "确认后才会创建行程，生成结果可继续调整"}
           </p>
         </div>
       ) : null}
