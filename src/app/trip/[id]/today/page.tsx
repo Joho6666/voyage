@@ -18,7 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { TravelImage } from "@/components/travel/TravelImage";
 import { travelAgent } from "@/services/ai";
-import { setItemStatus, TripCommandError } from "@/services/trip-commands";
+import { setItemStatus, restoreTrip, TripCommandError } from "@/services/trip-commands";
 import { useHistoryStore } from "@/store/history-store";
 import { useTripStore } from "@/store/trip-store";
 import { useUiStore } from "@/store/ui-store";
@@ -101,7 +101,16 @@ export default function TodayPage() {
 
   const handleApplyDiff = (changeSet: TripChangeSet) => {
     void (async () => {
-      if (!activeRemote) { pushHistory(trip); setTrip(changeSet.proposedTrip); void persist(); toast.success(`已应用：${changeSet.summary}`); return; }
+      if (!activeRemote) {
+        // Server write, not a local patch: the old local-only path bumped the
+        // revision to a value the server never issued.
+        const applied = changeSet.proposedTrip;
+        pushHistory(trip);
+        void restoreTrip({ tripId: trip.id, trip: applied, expectedTripRevision: revision })
+          .then(({ trip: saved, revision: savedRevision }) => { setTrip(saved, savedRevision); toast.success(`已应用：${changeSet.summary}`); })
+          .catch((error) => toast.error(error instanceof TripCommandError ? error.message : "应用修改失败，请重试"));
+        return;
+      }
       const response = await fetch("/api/voyage/command", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ command: "apply-change", input: { ...activeRemote, expectedTripRevision: activeRemote.baseRevision, confirmed: true } }) });
       const envelope = await response.json() as { ok?: boolean; data?: { trip?: import("@/types/travel").Trip; revision?: number }; error?: { message?: string } };
       if (!response.ok || !envelope.ok || !envelope.data?.trip) { toast.error(envelope.error?.message ?? "方案已过期，请重新生成"); return; }
@@ -173,13 +182,12 @@ export default function TodayPage() {
           className="gap-1 text-[12px]"
           onClick={() => {
             const previous = undo(trip);
-            if (previous) {
-              setTrip(previous);
-              void persist();
-              toast.success("已恢复上一步行程");
-            } else {
-              toast.message("没有可撤销的操作");
-            }
+            if (!previous) { toast.message("没有可撤销的操作"); return; }
+            // Undo is a real server write now (see AssistantSheet.onUndo) —
+            // a local restore would diverge from the server immediately.
+            void restoreTrip({ tripId: trip.id, trip: previous, expectedTripRevision: useTripStore.getState().revision })
+              .then(({ trip: saved, revision: savedRevision }) => { setTrip(saved, savedRevision); toast.success("已恢复上一步行程"); })
+              .catch((error) => toast.error(error instanceof TripCommandError ? error.message : "撤销失败，请重试"));
           }}
         >
           <Undo2 className="size-3.5" />

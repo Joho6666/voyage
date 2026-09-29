@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { TripDiffModal } from "@/components/ai/TripDiffModal";
 import { travelAgent } from "@/services/ai";
+import { restoreTrip, TripCommandError } from "@/services/trip-commands";
 import type { AgentMessage } from "@/services/ai/types";
 import type { TripChangeSet } from "@/types/diff";
 import { useHistoryStore } from "@/store/history-store";
@@ -21,7 +22,6 @@ export function AssistantSheet() {
   const open = useUiStore((s) => s.assistantOpen);
   const setOpen = useUiStore((s) => s.setAssistantOpen);
   const trip = useTripStore((s) => s.trip);
-  const patch = useTripStore((s) => s.patchTrip);
   const setTrip = useTripStore((s) => s.setTrip);
   const pushHistory = useHistoryStore((s) => s.push);
   const undo = useHistoryStore((s) => s.undo);
@@ -70,7 +70,14 @@ export function AssistantSheet() {
   const applyProposal = (proposal: NonNullable<AgentMessage["proposal"]>) => {
     void (async () => {
       if (!proposal.remote) {
-        pushHistory(trip); patch(proposal.apply); toast.success("行程已更新"); return;
+        // Non-remote proposals still need a server write: patching the store
+        // alone bumped the revision to a value the server never issued.
+        const applied = proposal.apply(trip);
+        pushHistory(trip);
+        void restoreTrip({ tripId: trip.id, trip: applied, expectedTripRevision: useTripStore.getState().revision })
+          .then(({ trip: saved, revision }) => { setTrip(saved, revision); toast.success("行程已更新"); })
+          .catch((error) => toast.error(error instanceof TripCommandError ? error.message : "行程更新失败，请重试"));
+        return;
       }
       const response = await fetch("/api/voyage/command", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ command: "apply-change", input: { tripId: proposal.remote.tripId, proposalId: proposal.remote.proposalId, expectedTripRevision: proposal.remote.baseRevision, confirmed: true } }) });
       const envelope = await response.json() as { ok?: boolean; data?: { trip?: import("@/types/travel").Trip; revision?: number }; error?: { message?: string } };
@@ -81,22 +88,22 @@ export function AssistantSheet() {
 
   const onUndo = () => {
     const previous = undo(trip);
-    if (previous) {
-      setTrip(previous);
-      toast.message("已撤销");
-    } else {
-      toast.message("没有可撤销的操作");
-    }
+    if (!previous) { toast.message("没有可撤销的操作"); return; }
+    // Undo used to patch the store only, bumping the revision to a value the
+    // server never issued — the change vanished on reload and every later
+    // write collided. It is now a real, revision-locked server write.
+    void restoreTrip({ tripId: trip.id, trip: previous, expectedTripRevision: useTripStore.getState().revision })
+      .then(({ trip: saved, revision }) => { setTrip(saved, revision); toast.message("已撤销"); })
+      .catch((error) => toast.error(error instanceof TripCommandError ? error.message : "撤销失败，请重试"));
   };
 
   const onRedo = () => {
     const next = redo(trip);
-    if (next) {
-      setTrip(next);
-      toast.message("已重做");
-    }
+    if (!next) return;
+    void restoreTrip({ tripId: trip.id, trip: next, expectedTripRevision: useTripStore.getState().revision })
+      .then(({ trip: saved, revision }) => { setTrip(saved, revision); toast.message("已重做"); })
+      .catch((error) => toast.error(error instanceof TripCommandError ? error.message : "重做失败，请重试"));
   };
-
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetContent className="flex flex-col">

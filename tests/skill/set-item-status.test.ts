@@ -129,3 +129,46 @@ describe("add-place runtime command (map marks)", () => {
     expect((await repository.getTrip(chongqingTrip.id))?.revision).toBe(2);
   });
 });
+
+describe("restore-trip runtime command (undo/redo)", () => {
+  beforeEach(async () => {
+    dataDir = await mkdtemp(path.join(tmpdir(), "voyage-restore-"));
+    repository = new JsonSkillRepository(dataDir);
+    runtime = new VoyageSkillRuntime(repository, async () => { throw new Error("provider must not be needed"); });
+    await repository.createTrip(structuredClone(chongqingTrip));
+  });
+
+  afterEach(async () => {
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  it("restores a snapshot and persists it so undo survives a reload", async () => {
+    // Mutate through a real command first, then restore the original snapshot.
+    await runtime.setItemStatus({ tripId: chongqingTrip.id, itemId: "it-1-1", status: "done", expectedTripRevision: 1 });
+    const changed = (await repository.getTrip(chongqingTrip.id))!.trip;
+    expect(changed.items.find((item) => item.id === "it-1-1")?.status).toBe("done");
+
+    const restored = await runtime.restoreTrip({
+      tripId: chongqingTrip.id,
+      trip: structuredClone(chongqingTrip),
+      expectedTripRevision: 2,
+    }) as { ok: boolean; data: { trip: typeof chongqingTrip; revision: number } };
+
+    expect(restored.ok).toBe(true);
+    expect(restored.data.trip.items.find((item) => item.id === "it-1-1")?.status).toBe("planned");
+
+    // The undo is on disk, not just in the browser: a reload sees it.
+    const stored = await repository.getTrip(chongqingTrip.id);
+    expect(stored?.trip.items.find((item) => item.id === "it-1-1")?.status).toBe("planned");
+    expect(stored?.revision).toBe(3);
+  });
+
+  it("refuses a stale snapshot and pins the trip id to the target record", async () => {
+    const hijack = { ...structuredClone(chongqingTrip), id: "some-other-trip" };
+    await expect(runtime.restoreTrip({ tripId: chongqingTrip.id, trip: hijack, expectedTripRevision: 9 }))
+      .rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+
+    const ok = await runtime.restoreTrip({ tripId: chongqingTrip.id, trip: hijack, expectedTripRevision: 1 }) as { data: { trip: typeof chongqingTrip } };
+    expect(ok.data.trip.id).toBe(chongqingTrip.id);
+  });
+});

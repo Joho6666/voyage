@@ -60,16 +60,29 @@ function preservePlanningProfile(input: Trip, parsed: Trip): Trip {
 export class JsonSkillRepository {
   constructor(private readonly root: string) {}
 
+  /**
+   * Joins a record name under the workspace root and proves the result stays
+   * inside it. Ids are encodeURIComponent-escaped (so `../` cannot survive),
+   * and the resolved-path check makes the boundary a locally verifiable
+   * invariant rather than an assumption about the caller's input.
+   */
+  private recordPath(dir: "trips" | "planning-sessions" | "proposals", id: string) {
+    const base = path.resolve(this.root, dir);
+    const target = path.resolve(base, `${encodeURIComponent(id)}.json`);
+    if (!target.startsWith(base + path.sep)) throw new SkillError("INVALID_INPUT", "Invalid record id");
+    return target;
+  }
+
   private tripPath(id: string) {
-    return path.join(this.root, "trips", `${encodeURIComponent(id)}.json`);
+    return this.recordPath("trips", id);
   }
 
   private planningSessionPath(id: string) {
-    return path.join(this.root, "planning-sessions", `${encodeURIComponent(id)}.json`);
+    return this.recordPath("planning-sessions", id);
   }
 
   private proposalPath(id: string) {
-    return path.join(this.root, "proposals", `${encodeURIComponent(id)}.json`);
+    return this.recordPath("proposals", id);
   }
 
   private async readJson<T>(file: string): Promise<T | null> {
@@ -184,6 +197,17 @@ export class JsonSkillRepository {
     const current = await this.getTrip(id);
     if (!current) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
     await unlink(this.tripPath(id));
+    // Cascade: proposals of a deleted trip embed the whole proposed trip and
+    // would otherwise outlive it as orphans. Names come from readdir (plain
+    // basenames) and are re-validated before any unlink.
+    const proposalDir = path.resolve(this.root, "proposals");
+    for (const file of await readdir(proposalDir).catch(() => [] as string[])) {
+      if (!/^[A-Za-z0-9_-]+\.json$/.test(file)) continue;
+      const full = path.resolve(proposalDir, file);
+      if (!full.startsWith(proposalDir + path.sep)) continue;
+      const record = await readFile(full, "utf8").then((text) => JSON.parse(text) as { tripId?: string }).catch(() => null);
+      if (record?.tripId === id) await unlink(full).catch(() => undefined);
+    }
   }
 
   async createTrip(trip: Trip): Promise<StoredTrip> {
@@ -255,8 +279,11 @@ export class JsonSkillRepository {
     };
     next.hash = digest(next.trip);
     await this.atomicWrite(this.tripPath(input.tripId), next);
-    const consumed = { ...proposal, consumedAt: new Date().toISOString() };
-    await this.atomicWrite(this.proposalPath(proposal.id), consumed);
+    // A consumed proposal embeds a full copy of the proposed trip. Keeping the
+    // file "forever" made proposals/ grow without bound, so the record is
+    // deleted once applied: a replay now fails closed with PROPOSAL_NOT_FOUND
+    // instead of quietly succeeding again.
+    await unlink(this.proposalPath(proposal.id)).catch(() => undefined);
     return next;
   }
 }

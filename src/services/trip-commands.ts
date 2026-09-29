@@ -50,6 +50,37 @@ export async function addPlaceItemToDay(input: {
 }
 
 /**
+ * Restores a trip snapshot on the server (undo/redo, and the local proposal
+ * apply path). The previous implementation only patched the client store and
+ * bumped the revision optimistically — the change vanished on reload and the
+ * next write collided with a revision the server had never issued.
+ */
+export async function restoreTrip(input: {
+  tripId: string;
+  trip: Trip;
+  expectedTripRevision: number;
+}): Promise<AddPlaceResult> {
+  let envelope: { ok?: boolean; data?: { trip?: Trip; revision?: number }; error?: { code?: string; message?: string } };
+  try {
+    const response = await fetch("/api/voyage/command", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        command: "restore-trip",
+        input: { tripId: input.tripId, trip: input.trip, expectedTripRevision: input.expectedTripRevision },
+      }),
+    });
+    envelope = await response.json();
+  } catch {
+    throw new TripCommandError("网络异常，恢复行程失败，请重试");
+  }
+  if (!envelope.ok || !envelope.data?.trip) {
+    throw new TripCommandError(envelope.error?.message ?? "恢复行程失败，请重试", envelope.error?.code);
+  }
+  return { trip: envelope.data.trip, revision: envelope.data.revision ?? input.expectedTripRevision + 1 };
+}
+
+/**
  * Bookmarks a place onto the trip map without scheduling it. The map-mark
  * buttons used to patch only the local store, so marks vanished on reload.
  */

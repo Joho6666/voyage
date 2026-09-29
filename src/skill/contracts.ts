@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { offerKindSchema } from "@/schemas/offers";
 import { socialEvidenceSchema, socialPlatformStatusSchema, socialSignalSchema } from "@/schemas/social";
-import { placeSchema } from "@/schemas/trip";
+import { placeSchema, tripSchema } from "@/schemas/trip";
 import { planningProfileSchema } from "@/schemas/planning";
 import { MAX_TRIP_DAYS } from "@/lib/trip-limits";
 
@@ -182,6 +182,18 @@ export const addPlaceInputSchema = z.object({
   expectedTripRevision: z.number().int().min(1),
 });
 
+/**
+ * Restores a full trip snapshot — the server side of undo/redo. User-initiated
+ * only (the UI's undo button), never LLM-driven, and guarded by the same
+ * revision lock as every other write. The trip id is forced to the input
+ * tripId so a snapshot can never be written under another trip's record.
+ */
+export const restoreTripInputSchema = z.object({
+  tripId: z.string().min(1),
+  trip: tripSchema,
+  expectedTripRevision: z.number().int().min(1),
+});
+
 export const proposeChangeInputSchema = z.object({
   tripId: z.string().min(1),
   instruction: z.string().min(1).max(2000),
@@ -257,6 +269,7 @@ export const commandSchemas = {
   "add-place-item": addPlaceItemInputSchema,
   "set-item-status": setItemStatusInputSchema,
   "add-place": addPlaceInputSchema,
+  "restore-trip": restoreTripInputSchema,
   "propose-change": proposeChangeInputSchema,
   "apply-change": applyChangeInputSchema,
   "get-place": getPlaceInputSchema,
@@ -310,6 +323,7 @@ export const outputSchemas = {
   "add-place-item": tripDataSchema,
   "set-item-status": tripDataSchema,
   "add-place": tripDataSchema,
+  "restore-trip": tripDataSchema,
   "search-places": z.object({ places: z.array(z.object({ id: z.string(), name: z.string(), category: z.string() }).passthrough()) }).passthrough(),
   "get-place": z.object({ place: z.object({ id: z.string(), name: z.string() }).passthrough(), matchBasis: z.enum(["trip_lookup", "provider_search"]) }).passthrough(),
   "plan-route": z.object({ route: z.object({ mode: z.string(), distanceMeters: z.number(), durationMinutes: z.number(), estimated: z.boolean() }).passthrough() }).passthrough(),

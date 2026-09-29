@@ -20,6 +20,7 @@ import { useTripStore } from "@/store/trip-store";
 import { useUiStore } from "@/store/ui-store";
 import { useHistoryStore } from "@/store/history-store";
 import { travelAgent } from "@/services/ai";
+import { restoreTrip, TripCommandError } from "@/services/trip-commands";
 import { TripDiffModal } from "@/components/ai/TripDiffModal";
 import type { TripChangeSet } from "@/types/diff";
 import { toast } from "sonner";
@@ -87,7 +88,15 @@ export function CommandPalette() {
 
   const handleApplyDiff = (changeSet: TripChangeSet) => {
     void (async () => {
-      if (!activeRemote) { pushHistory(trip); setTrip(changeSet.proposedTrip); void persist(); toast.success(`已应用：${changeSet.summary}`); return; }
+      if (!activeRemote) {
+        // Server write, not a local patch: the old local-only path bumped the
+        // revision to a value the server never issued.
+        pushHistory(trip);
+        void restoreTrip({ tripId: trip.id, trip: changeSet.proposedTrip, expectedTripRevision: useTripStore.getState().revision })
+          .then(({ trip: saved, revision }) => { setTrip(saved, revision); toast.success(`已应用：${changeSet.summary}`); })
+          .catch((error) => toast.error(error instanceof TripCommandError ? error.message : "应用修改失败，请重试"));
+        return;
+      }
       const response = await fetch("/api/voyage/command", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ command: "apply-change", input: { ...activeRemote, expectedTripRevision: activeRemote.baseRevision, confirmed: true } }) });
       const envelope = await response.json() as { ok?: boolean; data?: { trip?: import("@/types/travel").Trip; revision?: number }; error?: { message?: string } };
       if (!response.ok || !envelope.ok || !envelope.data?.trip) { toast.error(envelope.error?.message ?? "方案已过期，请重新生成"); return; }

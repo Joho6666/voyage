@@ -35,13 +35,20 @@ export const useTripStore = create<TripState>((set, get) => ({
     set({ trip: estimated });
     void fetch("/api/voyage/command", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ command: "reorder-day", input: { tripId: estimated.id, dayId, orderedItemIds: orderedIds, expectedTripRevision: get().revision } }) })
       .then((response) => response.json())
-      .then((envelope: { ok?: boolean; data?: { trip?: Trip; revision?: number }; error?: { message?: string } }) => {
+      .then((envelope: { ok?: boolean; data?: { trip?: Trip; revision?: number }; error?: { code?: string; message?: string } }) => {
         if (envelope.data?.trip) {
           set({ trip: envelope.data.trip, ...(envelope.data.revision !== undefined ? { revision: envelope.data.revision } : {}) });
-        } else {
-          set({ trip: snapshot });
-          toast.error(envelope.error?.message ?? "排序没有保存成功，已恢复原顺序");
+          return;
         }
+        set({ trip: snapshot });
+        if (envelope.error?.code === "REVISION_CONFLICT") {
+          // The trip moved on (another tab or the assistant). Re-sync instead
+          // of leaving a stale revision that would fail every later write.
+          toast.error("行程已在别处更新，已同步最新版本，请重试");
+          void resyncTrip(estimated.id);
+          return;
+        }
+        toast.error(envelope.error?.message ?? "排序没有保存成功，已恢复原顺序");
       })
       .catch(() => {
         set({ trip: snapshot });
@@ -64,4 +71,18 @@ export const useTripStore = create<TripState>((set, get) => ({
 
 export function hydrateTrip(trip: Trip, revision = 1) {
   useTripStore.setState({ trip: recomputeTrip(trip), revision });
+}
+
+/** Pulls the authoritative trip+revision after a conflict so writes unblock. */
+export function resyncTrip(tripId: string) {
+  void fetch("/api/voyage/command", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ command: "get-trip", input: { tripId } }),
+  })
+    .then((response) => response.json())
+    .then((envelope: { data?: { trip?: Trip; revision?: number } }) => {
+      if (envelope.data?.trip) useTripStore.setState({ trip: recomputeTrip(envelope.data.trip), revision: envelope.data.revision ?? 1 });
+    })
+    .catch(() => undefined);
 }

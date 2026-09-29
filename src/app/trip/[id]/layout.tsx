@@ -4,6 +4,7 @@ import { useEffect, useMemo } from "react";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { TripShell } from "@/components/layout/TripShell";
 import { MapCanvas } from "@/components/map/MapCanvas";
+import { toast } from "sonner";
 import { hydrateTrip } from "@/store/trip-store";
 import { useTripStore } from "@/store/trip-store";
 import type { MapMode } from "@/features/journey-map/models/map-state";
@@ -21,11 +22,11 @@ export default function TripLayout({ children }: { children: React.ReactNode }) 
         const payload = await response.json() as { data?: { trip?: Trip; revision?: number } };
         if (payload.data?.trip) { hydrateTrip(payload.data.trip, payload.data.revision); return; }
         const fallback = await fetch(`/api/voyage/import`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tripId: params.id }) });
-        if (!fallback.ok) { router.replace("/trips"); return; }
+        if (!fallback.ok) { toast.error("行程不存在，返回列表页"); router.replace("/trips"); return; }
         const legacy = await fallback.json() as { trip?: Trip; revision?: number };
         if (legacy.trip) hydrateTrip(legacy.trip, legacy.revision);
-        else router.replace("/trips");
-      }).catch(() => router.replace("/trips"));
+        else { toast.error("行程不存在，返回列表页"); router.replace("/trips"); }
+      }).catch(() => { toast.error("网络异常，返回列表页"); router.replace("/trips"); });
   }, [params.id, router]);
 
   const mapMode: MapMode = useMemo(() => {

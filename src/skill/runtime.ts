@@ -43,6 +43,7 @@ import {
   addPlaceItemInputSchema,
   setItemStatusInputSchema,
   addPlaceInputSchema,
+  restoreTripInputSchema,
   updateTripInputSchema,
   successEnvelope,
   type ProviderLevel,
@@ -1071,6 +1072,23 @@ export class VoyageSkillRuntime {
    * Bookmarks a provenance-verified place onto the trip without scheduling
    * it into any day — the persistence behind the map-mark buttons.
    */
+  /**
+   * Restores a full trip snapshot (undo/redo). User-initiated only, never
+   * LLM-driven, revision-locked like every other write, and the trip id is
+   * pinned to the input so a snapshot cannot be written under another record.
+   */
+  async restoreTrip(raw: unknown) {
+    const input = restoreTripInputSchema.parse(raw);
+    const stored = await this.repository.getTrip(input.tripId);
+    if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+    if (stored.revision !== input.expectedTripRevision) throw new SkillError("REVISION_CONFLICT", "Trip revision does not match expectedTripRevision");
+    // The snapshot already round-tripped through tripSchema; the cast matches
+    // the repository's own validated-trip typing (segments arrive narrower).
+    const trip = { ...(input.trip as Trip), id: input.tripId, updatedAt: new Date().toISOString() };
+    const saved = await this.repository.updateTrip({ tripId: input.tripId, expectedRevision: stored.revision, trip });
+    return successEnvelope({ tripId: input.tripId, trip: saved.trip, revision: saved.revision, tripHash: saved.hash });
+  }
+
   async addPlace(raw: unknown) {
     const input = addPlaceInputSchema.parse(raw);
     const stored = await this.repository.getTrip(input.tripId);
@@ -1309,6 +1327,7 @@ export class VoyageSkillRuntime {
       case "add-place-item": return this.addPlaceItem(input);
       case "set-item-status": return this.setItemStatus(input);
       case "add-place": return this.addPlace(input);
+      case "restore-trip": return this.restoreTrip(input);
       case "propose-change": return this.proposeChange(input);
       case "apply-change": return this.applyChange(input);
       case "get-place": return this.getPlace(input);
