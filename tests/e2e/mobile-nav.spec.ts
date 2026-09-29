@@ -29,16 +29,12 @@ test.describe("mobile navigation", () => {
     await expect(page).toHaveURL(/\/trip\/chongqing-2026\/today$/, { timeout: 10_000 });
 
     await nav.getByRole("button", { name: "更多" }).click();
-    await page.getByRole("dialog", { name: "更多页面" }).getByRole("link", { name: "美食" }).click();
-    await expect(page).toHaveURL(/\/trip\/chongqing-2026\/food$/);
+    await page.getByRole("dialog", { name: "更多页面" }).getByRole("link", { name: "交通" }).click();
+    await expect(page).toHaveURL(/\/trip\/chongqing-2026\/transport$/, { timeout: 10_000 });
 
     await nav.getByRole("button", { name: "更多" }).click();
-    await page.getByRole("dialog", { name: "更多页面" }).getByRole("link", { name: "预算" }).click();
-    await expect(page).toHaveURL(/\/trip\/chongqing-2026\/budget$/);
-
-    await nav.getByRole("button", { name: "更多" }).click();
-    await page.getByRole("dialog", { name: "更多页面" }).getByRole("link", { name: "住宿" }).click();
-    await expect(page).toHaveURL(/\/trip\/chongqing-2026\/hotels$/);
+    await page.getByRole("dialog", { name: "更多页面" }).getByRole("link", { name: "预订推荐" }).click();
+    await expect(page).toHaveURL(/\/trip\/chongqing-2026\/offers$/, { timeout: 10_000 });
 
     await nav.getByRole("button", { name: "更多" }).click();
     await page.getByRole("dialog", { name: "更多页面" }).getByRole("link", { name: "设置" }).click();

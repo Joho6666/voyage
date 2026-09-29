@@ -31,7 +31,17 @@ import { TripDiffModal } from "@/components/ai/TripDiffModal";
 import { weatherDisplay } from "@/lib/weather-display";
 import type { TripChangeSet } from "@/types/diff";
 import type { ItemStatus } from "@/types/travel";
-import { formatKm } from "@/lib/utils";
+import { formatCny, formatKm } from "@/lib/utils";
+
+/** Category labels for the budget breakdown (absorbed from the /budget page). */
+const BUDGET_LABELS: Record<string, string> = {
+  transport: "交通",
+  stay: "住宿",
+  food: "美食",
+  ticket: "景点",
+  shop: "购物",
+  other: "其他",
+};
 import { toast } from "sonner";
 
 export default function TodayPage() {
@@ -258,6 +268,31 @@ export default function TodayPage() {
             </p>
           </div>
         </div>
+
+        {/* Budget breakdown (absorbed from the removed /budget page) */}
+        {trip.budgetItems.length > 0 ? (
+          <details className="mt-2 rounded-[10px] border border-border/70 px-2.5 py-1.5">
+            <summary className="cursor-pointer text-[11px] text-muted-foreground">
+              预算明细 · 总 {formatCny(trip.budget)} · 预计 {formatCny(trip.estimatedSpend)} · 剩余 {formatCny(Math.max(0, trip.budget - trip.estimatedSpend))}
+            </summary>
+            <div className="mt-2 space-y-1.5 pb-1">
+              {trip.budgetItems.map((item) => (
+                <div key={item.id}>
+                  <div className="flex justify-between text-[11px]">
+                    <span>{BUDGET_LABELS[item.category] ?? item.label}</span>
+                    <span className="tabular-nums text-muted-foreground">{formatCny(item.planned)}</span>
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+                    <div
+                      className="h-full rounded-full bg-primary"
+                      style={{ width: `${(item.planned / Math.max(...trip.budgetItems.map((b) => b.planned), 1)) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </details>
+        ) : null}
 
         {/* Next Stop Hero Section */}
         <div className="mt-3.5 flex items-start justify-between gap-2">

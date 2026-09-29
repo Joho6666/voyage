@@ -8,7 +8,104 @@ import { SocialEvidencePanel } from "./SocialEvidencePanel";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useTripStore } from "@/store/trip-store";
 import { useUiStore, type WorkspaceTab } from "@/store/ui-store";
+import { cn } from "@/lib/utils";
+import { MapPin } from "lucide-react";
 import { useRouter } from "next/navigation";
+
+/**
+ * The tasks tab renders inline (the standalone /tasks page was removed with
+ * the page-count reduction): checking a task patches the local store view,
+ * same as before — the checklist is advisory, not a revision-locked write.
+ */
+function TaskList() {
+  const trip = useTripStore((s) => s.trip);
+  const patch = useTripStore((s) => s.patchTrip);
+  const done = trip.tasks.filter((t) => t.status === "done").length;
+  const before = trip.tasks.filter((t) => t.group === "before");
+
+  const toggle = (id: string) => {
+    patch((t) => ({
+      ...t,
+      tasks: t.tasks.map((task) =>
+        task.id === id ? { ...task, status: task.status === "done" ? "todo" : "done" } : task,
+      ),
+    }));
+  };
+
+  if (trip.tasks.length === 0) {
+    return <p className="px-4 py-8 text-center text-sm text-muted-foreground">这趟行程暂无待办任务。</p>;
+  }
+
+  return (
+    <div className="space-y-5 px-4 pb-6">
+      <p className="text-right text-[13px] text-muted-foreground">{done} / {trip.tasks.length}</p>
+      <section>
+        <h3 className="text-[13px] font-medium text-muted-foreground">旅行前</h3>
+        <ul className="mt-2 space-y-1">
+          {before.map((task) => (
+            <TaskRow key={task.id} title={task.title} done={task.status === "done"} onToggle={() => toggle(task.id)} />
+          ))}
+        </ul>
+      </section>
+      {trip.days.map((day) => {
+        const items = trip.tasks.filter((t) => t.dayId === day.id);
+        if (!items.length) return null;
+        return (
+          <section key={day.id}>
+            <h3 className="text-[13px] font-medium text-muted-foreground">Day {day.index + 1}</h3>
+            <ul className="mt-2 space-y-1">
+              {items.map((task) => (
+                <TaskRow
+                  key={task.id}
+                  title={task.title}
+                  done={task.status === "done"}
+                  checkin={task.checkin}
+                  onToggle={() => toggle(task.id)}
+                />
+              ))}
+            </ul>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function TaskRow({
+  title,
+  done,
+  checkin,
+  onToggle,
+}: {
+  title: string;
+  done: boolean;
+  checkin?: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <li className="flex items-center gap-2 rounded-[10px] px-2 py-2 hover:bg-secondary">
+      <button
+        type="button"
+        onClick={onToggle}
+        className={cn(
+          "grid size-4 place-items-center rounded border",
+          done ? "border-primary bg-primary text-[10px] text-white" : "border-border",
+        )}
+        aria-checked={done}
+        role="checkbox"
+      >
+        {done ? "✓" : ""}
+      </button>
+      <span className={cn("flex-1 text-sm", done && "text-muted-foreground line-through")}>{title}</span>
+      {checkin ? (
+        <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+          <MapPin className="size-3" />
+          到达后打卡
+        </span>
+      ) : null}
+    </li>
+  );
+}
 
 export function ItineraryPanel() {
   const trip = useTripStore((s) => s.trip);
@@ -34,15 +131,15 @@ export function ItineraryPanel() {
             const next = v as WorkspaceTab;
             setTab(next);
             if (next === "explore") router.push(`/trip/${trip.id}/explore`);
-            if (next === "book") router.push(`/trip/${trip.id}/hotels`);
-            if (next === "tasks") router.push(`/trip/${trip.id}/tasks`);
+            if (next === "book") router.push(`/trip/${trip.id}/offers`);
+            if (next === "tasks") router.push(`/trip/${trip.id}`);
             if (next === "itinerary") router.push(`/trip/${trip.id}`);
           }}
         >
           <TabsList>
             <TabsTrigger value="itinerary">行程</TabsTrigger>
             <TabsTrigger value="explore">探索</TabsTrigger>
-            <TabsTrigger value="book">预订</TabsTrigger>
+            <TabsTrigger value="book">推荐</TabsTrigger>
             <TabsTrigger value="tasks">任务</TabsTrigger>
           </TabsList>
         </Tabs>
@@ -51,17 +148,23 @@ export function ItineraryPanel() {
         <DayTabs />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
-        {focusedDay ? <DayFocusCard day={focusedDay} className="px-4 pt-3" /> : null}
-        <SocialEvidencePanel
-          evidence={trip.socialEvidence}
-          warnings={trip.socialWarnings}
-          platformStatus={trip.socialPlatformStatus}
-          queryStatus={trip.socialQueryStatus}
-          planningMetadata={trip.planningMetadata}
-        />
-        {visibleDays.map((day) => (
-          <DayTimeline key={day.id} day={day} />
-        ))}
+        {tab === "tasks" ? (
+          <TaskList />
+        ) : (
+          <>
+            {focusedDay ? <DayFocusCard day={focusedDay} className="px-4 pt-3" /> : null}
+            <SocialEvidencePanel
+              evidence={trip.socialEvidence}
+              warnings={trip.socialWarnings}
+              platformStatus={trip.socialPlatformStatus}
+              queryStatus={trip.socialQueryStatus}
+              planningMetadata={trip.planningMetadata}
+            />
+            {visibleDays.map((day) => (
+              <DayTimeline key={day.id} day={day} />
+            ))}
+          </>
+        )}
       </div>
     </div>
   );

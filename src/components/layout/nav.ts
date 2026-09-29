@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Compass, LayoutDashboard, Map as MapIcon, Route, Utensils, Hotel, Sparkles, Bus, Ticket, CheckSquare, Wallet, Settings } from "lucide-react";
+import { Compass, LayoutDashboard, Map as MapIcon, Route, Ticket, Bus, Settings } from "lucide-react";
 
 export interface NavItem {
   href: string;
@@ -17,7 +17,12 @@ export interface NavGroupDef {
   items: NavItem[];
 }
 
-/** Trip navigation grouped by traveler mental model: planning → on-the-ground → support. */
+/**
+ * Trip navigation grouped by traveler mental model: planning → on-the-ground → support.
+ * The page-count reduction folded food/hotels/activities into explore and
+ * tasks/budget into the main page/today card, so the list below is the whole
+ * surface — five destinations, one mental model.
+ */
 export function tripNavGroups(tripId: string): NavGroupDef[] {
   const base = `/trip/${tripId}`;
   return [
@@ -34,9 +39,6 @@ export function tripNavGroups(tripId: string): NavGroupDef[] {
     {
       title: "在地",
       items: [
-        { href: `${base}/hotels`, label: "住宿", icon: Hotel },
-        { href: `${base}/food`, label: "美食", icon: Utensils },
-        { href: `${base}/activities`, label: "活动", icon: Sparkles },
         { href: `${base}/transport`, label: "交通", icon: Bus },
       ],
     },
@@ -44,8 +46,6 @@ export function tripNavGroups(tripId: string): NavGroupDef[] {
       title: "补给",
       items: [
         { href: `${base}/offers`, label: "预订推荐", icon: Ticket },
-        { href: `${base}/tasks`, label: "任务", icon: CheckSquare },
-        { href: `${base}/budget`, label: "预算", icon: Wallet },
       ],
     },
   ];

@@ -153,7 +153,7 @@ test.describe("Voyage Golden Trip E2E Suite", () => {
 
   test("Flow 7: Explore -> Add POI -> Itinerary update", async ({ page }) => {
     await page.goto("/trip/chongqing-2026/explore");
-    await expect(page.getByText("真实 POI 探索")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText("重庆 探索")).toBeVisible({ timeout: 15000 });
 
     // Explore places cards should be rendered
     const placeCards = page.locator("article");
