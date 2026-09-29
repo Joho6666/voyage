@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { brand } from "@/lib/brand";
 import { hydrateTrip } from "@/store/trip-store";
+import { usePlanningStore } from "@/store/planning-store";
 import type { Trip } from "@/types/travel";
 import { PlanningChat } from "@/components/planning/PlanningChat";
 import { PlanningProfilePanel } from "@/components/planning/PlanningProfilePanel";
@@ -41,7 +42,7 @@ const MISSING_FIELD_LABELS: Record<string, string> = {
 const GENERATION_STAGES = ["读取已确认的旅行偏好", "整理候选地点与外部数据", "编排每天的行程节奏", "计算交通并保存路线"];
 
 type View = "landing" | "conversation";
-type BusyState = "idle" | "starting" | "sending" | "generating";
+type BusyState = "idle" | "starting" | "sending" | "generating" | "restoring";
 type UnknownRecord = Record<string, unknown>;
 
 interface ParsedPlanningPayload {
@@ -497,6 +498,7 @@ export function NewTripExperience() {
   const [directMode, setDirectMode] = useState(false);
   const [profileDirty, setProfileDirty] = useState(false);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
+  const [resumable, setResumable] = useState<{ sessionId: string; destination: string; updatedAt: string | null } | null>(null);
   const messagesRef = useRef<PlanningMessage[]>([]);
   const profileRef = useRef(profile);
 
@@ -507,6 +509,15 @@ export function NewTripExperience() {
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  // The pointer survives a refresh; the conversation itself is re-fetched from
+  // the server only when the traveller explicitly chooses to resume.
+  useEffect(() => {
+    const stored = usePlanningStore.getState();
+    if (stored.sessionId) {
+      setResumable({ sessionId: stored.sessionId, destination: stored.destination, updatedAt: stored.updatedAt });
+    }
+  }, []);
 
   useEffect(() => {
     const query = searchParams.get("q");
@@ -567,6 +578,7 @@ export function NewTripExperience() {
     try {
       const parsed = await requestSession(prompt);
       setSessionId(parsed.sessionId ?? null);
+      usePlanningStore.getState().setSession({ sessionId: parsed.sessionId ?? "", destination: parsed.profile.destination });
       adoptPayload(parsed, profileRef.current, true);
       const initialMessages = parsed.messages.some((message) => message.role === "assistant")
         ? parsed.messages
@@ -685,6 +697,36 @@ export function NewTripExperience() {
     }
   };
 
+  const resumePlanning = async () => {
+    if (!resumable || busy !== "idle") return;
+    setBusy("restoring");
+    setError("");
+    try {
+      const response = await fetch(`/api/voyage/planning/session/${encodeURIComponent(resumable.sessionId)}`, {
+        headers: { accept: "application/json" },
+        cache: "no-store",
+      });
+      const payload = await readPayload(response);
+      if (!response.ok || (isRecord(payload) && payload.ok === false)) {
+        // A stale pointer (expired guest, wiped data dir) must not keep coming
+        // back on every visit.
+        usePlanningStore.getState().clearSession();
+        setResumable(null);
+        throw new Error(friendlyError(payload, response.status, "这次规划会话已失效，请重新开始对话。"));
+      }
+      const parsed = parsePlanningPayload(payload, profileRef.current);
+      if (!parsed.sessionId) throw new Error("规划服务没有返回会话 ID，请重试。浏览器没有发送或读取任何服务凭据。");
+      usePlanningStore.getState().setSession({ sessionId: parsed.sessionId, destination: parsed.profile.destination });
+      setSessionId(parsed.sessionId);
+      setRevision(parsed.revision ?? 1);
+      adoptPayload(parsed, profileRef.current, true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "会话恢复失败，请重试。");
+    } finally {
+      setBusy("idle");
+    }
+  };
+
   const generateRoute = async (sessionOverride?: ParsedPlanningPayload) => {
     const currentSessionId = sessionOverride?.sessionId ?? sessionId;
     if (!currentSessionId || (busy !== "idle" && !sessionOverride)) return;
@@ -711,6 +753,10 @@ export function NewTripExperience() {
       const parsed = parseGenerationPayload(payload, profileRef.current);
       const tripId = parsed.trip?.id ?? parsed.tripId;
       if (!tripId) throw new Error("路线服务没有返回行程 ID，请稍后重试。");
+      // The session has served its purpose once the trip exists; keeping the
+      // pointer would only offer a stale, already-generated conversation.
+      usePlanningStore.getState().clearSession();
+      setResumable(null);
       if (parsed.trip) hydrateTrip(parsed.trip, parsed.tripRevision ?? 1);
       await new Promise((resolve) => window.setTimeout(resolve, 220));
       router.push(`/trip/${encodeURIComponent(tripId)}`);
@@ -736,6 +782,7 @@ export function NewTripExperience() {
     try {
       const parsed = await requestSession(directPrompt(prompt, profileRef.current), profileRef.current);
       setSessionId(parsed.sessionId ?? null);
+      usePlanningStore.getState().setSession({ sessionId: parsed.sessionId ?? "", destination: parsed.profile.destination });
       setRevision(parsed.revision ?? 1);
       adoptPayload(parsed, profileRef.current);
       await generateRoute({ ...parsed, sessionId: parsed.sessionId, revision: parsed.revision ?? 1 });
@@ -749,6 +796,8 @@ export function NewTripExperience() {
     const fresh = createDefaultProfile();
     setView("landing");
     setSessionId(null);
+    usePlanningStore.getState().clearSession();
+    setResumable(null);
     setRevision(0);
     setMessages([]);
     messagesRef.current = [];
@@ -797,6 +846,21 @@ export function NewTripExperience() {
                 <div className="mt-4"><p className="mb-2 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">灵感提示</p><div className="flex flex-wrap gap-1.5">{QUICK_PROMPTS.map((item) => <button key={item} type="button" onClick={() => setPrompt(item)} className="rounded-full border border-border bg-background px-2.5 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:border-primary/30 hover:bg-accent hover:text-accent-foreground">{item}</button>)}</div></div>
                 <div className="mt-5 flex flex-col-reverse gap-2 border-t border-border/80 pt-4 sm:flex-row sm:items-center sm:justify-between"><p className="text-[10px] leading-4 text-muted-foreground">Enter 不会直接生成<br />你可以在对话里慢慢补充</p><Button size="lg" onClick={() => void startConversation()} disabled={isBusy}>{busy === "starting" ? <LoaderCircle className="animate-spin" /> : <ArrowRight />}开始对话</Button></div>
               </div>
+
+              {resumable ? (
+                <div className="flex items-center justify-between gap-3 rounded-[18px] border border-primary/25 bg-accent/60 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-foreground">继续上次规划{resumable.destination ? ` · ${resumable.destination}` : ""}</p>
+                    <p className="mt-0.5 text-[10px] text-muted-foreground">会话保存在服务端；继续会接上之前的对话和画像，刷新也不会再丢失。</p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <Button size="sm" variant="ghost" onClick={() => { usePlanningStore.getState().clearSession(); setResumable(null); }}>开新的</Button>
+                    <Button size="sm" onClick={() => void resumePlanning()} disabled={isBusy}>
+                      {busy === "restoring" ? <LoaderCircle className="animate-spin" /> : <RotateCcw className="size-3.5" />}继续
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
 
               {directMode ? (
                 <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="rounded-[24px] border border-border bg-surface p-1 shadow-[0_14px_45px_rgba(28,25,23,0.05)]"><div className="flex items-center justify-between px-4 pt-3"><button type="button" onClick={() => setDirectMode(false)} className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"><ArrowLeft className="size-3.5" />回到对话入口</button><span className="text-[10px] text-muted-foreground">次要路径</span></div><div className="p-3 sm:p-4"><PlanningProfilePanel profile={profile} onChange={updateProfile} onGenerate={() => void generateDirect()} generating={busy === "starting" || busy === "generating"} disabled={isBusy} showStatus={false} blockers={blockers} days={plannerDays} direct /></div></motion.div>

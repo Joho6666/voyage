@@ -19,7 +19,6 @@ interface UiState {
   mapFilters: MapFilter[];
   mapSearch: string;
   sheetSnap: SheetSnap;
-  mobileTab: "itinerary" | "map" | "explore" | "tasks" | "me";
   toggleSidebar: () => void;
   setAssistantOpen: (open: boolean) => void;
   setCommandOpen: (open: boolean) => void;
@@ -32,7 +31,6 @@ interface UiState {
   toggleMapFilter: (filter: MapFilter) => void;
   setMapSearch: (q: string) => void;
   setSheetSnap: (snap: SheetSnap) => void;
-  setMobileTab: (tab: UiState["mobileTab"]) => void;
 }
 
 export const useUiStore = create<UiState>()(
@@ -49,7 +47,6 @@ export const useUiStore = create<UiState>()(
       mapFilters: [],
       mapSearch: "",
       sheetSnap: "half",
-      mobileTab: "itinerary",
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setAssistantOpen: (assistantOpen) => set({ assistantOpen }),
       setCommandOpen: (commandOpen) => set({ commandOpen }),
@@ -74,7 +71,6 @@ export const useUiStore = create<UiState>()(
         })),
       setMapSearch: (mapSearch) => set({ mapSearch }),
       setSheetSnap: (sheetSnap) => set({ sheetSnap }),
-      setMobileTab: (mobileTab) => set({ mobileTab }),
     }),
     {
       name: "voyage-ui",

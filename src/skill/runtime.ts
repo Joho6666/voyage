@@ -57,7 +57,6 @@ import type { OfferKind, OfferProviderLevel, OfferProviderStatus, TravelOffer } 
 import { resolveCityCoverImage } from "@/services/media/city-cover";
 import { SocialProviderRouter } from "@/services/social/router";
 import { createTikHubProvider } from "@/services/social/tikhub";
-import { createRedFoxProvider } from "@/services/social/redfox";
 import { extractSocialSignals } from "@/services/social/signal-extractor";
 import { resolveSourceLink } from "@/services/social/source-link";
 import { buildSocialContext } from "@/services/social/context-builder";
@@ -311,7 +310,10 @@ function restoreLockedItems(original: Trip, proposed: Trip, locked: Set<string>)
 }
 
 function socialRouter(): SocialProviderRouter {
-  return new SocialProviderRouter([createTikHubProvider(), createRedFoxProvider()]);
+  // RedFox stays out of the evidence pipeline: its only documented endpoint
+  // returns douyin account profiles, not posts, so it can never produce a
+  // valid SocialObservation. The account-search channel remains in redfox.ts.
+  return new SocialProviderRouter([createTikHubProvider()]);
 }
 
 const DEFAULT_SOCIAL_PLATFORMS: SocialPlatform[] = ["douyin", "xiaohongshu", "weibo", "wechat_search"];

@@ -69,8 +69,9 @@ export function TopBar() {
           <span className="text-muted-foreground">预算 {formatCny(trip.budget)}</span>
         </div>
       </div>
-      <div className="hidden items-center gap-1 sm:flex">
-        <Button variant="ghost" size="sm" onClick={() => void share()}>
+      {/* Share stays reachable on phones: only the "invite" label hides below sm. */}
+      <div className="flex items-center gap-1">
+        <Button variant="ghost" size="sm" onClick={() => void share()} className="hidden sm:inline-flex">
           邀请好友
         </Button>
         <Button variant="ghost" size="sm" onClick={() => void share()}>

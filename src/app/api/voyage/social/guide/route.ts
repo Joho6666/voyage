@@ -2,7 +2,6 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { createRedFoxProvider } from "@/services/social/redfox";
 import { createTikHubProvider } from "@/services/social/tikhub";
 import { SocialProviderRouter } from "@/services/social/router";
 import { collectGuidePosts } from "@/services/planning/guide-extract";
@@ -21,7 +20,7 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ ok: false, error: { code: "INVALID_INPUT", message: "缺少城市参数" } }, { status: 400, headers: { "cache-control": "no-store" } });
   }
-  const router = new SocialProviderRouter([createTikHubProvider(), createRedFoxProvider()]);
+  const router = new SocialProviderRouter([createTikHubProvider()]);
   try {
     const result = await collectGuidePosts(
       router,
