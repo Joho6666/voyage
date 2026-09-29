@@ -171,6 +171,17 @@ export const setItemStatusInputSchema = z.object({
   expectedTripRevision: z.number().int().min(1),
 });
 
+/**
+ * Bookmarking a provider place onto the trip's map without scheduling it.
+ * The map-mark buttons used to patch the local store only, so every mark
+ * vanished on the next server rehydrate.
+ */
+export const addPlaceInputSchema = z.object({
+  tripId: z.string().min(1),
+  place: placeSchema,
+  expectedTripRevision: z.number().int().min(1),
+});
+
 export const proposeChangeInputSchema = z.object({
   tripId: z.string().min(1),
   instruction: z.string().min(1).max(2000),
@@ -245,6 +256,7 @@ export const commandSchemas = {
   "reorder-day": reorderDayInputSchema,
   "add-place-item": addPlaceItemInputSchema,
   "set-item-status": setItemStatusInputSchema,
+  "add-place": addPlaceInputSchema,
   "propose-change": proposeChangeInputSchema,
   "apply-change": applyChangeInputSchema,
   "get-place": getPlaceInputSchema,
@@ -297,6 +309,7 @@ export const outputSchemas = {
   "reorder-day": tripDataSchema,
   "add-place-item": tripDataSchema,
   "set-item-status": tripDataSchema,
+  "add-place": tripDataSchema,
   "search-places": z.object({ places: z.array(z.object({ id: z.string(), name: z.string(), category: z.string() }).passthrough()) }).passthrough(),
   "get-place": z.object({ place: z.object({ id: z.string(), name: z.string() }).passthrough(), matchBasis: z.enum(["trip_lookup", "provider_search"]) }).passthrough(),
   "plan-route": z.object({ route: z.object({ mode: z.string(), distanceMeters: z.number(), durationMinutes: z.number(), estimated: z.boolean() }).passthrough() }).passthrough(),

@@ -65,3 +65,67 @@ describe("set-item-status runtime command", () => {
     expect((await repository.getTrip(chongqingTrip.id))?.revision).toBe(1);
   });
 });
+
+describe("add-place runtime command (map marks)", () => {
+  beforeEach(async () => {
+    dataDir = await mkdtemp(path.join(tmpdir(), "voyage-add-place-mark-"));
+    repository = new JsonSkillRepository(dataDir);
+    runtime = new VoyageSkillRuntime(repository, async () => { throw new Error("provider must not be needed"); });
+    await repository.createTrip(structuredClone(chongqingTrip));
+  });
+
+  afterEach(async () => {
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  const mark = () => ({
+    id: "amap-mark-777",
+    name: "标记咖啡店",
+    category: "cafe" as const,
+    lat: 29.55,
+    lng: 106.57,
+    rating: 4.4,
+    reviewCount: 20,
+    image: "",
+    priceLevel: 1,
+    address: "测试路 7 号",
+    openingStatus: "unknown" as const,
+    stayMinutes: 45,
+    description: "",
+    tags: [],
+    district: "渝中区",
+    source: "amap" as const,
+    sourceId: "mark-777",
+    provenance: { source: "amap" as const, estimated: false },
+  });
+
+  it("bookmarks a verified place without scheduling it, and persists", async () => {
+    const envelope = await runtime.addPlace({
+      tripId: chongqingTrip.id,
+      place: mark(),
+      expectedTripRevision: 1,
+    }) as { ok: boolean; data: { trip: typeof chongqingTrip; revision: number } };
+
+    expect(envelope.ok).toBe(true);
+    expect(envelope.data.trip.places.some((place) => place.id === "amap-mark-777")).toBe(true);
+    // A mark is not a schedule entry.
+    expect(envelope.data.trip.items.some((item) => item.placeId === "amap-mark-777")).toBe(false);
+
+    const stored = await repository.getTrip(chongqingTrip.id);
+    expect(stored?.trip.places.some((place) => place.id === "amap-mark-777")).toBe(true);
+    expect(stored?.revision).toBe(2);
+  });
+
+  it("rejects unverified places and duplicate marks without a revision bump", async () => {
+    await expect(runtime.addPlace({
+      tripId: chongqingTrip.id,
+      place: { ...mark(), source: undefined, sourceId: undefined, provenance: undefined },
+      expectedTripRevision: 1,
+    })).rejects.toMatchObject({ code: "PLACE_SOURCE_UNVERIFIED" });
+
+    await runtime.addPlace({ tripId: chongqingTrip.id, place: mark(), expectedTripRevision: 1 });
+    const second = await runtime.addPlace({ tripId: chongqingTrip.id, place: mark(), expectedTripRevision: 2 }) as { data: { revision: number } };
+    expect(second.data.revision).toBe(2);
+    expect((await repository.getTrip(chongqingTrip.id))?.revision).toBe(2);
+  });
+});

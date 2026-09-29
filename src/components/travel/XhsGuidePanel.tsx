@@ -4,7 +4,7 @@ import { useState } from "react";
 import { BookOpen, Check, ChevronDown, ChevronRight, ExternalLink, LoaderCircle, MapPin, Search, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { addPlaceItemToDay, TripCommandError } from "@/services/trip-commands";
+import { addPlaceItemToDay, addPlaceToTrip, TripCommandError } from "@/services/trip-commands";
 import { useTripStore } from "@/store/trip-store";
 import { useUiStore } from "@/store/ui-store";
 import { cn } from "@/lib/utils";
@@ -151,13 +151,24 @@ export function XhsGuidePanel({
     });
   };
 
+  /**
+   * Location is written through the runtime so the marker survives a reload;
+   * a local-store patch alone is wiped by the next server rehydrate.
+   */
   const locateOnMap = (place: Place) => {
-    // 确保地点在 trip.places 中，这样地图标记控制器能找到它并展示 POI 卡片与平移动画
-    if (!trip.places.some((p) => p.id === place.id)) {
-      patch((t) => ({ ...t, places: [...t.places, place] }));
-    }
+    const alreadyOnTrip = trip.places.some((p) => p.id === place.id);
+    if (!alreadyOnTrip) patch((t) => ({ ...t, places: [...t.places, place] }));
     selectPlace(place.id);
-    toast.success(`已在地图高亮定位：${place.name}`);
+    if (alreadyOnTrip) {
+      toast.success(`已在地图高亮定位：${place.name}`);
+      return;
+    }
+    void addPlaceToTrip({ tripId: trip.id, place, expectedTripRevision: useTripStore.getState().revision })
+      .then(({ trip: saved, revision }) => {
+        setTrip(saved, revision);
+        toast.success(`已在地图高亮定位：${place.name}`);
+      })
+      .catch((error) => toast.error(error instanceof TripCommandError ? error.message : "地图定位保存失败，请重试"));
   };
 
   const addSelected = async (post: GuidePost) => {

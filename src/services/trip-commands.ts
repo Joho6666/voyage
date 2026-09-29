@@ -50,6 +50,35 @@ export async function addPlaceItemToDay(input: {
 }
 
 /**
+ * Bookmarks a place onto the trip map without scheduling it. The map-mark
+ * buttons used to patch only the local store, so marks vanished on reload.
+ */
+export async function addPlaceToTrip(input: {
+  tripId: string;
+  place: Place;
+  expectedTripRevision: number;
+}): Promise<AddPlaceResult> {
+  let envelope: { ok?: boolean; data?: { trip?: Trip; revision?: number }; error?: { code?: string; message?: string } };
+  try {
+    const response = await fetch("/api/voyage/command", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        command: "add-place",
+        input: { tripId: input.tripId, place: input.place, expectedTripRevision: input.expectedTripRevision },
+      }),
+    });
+    envelope = await response.json();
+  } catch {
+    throw new TripCommandError("网络异常，地图标记保存失败，请重试");
+  }
+  if (!envelope.ok || !envelope.data?.trip) {
+    throw new TripCommandError(envelope.error?.message ?? "地图标记保存失败，请重试", envelope.error?.code);
+  }
+  return { trip: envelope.data.trip, revision: envelope.data.revision ?? input.expectedTripRevision + 1 };
+}
+
+/**
  * Persists an item status change (e.g. checking a stop off on the today
  * screen). The local-only path lost every check-off on reload because the
  * workspace rehydrates from the server-side runtime.

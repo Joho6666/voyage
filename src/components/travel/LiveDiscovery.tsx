@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { TravelImage } from "@/components/travel/TravelImage";
 import { AddToDay } from "@/components/travel/AddToDay";
+import { addPlaceToTrip, TripCommandError } from "@/services/trip-commands";
 import { useTripStore } from "@/store/trip-store";
 import { useUiStore } from "@/store/ui-store";
 import { toast } from "sonner";
@@ -71,6 +72,7 @@ export function LiveDiscovery({
 
   const trip = useTripStore((s) => s.trip);
   const patch = useTripStore((s) => s.patchTrip);
+  const setTrip = useTripStore((s) => s.setTrip);
   const selectPlace = useUiStore((s) => s.selectPlace);
 
   useEffect(() => {
@@ -124,6 +126,20 @@ export function LiveDiscovery({
     }
   };
 
+  /**
+   * Marks must survive a reload, so they go through the runtime's add-place
+   * command; patching the local store alone is wiped by the next rehydrate.
+   */
+  const persistMark = async (p: Place) => {
+    if (trip.places.some((existing) => existing.id === p.id)) return;
+    const { trip: saved, revision } = await addPlaceToTrip({
+      tripId: trip.id,
+      place: p,
+      expectedTripRevision: useTripStore.getState().revision,
+    });
+    setTrip(saved, revision);
+  };
+
   const locateOnMap = (result: DiscoveryResult) => {
     const p = resultToPlace(result, kind);
     ensurePlaceInTrip(p);
@@ -135,7 +151,9 @@ export function LiveDiscovery({
     const p = resultToPlace(result, kind);
     ensurePlaceInTrip(p);
     selectPlace(p.id);
-    toast.success(`已加入地图标记：${result.name}`);
+    void persistMark(p)
+      .then(() => toast.success(`已加入地图标记：${result.name}`))
+      .catch((error) => toast.error(error instanceof TripCommandError ? error.message : "地图标记保存失败，请重试"));
   };
 
   return (

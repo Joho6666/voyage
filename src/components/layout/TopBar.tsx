@@ -19,8 +19,15 @@ export function TopBar() {
     const data = await response.json() as { token?: string };
     if (!data.token) { toast.error("分享链接生成失败"); return; }
     const url = `${window.location.origin}/share/${data.token}`;
-    await navigator.clipboard?.writeText(url);
-    toast.success("只读分享链接已复制");
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("只读分享链接已复制");
+    } catch {
+      // Clipboard permission can be denied; the link still exists — surface
+      // it instead of dying with an unhandled rejection and no feedback.
+      toast.error("复制失败，请在地址栏手动打开分享链接");
+      console.info("voyage share link:", url);
+    }
   };
 
   /** A real clipboard write of a real summary — the old version only toasted. */

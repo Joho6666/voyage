@@ -42,6 +42,7 @@ import {
   reorderDayInputSchema,
   addPlaceItemInputSchema,
   setItemStatusInputSchema,
+  addPlaceInputSchema,
   updateTripInputSchema,
   successEnvelope,
   type ProviderLevel,
@@ -1066,6 +1067,29 @@ export class VoyageSkillRuntime {
     return successEnvelope({ tripId: input.tripId, trip: saved.trip, revision: saved.revision, tripHash: saved.hash });
   }
 
+  /**
+   * Bookmarks a provenance-verified place onto the trip without scheduling
+   * it into any day — the persistence behind the map-mark buttons.
+   */
+  async addPlace(raw: unknown) {
+    const input = addPlaceInputSchema.parse(raw);
+    const stored = await this.repository.getTrip(input.tripId);
+    if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+    if (stored.revision !== input.expectedTripRevision) throw new SkillError("REVISION_CONFLICT", "Trip revision does not match expectedTripRevision");
+    const place = input.place;
+    const provenanceOk = place.provenance?.source === "amap" || place.provenance?.source === "demo"
+      || ((place.source === "amap" || place.source === "demo") && Boolean(place.sourceId));
+    if (!provenanceOk) {
+      throw new SkillError("PLACE_SOURCE_UNVERIFIED", "该地点缺少可核实的真实数据来源，不能加入地图");
+    }
+    if (stored.trip.places.some((existing) => existing.id === place.id)) {
+      return successEnvelope({ tripId: input.tripId, trip: stored.trip, revision: stored.revision, tripHash: stored.hash });
+    }
+    const trip = { ...stored.trip, places: [...stored.trip.places, place] };
+    const saved = await this.repository.updateTrip({ tripId: input.tripId, expectedRevision: stored.revision, trip });
+    return successEnvelope({ tripId: input.tripId, trip: saved.trip, revision: saved.revision, tripHash: saved.hash });
+  }
+
   async setItemStatus(raw: unknown) {
     const input = setItemStatusInputSchema.parse(raw);
     const stored = await this.repository.getTrip(input.tripId);
@@ -1284,6 +1308,7 @@ export class VoyageSkillRuntime {
       case "reorder-day": return this.reorderDay(input);
       case "add-place-item": return this.addPlaceItem(input);
       case "set-item-status": return this.setItemStatus(input);
+      case "add-place": return this.addPlace(input);
       case "propose-change": return this.proposeChange(input);
       case "apply-change": return this.applyChange(input);
       case "get-place": return this.getPlace(input);

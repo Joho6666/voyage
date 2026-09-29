@@ -139,12 +139,16 @@ export default function ExplorePage() {
   const places = useMemo(() => {
     const verifiedTripPlaces = trip.places.filter((place) => place.provenance?.source === "amap" || place.source === "amap");
     const knownTripPlaces = verifiedTripPlaces.length ? verifiedTripPlaces : trip.places;
-    const pool = source === "amap" && remote.length ? remote : knownTripPlaces;
+    const usingRemote = source === "amap" && remote.length > 0;
+    const pool = usingRemote ? remote : knownTripPlaces;
     let filtered = pool.filter((p) => {
       if (tab === "museum" && !p.name.includes("博物馆") && !p.name.includes("美术馆")) return false;
       if (tab === "park" && !p.name.includes("公园")) return false;
       if (tab !== "all" && tab !== "museum" && tab !== "park" && p.category !== tab) return false;
-      if (q && !p.name.includes(q) && !p.address.includes(q)) return false;
+      // The remote pool was already keyword-matched by AMap; re-filtering it
+      // by literal substring killed legitimate fuzzy results (e.g. brands
+      // whose names never contain the query), leaving the page empty.
+      if (q && !usingRemote && !p.name.includes(q) && !p.address.includes(q)) return false;
 
       // Quick filter logic
       if (quickFilter === "室内") {
