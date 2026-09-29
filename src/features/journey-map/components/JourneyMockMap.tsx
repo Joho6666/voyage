@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { project } from "@/lib/map-project";
 import type { Trip } from "@/types/travel";
 import type { MapLayersConfig, MapMode } from "../models/map-state";
@@ -34,6 +34,7 @@ export function JourneyMockMap({
   const selectPlace = useUiStore((s) => s.selectPlace);
   const hoverPlace = useUiStore((s) => s.hoverPlace);
   const setActiveDay = useUiStore((s) => s.setActiveDay);
+  const sheetSnap = useUiStore((s) => s.sheetSnap);
 
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -47,6 +48,11 @@ export function JourneyMockMap({
     food: mode === "EXPLORE",
     transport: true,
   });
+
+  // Mirror JourneyAMapCanvas: EXPLORE selections must not leak into PLAN.
+  useEffect(() => {
+    if (mode === "PLAN") selectPlace(null);
+  }, [mode, selectPlace]);
 
   const { location: userLocation, error: locationError, requestLocation } = useUserLocation();
   const { isOnline, isCached, isCaching, cacheTrip } = useOfflineJourney(trip);
@@ -323,7 +329,8 @@ export function JourneyMockMap({
         <button
           type="button"
           onClick={() => setScrubberOpen(true)}
-          className="absolute bottom-4 right-4 z-20 rounded-full border border-border/80 bg-surface/90 px-3 py-1.5 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur-xs hover:text-foreground hover:bg-secondary transition-colors"
+          // On mobile the trip sheet covers this corner until it is collapsed.
+          className={`absolute bottom-4 right-4 z-20 rounded-full border border-border/80 bg-surface/90 px-3 py-1.5 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur-xs hover:text-foreground hover:bg-secondary transition-colors ${sheetSnap !== "collapsed" ? "hidden md:block" : ""}`}
         >
           ⏱ 行程预演
         </button>

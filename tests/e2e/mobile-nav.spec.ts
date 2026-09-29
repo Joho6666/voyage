@@ -16,6 +16,15 @@ test.describe("mobile navigation", () => {
     // Sharing must survive on phones; it used to disappear below 640px.
     await expect(page.getByRole("button", { name: "分享" })).toBeVisible();
 
+    // The map entry reveals the real map by collapsing the trip sheet: the
+    // journey preview pill only exists once the sheet stops covering that
+    // corner, so it doubles as the collapse signal.
+    const preview = page.getByRole("button", { name: "行程预演" });
+    await expect(preview).toBeHidden();
+    await nav.getByRole("link", { name: "地图" }).click();
+    await expect(page).toHaveURL(/\/trip\/chongqing-2026$/, { timeout: 10_000 });
+    await expect(preview).toBeVisible({ timeout: 10_000 });
+
     await nav.getByRole("link", { name: "今天" }).click();
     await expect(page).toHaveURL(/\/trip\/chongqing-2026\/today$/, { timeout: 10_000 });
 

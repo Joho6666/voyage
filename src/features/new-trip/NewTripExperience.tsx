@@ -854,7 +854,7 @@ export function NewTripExperience() {
                     <p className="mt-0.5 text-[10px] text-muted-foreground">会话保存在服务端；继续会接上之前的对话和画像，刷新也不会再丢失。</p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
-                    <Button size="sm" variant="ghost" onClick={() => { usePlanningStore.getState().clearSession(); setResumable(null); }}>开新的</Button>
+                    <Button size="sm" variant="ghost" disabled={isBusy} onClick={() => { usePlanningStore.getState().clearSession(); setResumable(null); }}>开新的</Button>
                     <Button size="sm" onClick={() => void resumePlanning()} disabled={isBusy}>
                       {busy === "restoring" ? <LoaderCircle className="animate-spin" /> : <RotateCcw className="size-3.5" />}继续
                     </Button>

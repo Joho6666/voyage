@@ -38,6 +38,7 @@ export function JourneyAMapCanvas({
   const selectPlace = useUiStore((s) => s.selectPlace);
   const hoverPlace = useUiStore((s) => s.hoverPlace);
   const setActiveDay = useUiStore((s) => s.setActiveDay);
+  const sheetSnap = useUiStore((s) => s.sheetSnap);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<AMapInstance | null>(null);
@@ -70,6 +71,13 @@ export function JourneyAMapCanvas({
       hotel: true,
     }));
   }, [mode]);
+
+  // A selection made on an EXPLORE-mode discovery list must not leak into the
+  // planning map, where its layer is hidden but the selected marker would
+  // still render and hold its popover open.
+  useEffect(() => {
+    if (mode === "PLAN") selectPlace(null);
+  }, [mode, selectPlace]);
 
   const { location: userLocation, error: locationError, requestLocation } = useUserLocation();
   const { isOnline, isCached, isCaching, cacheTrip } = useOfflineJourney(trip);
@@ -368,7 +376,8 @@ export function JourneyAMapCanvas({
         <button
           type="button"
           onClick={() => setScrubberOpen(true)}
-          className="absolute bottom-4 right-4 z-20 rounded-full border border-border/80 bg-surface/90 px-3 py-1.5 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur-xs hover:text-foreground hover:bg-secondary transition-colors"
+          // On mobile the trip sheet covers this corner until it is collapsed.
+          className={`absolute bottom-4 right-4 z-20 rounded-full border border-border/80 bg-surface/90 px-3 py-1.5 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur-xs hover:text-foreground hover:bg-secondary transition-colors ${sheetSnap !== "collapsed" ? "hidden md:block" : ""}`}
         >
           ⏱ 行程预演
         </button>

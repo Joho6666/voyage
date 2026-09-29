@@ -209,8 +209,9 @@ export function MapPopover({
         </div>
       </div>
 
-      {/* Mobile Bottom Floating Card (Compact & Expandable) */}
-      <div data-testid="map-popover" className="md:hidden absolute inset-x-3 bottom-3 z-30 overflow-hidden rounded-[16px] border border-border bg-surface/95 shadow-2xl backdrop-blur-md animate-in slide-in-from-bottom-3 duration-200">
+      {/* Mobile Bottom Floating Card (Compact & Expandable); the bottom bar is
+          3.5rem tall, so the card rests above it instead of under it. */}
+      <div data-testid="map-popover" className="md:hidden absolute inset-x-3 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-30 overflow-hidden rounded-[16px] border border-border bg-surface/95 shadow-2xl backdrop-blur-md animate-in slide-in-from-bottom-3 duration-200">
         <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-border/60">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">

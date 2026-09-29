@@ -11,16 +11,20 @@ import { bottomNav, globalNav, tripNavGroups } from "./nav";
 const primaryItems = [
   { id: "itinerary", href: "", label: "行程", icon: Route },
   { id: "today", href: "/today", label: "今天", icon: LayoutDashboard },
-  { id: "map", href: "/explore", label: "地图", icon: Map },
+  // "地图" lands on the trip root with the sheet collapsed: the full-bleed
+  // map lives behind the trip sheet, and /explore is a POI list without a
+  // map on phones. Same destination, different sheet state — the two
+  // entries are the two views of the trip page.
+  { id: "map", href: "", label: "地图", icon: Map },
 ] as const;
 
 function TripMobileNav({ tripId }: { tripId: string }) {
   const pathname = usePathname();
+  const sheetSnap = useUiStore((s) => s.sheetSnap);
   const [moreOpen, setMoreOpen] = useState(false);
   const base = `/trip/${tripId}`;
   const groups = tripNavGroups(tripId);
 
-  const isActive = (suffix: string) => pathname === `${base}${suffix}`;
   const closeMore = () => setMoreOpen(false);
 
   return (
@@ -87,19 +91,26 @@ function TripMobileNav({ tripId }: { tripId: string }) {
           {primaryItems.map((item) => {
             const Icon = item.icon;
             const href = `${base}${item.href}`;
+            // On the trip page the two entries are distinguished by the sheet
+            // state, not by the URL.
+            const active = item.id === "map"
+              ? pathname === base && sheetSnap === "collapsed"
+              : item.id === "itinerary"
+                ? pathname === base && sheetSnap !== "collapsed"
+                : pathname === `${base}${item.href}`;
             return (
               <li key={item.id}>
                 <Link
                   href={href}
                   onClick={() => {
-                    // Mirror the trip sheet behaviour: the map reads best with the
-                    // panel collapsed, the itinerary with it half open.
+                    // Mirror the trip sheet behaviour: the map reads best with
+                    // the panel collapsed, the itinerary with it half open.
                     if (item.id === "map") useUiStore.getState().setSheetSnap("collapsed");
                     if (item.id === "itinerary") useUiStore.getState().setSheetSnap("half");
                   }}
                   className={cn(
                     "flex h-14 flex-col items-center justify-center gap-0.5 text-[11px] text-muted-foreground",
-                    isActive(item.href) && "text-primary",
+                    active && "text-primary",
                   )}
                 >
                   <Icon className="size-4" />
