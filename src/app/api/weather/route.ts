@@ -3,6 +3,8 @@ import { z } from "zod";
 import { amapGeocode, amapWeather, isAmapConfigured } from "@/services/map/amap-rest";
 import type { WeatherDay } from "@/services/weather/types";
 import { failureMessage } from "@/lib/failure-message";
+import { enforceRateLimit } from "@/lib/api-guards";
+import { logger } from "@/lib/logger";
 
 const querySchema = z.object({
   city: z.string().min(1).max(40),
@@ -16,6 +18,9 @@ function iconFrom(text: string): WeatherDay["icon"] {
 }
 
 export async function GET(request: Request) {
+  // Paid providers behind this route share one budget per caller.
+  const limited = enforceRateLimit(request, "amap");
+  if (limited) return limited;
   const url = new URL(request.url);
   const parsed = querySchema.safeParse({ city: url.searchParams.get("city") ?? "" });
   if (!parsed.success) {
@@ -35,6 +40,7 @@ export async function GET(request: Request) {
     }));
     return NextResponse.json({ source: "amap", days });
   } catch (error) {
+    logger.warn("weather.degraded_to_mock", { reason: failureMessage(error, "weather failed") });
     return NextResponse.json(
       { source: "mock", days: [], error: failureMessage(error, "weather failed") },
       { status: 200 },

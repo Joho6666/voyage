@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { FliggyTopError, createFliggyTopClient } from "@/services/booking/fliggy-top";
 import { failureMessage } from "@/lib/failure-message";
+import { enforceRateLimit } from "@/lib/api-guards";
 
 const querySchema = z.object({
   afterModifiedTime: z.string().max(19).optional(),
@@ -11,6 +12,9 @@ const querySchema = z.object({
 });
 
 export async function GET(request: Request) {
+  // Paid providers behind this route share one budget per caller.
+  const limited = enforceRateLimit(request, "fliggy");
+  if (limited) return limited;
   const url = new URL(request.url);
   const parsed = querySchema.safeParse({
     afterModifiedTime: url.searchParams.get("afterModifiedTime") ?? undefined,

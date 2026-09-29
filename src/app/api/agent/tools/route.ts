@@ -11,6 +11,7 @@ import { chongqingTrip, DEMO_TRIP_ID } from "@/data/demo/chongqing";
 import { failureMessage, toolContextMessage } from "@/lib/failure-message";
 import type { Trip } from "@/types/travel";
 import type { PlanningProfile } from "@/schemas/planning";
+import { enforceRateLimit } from "@/lib/api-guards";
 
 export const dynamic = "force-dynamic";
 
@@ -204,6 +205,9 @@ function transportContextFromArgs(args: Record<string, unknown>) {
 }
 
 export async function POST(request: NextRequest) {
+  // Paid providers behind this route share one budget per caller.
+  const limited = enforceRateLimit(request, "llm");
+  if (limited) return limited;
   const parsed = inputSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ ok: false, error: "Invalid input" }, { status: 400 });
   const workspace = guestWorkspace(request);

@@ -1,6 +1,7 @@
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { configurationPresence, saveLocalCredential, saveLocalCredentials } from "@/services/config/local-credentials";
+import { logger } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +35,9 @@ export async function POST(request: NextRequest) {
       await saveLocalCredential(body.key, body.value);
     }
     return NextResponse.json({ ok: true, configured: await configurationPresence() }, { headers: { "cache-control": "no-store" } });
-  } catch {
+  } catch (error) {
+    // Deliberately no field values here — this endpoint handles credentials.
+    logger.warn("local-credentials.update_rejected", { error });
     return NextResponse.json({ error: "Invalid field or value" }, { status: 400 });
   }
 }

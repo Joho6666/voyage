@@ -1,4 +1,5 @@
 import type { Place } from "@/types/travel";
+import { logger } from "@/lib/logger";
 
 const cache = new Map<string, { expiresAt: number; url?: string }>();
 
@@ -65,7 +66,8 @@ export async function resolveCityCoverImage(city: string, places: Place[] = []):
     }
     cache.set(key, { expiresAt: Date.now() + 5 * 60_000 });
     return "";
-  } catch {
+  } catch (error) {
+    logger.warn("city-cover.lookup_failed", { city: key, error });
     cache.set(key, { expiresAt: Date.now() + 5 * 60_000 });
     return "";
   }

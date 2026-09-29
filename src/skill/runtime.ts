@@ -58,6 +58,7 @@ import { resolveCityCoverImage } from "@/services/media/city-cover";
 import { SocialProviderRouter } from "@/services/social/router";
 import { createTikHubProvider } from "@/services/social/tikhub";
 import { extractSocialSignals } from "@/services/social/signal-extractor";
+import { logger } from "@/lib/logger";
 import { resolveSourceLink } from "@/services/social/source-link";
 import { buildSocialContext } from "@/services/social/context-builder";
 import type { SocialEvidence, SocialObservation, SocialPlatform, SocialProviderStatus } from "@/services/social/types";
@@ -343,7 +344,8 @@ async function collectSocialObservations(
     try {
       const result = await router[operation]({ city: input.city, query: input.query, platform: p, limit: Math.min(input.limit, 5) });
       return { platform: p, result };
-    } catch {
+    } catch (error) {
+      logger.warn("social.collect_failed", { platform: p, operation, error });
       return { platform: p, result: { status: "error" as const, data: [] as SocialObservation[], warnings: ["request failed"] } };
     }
   }));
@@ -1218,7 +1220,8 @@ export class VoyageSkillRuntime {
         const provider = await this.providerFactory();
         places = uniquePlaces(await provider.searchPlaces({ destination: input.city, query: input.poi, category: undefined, limit: 8 }))
           .map((place) => ({ id: place.id, name: place.name }));
-      } catch {
+      } catch (error) {
+        logger.warn("social.evidence_poi_search_failed", { city: input.city, poi: input.poi, error });
         places = [];
       }
     }

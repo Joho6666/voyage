@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { OfferKind, OfferProviderStatus, TravelOffer } from "@/types/offers";
 import { SkillError } from "@/skill/errors";
+import { logger } from "@/lib/logger";
 import { runtimeConfigSync } from "@/services/config/local-credentials";
 import { reconcileTrainOffers } from "@/services/meituan/transport-fares";
 
@@ -171,7 +172,7 @@ export async function queryMeituan(input: MeituanQueryInput, execute: MeituanCom
   const rawText = result.stdout.trim();
   if (!rawText) throw new SkillError("MEITUAN_EMPTY_RESULT", "Meituan returned an empty response");
   let rawJson: unknown;
-  try { rawJson = JSON.parse(rawText); } catch { rawJson = undefined; }
+  try { rawJson = JSON.parse(rawText); } catch { logger.debug("meituan.stdout_not_json", { stdoutLength: rawText.length }); rawJson = undefined; }
   const envelopeText = rawJson && typeof rawJson === "object" && typeof (rawJson as { data?: unknown }).data === "string"
     ? (rawJson as { data: string }).data
     : undefined;

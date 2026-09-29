@@ -1,4 +1,5 @@
 import type { SocialContext, SocialSignal, SocialSource } from "./types";
+import { logger } from "@/lib/logger";
 
 export interface SocialContextInput {
   city: string;
@@ -47,6 +48,9 @@ export class SocialContextBuilder {
 
   async build(input: SocialContextInput, now = new Date()): Promise<SocialContext> {
     try { return buildSocialContext(input, await this.loadSignals(input), now); }
-    catch { return buildSocialContext(input, [], now); }
+    catch (error) {
+      logger.warn("social.context_signals_load_failed", { error });
+      return buildSocialContext(input, [], now);
+    }
   }
 }

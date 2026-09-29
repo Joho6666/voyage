@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { FliggyTopError, createFliggyTopClient } from "@/services/booking/fliggy-top";
 import { failureMessage } from "@/lib/failure-message";
+import { enforceRateLimit } from "@/lib/api-guards";
 
 const querySchema = z.object({
   departureCityCode: z.string().regex(/^[A-Z]{3}$/),
@@ -17,6 +18,9 @@ const querySchema = z.object({
 });
 
 export async function GET(request: Request) {
+  // Paid providers behind this route share one budget per caller.
+  const limited = enforceRateLimit(request, "fliggy");
+  if (limited) return limited;
   const url = new URL(request.url);
   const parsed = querySchema.safeParse(Object.fromEntries(url.searchParams.entries()));
   if (!parsed.success) {

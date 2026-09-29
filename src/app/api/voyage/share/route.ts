@@ -7,6 +7,7 @@ import { NextResponse } from "next/server";
 import { JsonSkillRepository } from "@/skill/repository";
 import { NextRequest } from "next/server";
 import { guestWorkspace, setGuestCookie } from "../workspace";
+import { logger } from "@/lib/logger";
 
 const root = () => process.env.VOYAGE_DATA_DIR ?? path.join(process.cwd(), ".voyage");
 
@@ -30,6 +31,7 @@ export async function GET(request: Request) {
     if (share.expiresAt < Date.now()) return NextResponse.json({ ok: false, error: "SHARE_EXPIRED" }, { status: 410 });
     return NextResponse.json({ ok: true, trip: share.trip });
   } catch {
+    logger.debug("share.read_miss_or_invalid", { token });
     return NextResponse.json({ ok: false, error: "SHARE_NOT_FOUND" }, { status: 404 });
   }
 }

@@ -1,0 +1,85 @@
+import "server-only";
+
+import { NextResponse, type NextRequest } from "next/server";
+
+/**
+ * In-memory sliding-window rate limiting for routes that spend paid provider
+ * quota (AMap, TikHub, LLM, Fliggy). Single-instance only: a multi-instance
+ * deployment needs a shared store (Redis etc.) or the budget is per process.
+ */
+
+export interface RateLimitRule {
+  windowMs: number;
+  max: number;
+}
+
+/** Shared budgets per paid backend, not per route, so one caller cannot fan out across endpoints. */
+export const RATE_LIMITS = {
+  amap: { windowMs: 60_000, max: 60 },
+  social: { windowMs: 60_000, max: 15 },
+  llm: { windowMs: 60_000, max: 15 },
+  fliggy: { windowMs: 60_000, max: 15 },
+  planning: { windowMs: 60_000, max: 10 },
+} as const satisfies Record<string, RateLimitRule>;
+
+const buckets = new Map<string, number[]>();
+const MAX_BUCKETS = 10_000;
+
+function cookieValue(request: Request | NextRequest, name: string) {
+  if ("cookies" in request && request.cookies) return request.cookies.get(name)?.value;
+  const header = request.headers.get("cookie") ?? "";
+  return header
+    .split(";")
+    .map((part) => part.trim().split("="))
+    .find(([key]) => key === name)?.[1];
+}
+
+function clientKey(request: Request | NextRequest) {
+  // The guest cookie identifies a browser; the forwarded IP catches clients
+  // that rotate cookies. Neither identifies a person — this is cost control.
+  const guest = cookieValue(request, "voyage_guest_workspace") ?? "no-guest";
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "no-ip";
+  return `${guest}:${ip}`;
+}
+
+export function rateLimit(request: Request | NextRequest, scope: string, rule: RateLimitRule): { ok: true } | { ok: false; retryAfterSeconds: number } {
+  const key = `${scope}:${clientKey(request)}`;
+  const now = Date.now();
+  const windowStart = now - rule.windowMs;
+  const timestamps = (buckets.get(key) ?? []).filter((ts) => ts > windowStart);
+  if (timestamps.length >= rule.max) {
+    // With an empty window (max 0) the next slot opens a full window out.
+    const oldestHit = timestamps[0] ?? now;
+    const retryAfterMs = oldestHit + rule.windowMs - now;
+    buckets.set(key, timestamps);
+    return { ok: false, retryAfterSeconds: Math.max(1, Math.ceil(retryAfterMs / 1000)) };
+  }
+  timestamps.push(now);
+  buckets.set(key, timestamps);
+  if (buckets.size > MAX_BUCKETS) {
+    for (const [bucketKey, ts] of buckets) {
+      if (!ts.some((t) => t > windowStart)) buckets.delete(bucketKey);
+    }
+  }
+  return { ok: true };
+}
+
+export function rateLimitResponse(retryAfterSeconds: number) {
+  return NextResponse.json(
+    {
+      ok: false,
+      error: {
+        code: "RATE_LIMITED",
+        message: "请求太频繁了。为了控制高德、社交检索等付费接口的成本，服务端做了限流，请稍后再试。",
+      },
+    },
+    { status: 429, headers: { "retry-after": String(retryAfterSeconds), "cache-control": "no-store" } },
+  );
+}
+
+/** One-line guard for route handlers: returns a 429 response when over budget. */
+export function enforceRateLimit(request: Request | NextRequest, scope: keyof typeof RATE_LIMITS | string, rule?: RateLimitRule): NextResponse | null {
+  const applied = rule ?? RATE_LIMITS[scope as keyof typeof RATE_LIMITS];
+  const result = rateLimit(request, scope, applied);
+  return result.ok ? null : rateLimitResponse(result.retryAfterSeconds);
+}

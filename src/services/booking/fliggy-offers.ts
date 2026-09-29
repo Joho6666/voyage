@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { OfferKind, OfferProviderLevel, TravelOffer } from "@/types/offers";
+import { logger } from "@/lib/logger";
 import { classifyFliggyError, createFliggyTopClient } from "./fliggy-top";
 
 const CITY_AIRPORT_CODES: Record<string, string> = {
@@ -116,7 +117,10 @@ export async function queryFliggyOffers(input: FliggyOffersInput): Promise<Fligg
           const price = text(matching.price ?? matching.sale_price ?? matching.total_price);
           const count = Number(matching.room_count ?? matching.available_rooms ?? matching.inventory);
           return { ...hotel, priceLabel: price ? `¥${price}` : undefined, availability: Number.isFinite(count) ? count > 0 ? "available" as const : "unavailable" as const : "unknown" as const, inventoryLabel: Number.isFinite(count) ? `${count} 间` : "房态未知", checkIn: input.startDate, checkOut: input.endDate, rawJson: matching };
-        } catch { return hotel; }
+        } catch (error) {
+          logger.debug("fliggy-offers.availability_failed", { hotelId: hotel.sourceId, error });
+          return hotel;
+        }
       }));
       offers.push(...availability);
       if (!offers.some((item) => item.kind === "hotel")) warnings.push("飞猪未返回可结构化酒店");

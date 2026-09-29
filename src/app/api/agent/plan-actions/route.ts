@@ -5,6 +5,7 @@ import { executeActions } from "@/services/ai/actions/executor";
 import { computeTripChangeSet } from "@/services/ai/diff";
 import { recomputeTrip } from "@/services/routing";
 import type { Trip } from "@/types/travel";
+import { enforceRateLimit } from "@/lib/api-guards";
 
 const bodySchema = z.object({
   trip: z.object({ id: z.string().min(1) }).passthrough(),
@@ -13,6 +14,9 @@ const bodySchema = z.object({
 });
 
 export async function POST(request: Request) {
+  // Paid providers behind this route share one budget per caller.
+  const limited = enforceRateLimit(request, "llm");
+  if (limited) return limited;
   const body = bodySchema.safeParse(await request.json().catch(() => null));
   if (!body.success) {
     return NextResponse.json({ error: "invalid body" }, { status: 400 });

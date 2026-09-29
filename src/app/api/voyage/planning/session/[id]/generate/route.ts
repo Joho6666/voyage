@@ -10,6 +10,8 @@ import { JsonSkillRepository, type StoredPlanningSession } from "@/skill/reposit
 import { SkillError } from "@/skill/errors";
 import { guestWorkspace } from "@/app/api/voyage/workspace";
 import { now, planningError, planningFailureMessage, planningReply, planningSessionValue } from "../../../helpers";
+import { enforceRateLimit } from "@/lib/api-guards";
+import { logger } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -93,12 +95,16 @@ async function markFailed(repository: JsonSkillRepository, session: StoredPlanni
         updatedAt: now(),
       },
     });
-  } catch {
+  } catch (error) {
+    logger.warn("planning-generate.mark_failed_write", { sessionId: session.id, error });
     return null;
   }
 }
 
 export async function POST(request: NextRequest, context: Context) {
+  // Paid providers behind this route share one budget per caller.
+  const limited = enforceRateLimit(request, "planning");
+  if (limited) return limited;
   const workspace = guestWorkspace(request);
   const { id } = await context.params;
   const repository = new JsonSkillRepository(workspace.root);

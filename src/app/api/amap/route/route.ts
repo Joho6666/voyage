@@ -6,6 +6,7 @@ import {
   amapTransitRoute,
 } from "@/services/map/amap-rest";
 import { haversineMeters, estimateTransit } from "@/lib/utils";
+import { enforceRateLimit } from "@/lib/api-guards";
 
 interface RouteQuery {
   origin: { lng: number; lat: number };
@@ -25,6 +26,9 @@ function getCacheKey(q: RouteQuery): string {
 }
 
 export async function POST(request: Request) {
+  // Paid providers behind this route share one budget per caller.
+  const limited = enforceRateLimit(request, "amap");
+  if (limited) return limited;
   try {
     const body = (await request.json()) as Partial<RouteQuery>;
     const { origin, destination, mode = "walk", city = "重庆" } = body;

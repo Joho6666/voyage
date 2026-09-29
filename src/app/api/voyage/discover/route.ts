@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { amapSearchPois, isAmapConfigured } from "@/services/map/amap-rest";
 import { failureMessage } from "@/lib/failure-message";
+import { enforceRateLimit } from "@/lib/api-guards";
+import { logger } from "@/lib/logger";
 
 type DiscoverKind = "hotel" | "food" | "activity";
 
@@ -26,6 +28,9 @@ function valueScore(rating?: number, reviewCount?: number, cost?: number) {
 }
 
 export async function POST(request: Request) {
+  // Paid providers behind this route share one budget per caller.
+  const limited = enforceRateLimit(request, "amap");
+  if (limited) return limited;
   try {
     const body = await request.json() as { city?: string; kind?: DiscoverKind; query?: string; limit?: number };
     const city = body.city?.trim();
@@ -56,8 +61,15 @@ export async function POST(request: Request) {
     })).sort((a, b) => b.score - a.score);
     const payload = { ok: true, status: "REAL", kind, city, query, results, fetchedAt: new Date().toISOString(), warning: "评分、人均消费和图片来自高德 POI；价格、房态、活动库存仍需以官方页面为准。" };
     cache.set(key, { data: payload, expiresAt: Date.now() + 5 * 60_000 });
+    // The cache is process-local and unbounded by design; this cap keeps a
+    // hostile caller from growing it without limit.
+    if (cache.size > 500) {
+      const oldest = cache.keys().next().value;
+      if (oldest !== undefined) cache.delete(oldest);
+    }
     return NextResponse.json(payload);
   } catch (error) {
+    logger.warn("discover.failed", { reason: failureMessage(error, "discover failed") });
     return NextResponse.json({ ok: false, status: "UNAVAILABLE", error: failureMessage(error, "discover failed") }, { status: 502 });
   }
 }

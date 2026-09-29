@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { JsonSkillRepository } from "@/skill/repository";
 import { guestWorkspace, setGuestCookie } from "../workspace";
 import { resolveCityCoverImage } from "@/services/media/city-cover";
+import { logger } from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
   const workspace = guestWorkspace(request);
@@ -19,8 +20,9 @@ export async function GET(request: NextRequest) {
         expectedRevision: record.revision,
         trip: { ...record.trip, coverImage, updatedAt: new Date().toISOString() },
       });
-    } catch {
+    } catch (error) {
       // Another tab may have filled the cover concurrently; keep the current record.
+      logger.debug("trips.cover_race_kept_current", { tripId: record.trip.id, error });
       return record;
     }
   }));
@@ -32,6 +34,9 @@ export async function DELETE(request: NextRequest) {
   const body = await request.json().catch(() => null) as { tripId?: string } | null;
   if (!body?.tripId) return NextResponse.json({ ok: false, error: "INVALID_INPUT" }, { status: 400 });
   try { await new JsonSkillRepository(workspace.root).deleteTrip(body.tripId); }
-  catch { return NextResponse.json({ ok: false, error: "TRIP_NOT_FOUND" }, { status: 404 }); }
+  catch (error) {
+    logger.warn("trips.delete_failed", { tripId: body.tripId, error });
+    return NextResponse.json({ ok: false, error: "TRIP_NOT_FOUND" }, { status: 404 });
+  }
   return NextResponse.json({ ok: true });
 }

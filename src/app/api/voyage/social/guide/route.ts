@@ -6,6 +6,7 @@ import { createTikHubProvider } from "@/services/social/tikhub";
 import { SocialProviderRouter } from "@/services/social/router";
 import { collectGuidePosts } from "@/services/planning/guide-extract";
 import { failureMessage } from "@/lib/failure-message";
+import { enforceRateLimit } from "@/lib/api-guards";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,9 @@ const inputSchema = z.object({
 }).strict();
 
 export async function POST(request: NextRequest) {
+  // Paid providers behind this route share one budget per caller.
+  const limited = enforceRateLimit(request, "social");
+  if (limited) return limited;
   const parsed = inputSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ ok: false, error: { code: "INVALID_INPUT", message: "缺少城市参数" } }, { status: 400, headers: { "cache-control": "no-store" } });

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { JsonSkillRepository } from "@/skill/repository";
 import { guestWorkspace } from "@/app/api/voyage/workspace";
 import { MAX_PLANNING_MESSAGE_CHARS } from "@/schemas/planning";
+import { enforceRateLimit } from "@/lib/api-guards";
 import {
   newPlanningId,
   now,
@@ -24,6 +25,9 @@ const inputSchema = z.object({
 }).strict();
 
 export async function POST(request: NextRequest) {
+  // Paid providers behind this route share one budget per caller.
+  const limited = enforceRateLimit(request, "planning");
+  if (limited) return limited;
   const workspace = guestWorkspace(request);
   const body = await request.json().catch(() => null);
   const parsed = inputSchema.safeParse(body ?? {});

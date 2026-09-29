@@ -1,4 +1,5 @@
 import { assertPublicHttpUrl } from "@/lib/safe-url";
+import { logger } from "@/lib/logger";
 import { runtimeConfigSync } from "@/services/config/local-credentials";
 
 export interface LlmConfig {
@@ -56,7 +57,10 @@ export async function chatWithTools(options: {
       try {
         const args = JSON.parse(call.function.arguments || "{}") as unknown;
         return args && typeof args === "object" ? [{ id: call.id, name: call.function.name, arguments: args as Record<string, unknown> }] : [];
-      } catch { return []; }
+      } catch {
+        logger.debug("llm.tool_args_parse_failed", { tool: call.function.name });
+        return [];
+      }
     });
     return { content: message?.content?.trim() ?? "", toolCalls };
   } finally { clearTimeout(timeout); }
@@ -108,7 +112,8 @@ export async function chatJson(options: {
     if (!content) throw new Error("LLM returned empty content");
     try {
       return JSON.parse(stripFences(content));
-    } catch {
+    } catch (error) {
+      logger.debug("llm.json_content_invalid", { error, prefix: content.slice(0, 80) });
       throw new Error("LLM content is not valid JSON");
     }
   } finally {

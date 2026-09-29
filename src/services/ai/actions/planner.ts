@@ -1,5 +1,6 @@
 import "server-only";
 import type { Trip } from "@/types/travel";
+import { logger } from "@/lib/logger";
 import { chatJson, getLlmConfig } from "../llm";
 import { travelActionListSchema, type TravelActionList } from "./schemas";
 import { planActionsWithRules } from "./rule-planner";
@@ -120,7 +121,8 @@ export async function planActions(
       return { source: "mock", result: ruleBasedActions(trip, message) };
     }
     return { source: "llm", result: parsed.data };
-  } catch {
+  } catch (error) {
+    logger.warn("planner.llm_failed_rule_fallback", { error });
     return { source: "mock", result: ruleBasedActions(trip, message) };
   }
 }

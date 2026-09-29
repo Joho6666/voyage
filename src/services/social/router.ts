@@ -1,4 +1,5 @@
 import type { SocialProvider } from "./provider";
+import { logger } from "@/lib/logger";
 import type {
   SocialComment, SocialContentInput, SocialObservation, SocialPlatform,
   SocialProviderResult, SocialSearchInput,
@@ -25,7 +26,10 @@ export class SocialProviderRouter {
     if (!providers.length) return { status: "unavailable", data: [], warnings: ["No social provider is configured for this platform"] };
     const results = await Promise.all(providers.map(async (provider) => {
       try { return await provider[method](input); }
-      catch { return { status: "error" as const, data: [], warnings: [`${provider.name} request failed`] }; }
+      catch (error) {
+        logger.warn("social.provider_request_failed", { provider: provider.name, operation: method, error });
+        return { status: "error" as const, data: [], warnings: [`${provider.name} request failed`] };
+      }
     }));
     const seen = new Set<string>();
     const data = results.flatMap((result) => result.data).filter((item) => {
@@ -53,7 +57,10 @@ export class SocialProviderRouter {
         const result = method === "getContent" ? await provider.getContent(input) : await provider.getComments(input);
         warnings.push(...result.warnings);
         if (result.status === "ok") return { status: "ok", data: result.data as T, warnings };
-      } catch { warnings.push(`${provider.name} request failed`); }
+      } catch (error) {
+        logger.warn("social.provider_request_failed", { provider: provider.name, operation: method, error });
+        warnings.push(`${provider.name} request failed`);
+      }
     }
     return { status: "error", data: empty, warnings };
   }

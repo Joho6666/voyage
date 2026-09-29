@@ -9,6 +9,7 @@ import { mergePlanningProfiles, planConversationTurn } from "@/services/planning
 import { JsonSkillRepository } from "@/skill/repository";
 import { SkillError } from "@/skill/errors";
 import { guestWorkspace } from "@/app/api/voyage/workspace";
+import { enforceRateLimit } from "@/lib/api-guards";
 import {
   appendPlanningMessages,
   now,
@@ -32,6 +33,9 @@ const inputSchema = z.object({
 }).strict();
 
 export async function POST(request: NextRequest, context: Context) {
+  // Paid providers behind this route share one budget per caller.
+  const limited = enforceRateLimit(request, "planning");
+  if (limited) return limited;
   const workspace = guestWorkspace(request);
   const { id } = await context.params;
   const body = await request.json().catch(() => null);
