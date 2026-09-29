@@ -1,4 +1,4 @@
-import type { Place, Trip } from "@/types/travel";
+import type { ItemStatus, Place, Trip } from "@/types/travel";
 
 export interface AddPlaceResult {
   trip: Trip;
@@ -45,6 +45,42 @@ export async function addPlaceItemToDay(input: {
   }
   if (!envelope.ok || !envelope.data?.trip) {
     throw new TripCommandError(envelope.error?.message ?? "加入行程失败，请重试", envelope.error?.code);
+  }
+  return { trip: envelope.data.trip, revision: envelope.data.revision ?? input.expectedTripRevision + 1 };
+}
+
+/**
+ * Persists an item status change (e.g. checking a stop off on the today
+ * screen). The local-only path lost every check-off on reload because the
+ * workspace rehydrates from the server-side runtime.
+ */
+export async function setItemStatus(input: {
+  tripId: string;
+  itemId: string;
+  status: ItemStatus;
+  expectedTripRevision: number;
+}): Promise<AddPlaceResult> {
+  let envelope: { ok?: boolean; data?: { trip?: Trip; revision?: number }; error?: { code?: string; message?: string } };
+  try {
+    const response = await fetch("/api/voyage/command", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        command: "set-item-status",
+        input: {
+          tripId: input.tripId,
+          itemId: input.itemId,
+          status: input.status,
+          expectedTripRevision: input.expectedTripRevision,
+        },
+      }),
+    });
+    envelope = await response.json();
+  } catch {
+    throw new TripCommandError("网络异常，状态保存失败，请重试");
+  }
+  if (!envelope.ok || !envelope.data?.trip) {
+    throw new TripCommandError(envelope.error?.message ?? "状态保存失败，请重试", envelope.error?.code);
   }
   return { trip: envelope.data.trip, revision: envelope.data.revision ?? input.expectedTripRevision + 1 };
 }

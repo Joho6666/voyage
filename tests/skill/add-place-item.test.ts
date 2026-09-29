@@ -97,7 +97,7 @@ describe("add-place-item runtime command", () => {
     })).rejects.toMatchObject({ code: "INVALID_INPUT" });
   });
 
-  it("does not duplicate a place that is already planned that day", async () => {
+  it("does not duplicate a place that is already planned that day and does not bump the revision", async () => {
     await runtime.addPlaceItem({
       tripId: chongqingTrip.id,
       dayId: "day-1",
@@ -111,5 +111,9 @@ describe("add-place-item runtime command", () => {
       expectedTripRevision: 2,
     }) as { data: { trip: typeof chongqingTrip; revision: number } };
     expect(second.data.trip.items.filter((item) => item.placeId === "amap-test-123" && item.dayId === "day-1")).toHaveLength(1);
+    // An idempotent hit must not write: a revision bump for no change would
+    // trigger spurious conflicts for every concurrent editor.
+    expect(second.data.revision).toBe(2);
+    expect((await repository.getTrip(chongqingTrip.id))?.revision).toBe(2);
   });
 });

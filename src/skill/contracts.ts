@@ -159,6 +159,18 @@ export const addPlaceItemInputSchema = z.object({
   expectedTripRevision: z.number().int().min(1),
 });
 
+/**
+ * Checking an item off on the "today" screen. Without this the status only
+ * ever lived in localStorage and silently vanished on the next reload, since
+ * the workspace rehydrates from the server-side runtime.
+ */
+export const setItemStatusInputSchema = z.object({
+  tripId: z.string().min(1),
+  itemId: z.string().min(1),
+  status: z.enum(["planned", "current", "done", "skipped"]),
+  expectedTripRevision: z.number().int().min(1),
+});
+
 export const proposeChangeInputSchema = z.object({
   tripId: z.string().min(1),
   instruction: z.string().min(1).max(2000),
@@ -232,6 +244,7 @@ export const commandSchemas = {
   "refresh-travel-offers": refreshTravelOffersInputSchema,
   "reorder-day": reorderDayInputSchema,
   "add-place-item": addPlaceItemInputSchema,
+  "set-item-status": setItemStatusInputSchema,
   "propose-change": proposeChangeInputSchema,
   "apply-change": applyChangeInputSchema,
   "get-place": getPlaceInputSchema,
@@ -283,6 +296,7 @@ export const outputSchemas = {
   "apply-change": tripDataSchema,
   "reorder-day": tripDataSchema,
   "add-place-item": tripDataSchema,
+  "set-item-status": tripDataSchema,
   "search-places": z.object({ places: z.array(z.object({ id: z.string(), name: z.string(), category: z.string() }).passthrough()) }).passthrough(),
   "get-place": z.object({ place: z.object({ id: z.string(), name: z.string() }).passthrough(), matchBasis: z.enum(["trip_lookup", "provider_search"]) }).passthrough(),
   "plan-route": z.object({ route: z.object({ mode: z.string(), distanceMeters: z.number(), durationMinutes: z.number(), estimated: z.boolean() }).passthrough() }).passthrough(),

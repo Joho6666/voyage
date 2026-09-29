@@ -41,6 +41,7 @@ import {
   searchPlacesInputSchema,
   reorderDayInputSchema,
   addPlaceItemInputSchema,
+  setItemStatusInputSchema,
   updateTripInputSchema,
   successEnvelope,
   type ProviderLevel,
@@ -1014,6 +1015,11 @@ export class VoyageSkillRuntime {
     const stored = await this.repository.getTrip(input.tripId);
     if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
     if (stored.revision !== input.expectedTripRevision) throw new SkillError("REVISION_CONFLICT", "Trip revision does not match expectedTripRevision");
+    if (!stored.trip.days.some((day) => day.id === input.dayId)) {
+      // Without this a bad dayId "succeeds" with zero items reordered while
+      // still bumping the revision for every concurrent editor.
+      throw new SkillError("INVALID_INPUT", "目标日期不存在");
+    }
     const rank = new Map(input.orderedItemIds.map((id, index) => [id, index]));
     const trip = recomputeDay({ ...stored.trip, items: stored.trip.items.map((item) => item.dayId === input.dayId && rank.has(item.id) ? { ...item, order: rank.get(item.id)! } : item) }, input.dayId);
     const saved = await this.repository.updateTrip({ tripId: input.tripId, expectedRevision: stored.revision, trip });
@@ -1051,7 +1057,29 @@ export class VoyageSkillRuntime {
         status: "planned",
       });
       trip = recomputeDay(trip, input.dayId);
+    } else {
+      // Idempotent hit: report the stored trip as-is. Writing would bump the
+      // revision for no change and trigger spurious conflicts elsewhere.
+      return successEnvelope({ tripId: input.tripId, trip: stored.trip, revision: stored.revision, tripHash: stored.hash });
     }
+    const saved = await this.repository.updateTrip({ tripId: input.tripId, expectedRevision: stored.revision, trip });
+    return successEnvelope({ tripId: input.tripId, trip: saved.trip, revision: saved.revision, tripHash: saved.hash });
+  }
+
+  async setItemStatus(raw: unknown) {
+    const input = setItemStatusInputSchema.parse(raw);
+    const stored = await this.repository.getTrip(input.tripId);
+    if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+    if (stored.revision !== input.expectedTripRevision) throw new SkillError("REVISION_CONFLICT", "Trip revision does not match expectedTripRevision");
+    const item = stored.trip.items.find((candidate) => candidate.id === input.itemId);
+    if (!item) throw new SkillError("INVALID_INPUT", "行程条目不存在");
+    if (item.status === input.status) {
+      return successEnvelope({ tripId: input.tripId, trip: stored.trip, revision: stored.revision, tripHash: stored.hash });
+    }
+    const trip = {
+      ...stored.trip,
+      items: stored.trip.items.map((candidate) => candidate.id === input.itemId ? { ...candidate, status: input.status } : candidate),
+    };
     const saved = await this.repository.updateTrip({ tripId: input.tripId, expectedRevision: stored.revision, trip });
     return successEnvelope({ tripId: input.tripId, trip: saved.trip, revision: saved.revision, tripHash: saved.hash });
   }
@@ -1255,6 +1283,7 @@ export class VoyageSkillRuntime {
       case "refresh-travel-offers": return this.refreshTravelOffers(input);
       case "reorder-day": return this.reorderDay(input);
       case "add-place-item": return this.addPlaceItem(input);
+      case "set-item-status": return this.setItemStatus(input);
       case "propose-change": return this.proposeChange(input);
       case "apply-change": return this.applyChange(input);
       case "get-place": return this.getPlace(input);

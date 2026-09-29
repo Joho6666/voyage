@@ -8,12 +8,16 @@ test.describe("mobile navigation", () => {
 
     const nav = page.getByRole("navigation", { name: "移动端主导航" });
     await expect(nav).toBeVisible({ timeout: 15_000 });
+    // First paint can precede hydration; clicking before the client router
+    // attaches swallows the navigation. The day tabs render from React state,
+    // so they are a reliable "hydration done" signal.
+    await expect(page.getByRole("tablist", { name: "选择日期" })).toBeVisible({ timeout: 15_000 });
 
     // Sharing must survive on phones; it used to disappear below 640px.
     await expect(page.getByRole("button", { name: "分享" })).toBeVisible();
 
     await nav.getByRole("link", { name: "今天" }).click();
-    await expect(page).toHaveURL(/\/trip\/chongqing-2026\/today$/);
+    await expect(page).toHaveURL(/\/trip\/chongqing-2026\/today$/, { timeout: 10_000 });
 
     await nav.getByRole("button", { name: "更多" }).click();
     await page.getByRole("dialog", { name: "更多页面" }).getByRole("link", { name: "美食" }).click();

@@ -24,6 +24,7 @@ export const RATE_LIMITS = {
 
 const buckets = new Map<string, number[]>();
 const MAX_BUCKETS = 10_000;
+const GUEST_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function cookieValue(request: Request | NextRequest, name: string) {
   if ("cookies" in request && request.cookies) return request.cookies.get(name)?.value;
@@ -35,9 +36,11 @@ function cookieValue(request: Request | NextRequest, name: string) {
 }
 
 function clientKey(request: Request | NextRequest) {
-  // The guest cookie identifies a browser; the forwarded IP catches clients
-  // that rotate cookies. Neither identifies a person — this is cost control.
-  const guest = cookieValue(request, "voyage_guest_workspace") ?? "no-guest";
+  // The guest cookie identifies a browser — but only if it is a real workspace
+  // id. Arbitrary cookie/XFF values must not become unbounded bucket keys, so
+  // everything malformed collapses into the shared anonymous bucket.
+  const rawGuest = cookieValue(request, "voyage_guest_workspace");
+  const guest = rawGuest && GUEST_ID_PATTERN.test(rawGuest) ? rawGuest : "no-guest";
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "no-ip";
   return `${guest}:${ip}`;
 }
@@ -56,10 +59,13 @@ export function rateLimit(request: Request | NextRequest, scope: string, rule: R
   }
   timestamps.push(now);
   buckets.set(key, timestamps);
-  if (buckets.size > MAX_BUCKETS) {
-    for (const [bucketKey, ts] of buckets) {
-      if (!ts.some((t) => t > windowStart)) buckets.delete(bucketKey);
-    }
+  // Hard memory cap: evict in insertion order. A bucket that is still active
+  // gets rebuilt on its next request, so eviction cannot lose a limit that
+  // has been hit — the overflowing keys are the hostile ones.
+  while (buckets.size > MAX_BUCKETS) {
+    const oldest = buckets.keys().next().value;
+    if (oldest === undefined) break;
+    buckets.delete(oldest);
   }
   return { ok: true };
 }

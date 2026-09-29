@@ -8,8 +8,34 @@ import { createRuntime } from "@/skill/runtime";
 import { JsonSkillRepository } from "@/skill/repository";
 import { chongqingTrip, DEMO_TRIP_ID } from "@/data/demo/chongqing";
 import { guestWorkspace, setGuestCookie } from "../workspace";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/api-guards";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * This single endpoint can drive every paid backend, so the budget follows the
+ * command instead of the route: local reads/writes stay unlimited, provider
+ * commands share the same windows their dedicated routes use. Without this the
+ * per-route limits are trivially bypassed.
+ */
+const COMMAND_RATE_SCOPES: Partial<Record<SkillCommand, keyof typeof RATE_LIMITS>> = {
+  "create-trip": "planning",
+  "replan-trip": "planning",
+  "propose-change": "llm",
+  "retrieve-travel-knowledge": "llm",
+  "search-places": "amap",
+  "get-place": "amap",
+  "plan-route": "amap",
+  "get-route-options": "amap",
+  "optimize-transport": "amap",
+  "get-weather": "amap",
+  "refresh-travel-offers": "fliggy",
+  "search-travel-offers": "fliggy",
+  "search-flights": "fliggy",
+  "search-social": "social",
+  "get-social-trending": "social",
+  "get-social-evidence": "social",
+};
 
 export async function POST(request: NextRequest) {
   const workspace = guestWorkspace(request);
@@ -22,6 +48,11 @@ export async function POST(request: NextRequest) {
   const parsed = commandSchemas[command].safeParse(body?.input);
   if (!parsed.success) {
     return reply(errorEnvelope("INVALID_INPUT", "Input failed command schema validation", parsed.error.flatten()), 400);
+  }
+  const scope = COMMAND_RATE_SCOPES[command];
+  if (scope) {
+    const limited = enforceRateLimit(request, scope);
+    if (limited) return setGuestCookie(limited, workspace);
   }
   try {
     if (process.env.VOYAGE_DEMO_MODE === "true" && parsed.data && typeof parsed.data === "object") {

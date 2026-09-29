@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { TravelImage } from "@/components/travel/TravelImage";
 import { travelAgent } from "@/services/ai";
+import { setItemStatus, TripCommandError } from "@/services/trip-commands";
 import { useHistoryStore } from "@/store/history-store";
 import { useTripStore } from "@/store/trip-store";
 import { useUiStore } from "@/store/ui-store";
@@ -27,11 +28,13 @@ import { buildWeatherContext } from "@/services/weather/context";
 import { TripDiffModal } from "@/components/ai/TripDiffModal";
 import { weatherDisplay } from "@/lib/weather-display";
 import type { TripChangeSet } from "@/types/diff";
+import type { ItemStatus } from "@/types/travel";
 import { formatKm } from "@/lib/utils";
 import { toast } from "sonner";
 
 export default function TodayPage() {
   const trip = useTripStore((s) => s.trip);
+  const revision = useTripStore((s) => s.revision);
   const patch = useTripStore((s) => s.patchTrip);
   const setTrip = useTripStore((s) => s.setTrip);
   const persist = useTripStore((s) => s.persist);
@@ -107,15 +110,25 @@ export default function TodayPage() {
   };
 
   const toggleItemDone = (itemId: string) => {
+    const snapshot = trip;
+    const snapshotRevision = revision;
+    const nextStatus: ItemStatus = trip.items.find((i) => i.id === itemId)?.status === "done" ? "planned" : "done";
     patch((currentTrip) => {
       return {
         ...currentTrip,
         items: currentTrip.items.map((i) =>
-          i.id === itemId ? { ...i, status: i.status === "done" ? "planned" : "done" } : i,
+          i.id === itemId ? { ...i, status: nextStatus } : i,
         ),
       };
     });
-    void persist();
+    // The optimistic toggle must survive a reload, which only the runtime
+    // write guarantees — localStorage alone is wiped by the server rehydrate.
+    void setItemStatus({ tripId: trip.id, itemId, status: nextStatus, expectedTripRevision: snapshotRevision })
+      .then(({ trip: saved, revision: savedRevision }) => setTrip(saved, savedRevision))
+      .catch((cause) => {
+        setTrip(snapshot, snapshotRevision);
+        toast.error(cause instanceof TripCommandError ? cause.message : "状态保存失败，请重试");
+      });
   };
 
   const openNavigation = () => {

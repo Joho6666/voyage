@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { toast } from "sonner";
 import { chongqingTrip } from "@/data/demo/chongqing";
 import { tripRepository } from "@/services/trips/repository";
 import { recomputeDay, recomputeTrip } from "@/services/routing";
@@ -22,6 +23,9 @@ export const useTripStore = create<TripState>((set, get) => ({
   patchTrip: (updater) => set({ trip: updater(get().trip) }),
   reorder: (dayId, orderedIds) => {
     const trip = get().trip;
+    // Snapshot for rollback: a failed server round-trip must not leave the
+    // optimistic order silently diverging from what the runtime holds.
+    const snapshot = structuredClone(trip);
     const items = trip.items.map((item) => {
       if (item.dayId !== dayId) return item;
       const order = orderedIds.indexOf(item.id);
@@ -31,13 +35,30 @@ export const useTripStore = create<TripState>((set, get) => ({
     set({ trip: estimated });
     void fetch("/api/voyage/command", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ command: "reorder-day", input: { tripId: estimated.id, dayId, orderedItemIds: orderedIds, expectedTripRevision: get().revision } }) })
       .then((response) => response.json())
-      .then((envelope: { ok?: boolean; data?: { trip?: Trip; revision?: number } }) => { if (envelope.data?.trip) set({ trip: envelope.data.trip, revision: envelope.data.revision ?? get().revision + 1 }); })
-      .catch(() => undefined);
+      .then((envelope: { ok?: boolean; data?: { trip?: Trip; revision?: number }; error?: { message?: string } }) => {
+        if (envelope.data?.trip) {
+          set({ trip: envelope.data.trip, ...(envelope.data.revision !== undefined ? { revision: envelope.data.revision } : {}) });
+        } else {
+          set({ trip: snapshot });
+          toast.error(envelope.error?.message ?? "排序没有保存成功，已恢复原顺序");
+        }
+      })
+      .catch(() => {
+        set({ trip: snapshot });
+        toast.error("网络异常，排序没有保存成功，已恢复原顺序");
+      });
   },
   persist: async () => {
     set({ saving: true });
-    const saved = await tripRepository.save(get().trip);
-    set({ trip: saved, saving: false });
+    try {
+      const saved = await tripRepository.save(get().trip);
+      set({ trip: saved });
+    } catch (cause) {
+      console.warn("voyage: local trip persist failed", cause);
+      toast.error("本地保存失败，行程修改可能无法在刷新后保留");
+    } finally {
+      set({ saving: false });
+    }
   },
 }));
 

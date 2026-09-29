@@ -33,10 +33,22 @@ describe("paid-route rate limiting", () => {
   it("keeps callers isolated by guest cookie and IP", () => {
     const rule = { windowMs: 60_000, max: 1 };
     const scope = `test-iso-${Date.now()}`;
-    expect(rateLimit(requestWith("guest-c"), scope, rule).ok).toBe(true);
-    expect(rateLimit(requestWith("guest-d"), scope, rule).ok).toBe(true);
-    expect(rateLimit(requestWith("guest-c", "198.51.100.7"), scope, rule).ok).toBe(true);
-    expect(rateLimit(requestWith("guest-c"), scope, rule).ok).toBe(false);
+    expect(rateLimit(requestWith("11111111-1111-4111-8111-111111111111"), scope, rule).ok).toBe(true);
+    expect(rateLimit(requestWith("22222222-2222-4222-8222-222222222222"), scope, rule).ok).toBe(true);
+    expect(rateLimit(requestWith("11111111-1111-4111-8111-111111111111", "198.51.100.7"), scope, rule).ok).toBe(true);
+    expect(rateLimit(requestWith("11111111-1111-4111-8111-111111111111"), scope, rule).ok).toBe(false);
+  });
+
+  it("collapses malformed guest cookies into the anonymous bucket", () => {
+    // Arbitrary cookie values must not become unbounded bucket keys: they all
+    // share the "no-guest" bucket per IP, alongside cookie-less callers.
+    const rule = { windowMs: 60_000, max: 1 };
+    const scope = `test-malformed-${Date.now()}`;
+    expect(rateLimit(requestWith("not-a-uuid"), scope, rule).ok).toBe(true);
+    expect(rateLimit(requestWith(""), scope, rule).ok).toBe(false);
+    expect(rateLimit(requestWith("../../etc/passwd"), scope, rule).ok).toBe(false);
+    // A well-formed guest is still tracked separately.
+    expect(rateLimit(requestWith("33333333-3333-4333-8333-333333333333"), scope, rule).ok).toBe(true);
   });
 
   it("enforceRateLimit returns a 429 envelope with a retry-after header", () => {
