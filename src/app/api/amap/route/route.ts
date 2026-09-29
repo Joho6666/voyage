@@ -7,6 +7,7 @@ import {
 } from "@/services/map/amap-rest";
 import { haversineMeters, estimateTransit } from "@/lib/utils";
 import { enforceRateLimit } from "@/lib/api-guards";
+import { logger } from "@/lib/logger";
 
 interface RouteQuery {
   origin: { lng: number; lat: number };
@@ -81,7 +82,7 @@ export async function POST(request: Request) {
         routeCache.set(cacheKey, { data: payload, expiresAt: Date.now() + CACHE_TTL_MS });
         return NextResponse.json(payload);
       } catch (err) {
-        console.warn("AMap route API error, falling back to haversine estimation:", err);
+        logger.warn("amap-route.fallback_haversine", { error: err });
       }
     }
 
@@ -114,7 +115,7 @@ export async function POST(request: Request) {
     routeCache.set(cacheKey, { data: fallbackPayload, expiresAt: Date.now() + CACHE_TTL_MS });
     return NextResponse.json(fallbackPayload);
   } catch (error) {
-    console.error("Route calculation error:", error);
+    logger.error("amap-route.failed", { error });
     return NextResponse.json({ error: "Failed to calculate route" }, { status: 500 });
   }
 }

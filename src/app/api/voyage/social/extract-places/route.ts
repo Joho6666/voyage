@@ -7,6 +7,7 @@ import { extractGuidePlaceNames, resolveGuideCandidates } from "@/services/plann
 import { failureMessage } from "@/lib/failure-message";
 import { normalizeProviderError } from "@/skill/errors";
 import { enforceRateLimit } from "@/lib/api-guards";
+import { logger } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +44,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const providerError = normalizeProviderError(error, "NO_PROVIDER_CONFIGURED");
     const status = providerError.code === "NO_PROVIDER_CONFIGURED" ? 503 : 502;
+    logger.warn("extract-places.failed", { code: providerError.code, error });
     return NextResponse.json({
       ok: false,
       error: { code: providerError.code, message: failureMessage(error, "地点解析失败，请稍后重试") },

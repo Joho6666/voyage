@@ -9,6 +9,7 @@ import { JsonSkillRepository } from "@/skill/repository";
 import { chongqingTrip, DEMO_TRIP_ID } from "@/data/demo/chongqing";
 import { guestWorkspace, setGuestCookie } from "../workspace";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/api-guards";
+import { logger } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +70,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof SkillError) return reply(errorEnvelope(error.code, error.message, error.details), 409);
     if (error instanceof ZodError) return reply(errorEnvelope("INVALID_INPUT", "Input failed validation", error.flatten()), 400);
+    logger.error("command.execute_failed", { command, error });
     return reply(errorEnvelope("INTERNAL_ERROR", "Voyage runtime failed"), 500);
   }
 }

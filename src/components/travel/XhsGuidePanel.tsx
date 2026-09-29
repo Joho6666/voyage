@@ -16,6 +16,7 @@ interface ParsedGuide {
   extractionSource: "llm" | "rules";
   candidates: GuideCandidate[];
   resolvedCount: number;
+  warnings?: string[];
 }
 
 const CATEGORIES: Array<{ id: GuideCategory; label: string; query: string; placeholder: string }> = [
@@ -124,9 +125,11 @@ export function XhsGuidePanel({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ city, text: post.content }),
       });
-      const payload = await response.json() as { ok?: boolean; data?: ParsedGuide; error?: { message?: string } };
+      const payload = await response.json() as { ok?: boolean; data?: ParsedGuide; warnings?: string[]; error?: { message?: string } };
       if (!response.ok || !payload.ok || !payload.data) throw new Error(payload.error?.message ?? "地点解析失败");
-      setParsed((current) => ({ ...current, [post.sourceId]: payload.data! }));
+      // Degradation reasons (LLM fallback, QPS throttling) are part of the
+      // honest chain — show them next to the candidates instead of dropping.
+      setParsed((current) => ({ ...current, [post.sourceId]: { ...payload.data!, warnings: payload.warnings ?? [] } }));
       setChecked((current) => ({
         ...current,
         [post.sourceId]: new Set(payload.data!.candidates.filter((candidate) => candidate.resolved).map((candidate) => candidate.name)),
@@ -323,6 +326,7 @@ export function XhsGuidePanel({
                         候选地点由{selection!.extractionSource === "llm" ? "模型从原文抽取" : "规则从原文抽取"}，再经高德逐个核实：
                         {selection!.resolvedCount}/{selection!.candidates.length} 个找到真实地点。
                       </p>
+                      {selection!.warnings?.length ? <p className="mt-1 text-[11px] text-amber-700">{selection!.warnings.slice(0, 2).join("；")}</p> : null}
                       <div className="mt-2 space-y-2">
                         {selection!.candidates.map((candidate) => {
                           const isChecked = checked[post.sourceId]?.has(candidate.name) ?? false;

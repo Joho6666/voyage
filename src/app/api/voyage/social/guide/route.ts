@@ -7,6 +7,7 @@ import { SocialProviderRouter } from "@/services/social/router";
 import { collectGuidePosts } from "@/services/planning/guide-extract";
 import { failureMessage } from "@/lib/failure-message";
 import { enforceRateLimit } from "@/lib/api-guards";
+import { logger } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +43,7 @@ export async function POST(request: NextRequest) {
       generatedAt: new Date().toISOString(),
     }, { headers: { "cache-control": "no-store" } });
   } catch (error) {
+    logger.warn("social-guide.failed", { error });
     return NextResponse.json({
       ok: false,
       error: { code: "GUIDE_FETCH_FAILED", message: failureMessage(error, "小红书攻略获取失败，请稍后重试") },

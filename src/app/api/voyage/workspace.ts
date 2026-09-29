@@ -2,7 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 import type { Dirent } from "node:fs";
-import { readdir, rm, stat } from "node:fs/promises";
+import { readFile, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import type { NextRequest, NextResponse } from "next/server";
 import { logger } from "@/lib/logger";
@@ -54,6 +54,57 @@ async function lastActivityMs(dir: string): Promise<number> {
 
 function resolveDataDir() {
   return path.resolve(process.env.VOYAGE_DATA_DIR ?? path.join(process.cwd(), ".voyage"));
+}
+
+/**
+ * Guest-side maintenance (stale guests + expired share files) runs at most
+ * once per debounce window per process, so a scripted burst of cookie-less
+ * requests cannot amplify into continuous directory-tree stat walks.
+ */
+const MAINTENANCE_DEBOUNCE_MS = 10 * 60_000;
+let lastMaintenanceAt = 0;
+
+function runMaintenanceOnce(keepWorkspaceId: string) {
+  const now = Date.now();
+  if (now - lastMaintenanceAt < MAINTENANCE_DEBOUNCE_MS) return;
+  lastMaintenanceAt = now;
+  void sweepStaleGuests({ keepWorkspaceId })
+    .catch((error) => logger.debug("guests.sweep_failed", { error }));
+  void sweepExpiredShares()
+    .catch((error) => logger.debug("shares.sweep_failed", { error }));
+}
+
+/**
+ * Removes share files whose expiresAt has passed. Share files live at the
+ * data-dir root (`shares/<token>.json`, global across guests) — the guest
+ * sweep never sees them, so without this they accumulate forever.
+ */
+export async function sweepExpiredShares(options: { sharesDir?: string; now?: Date } = {}): Promise<number> {
+  const dir = path.resolve(options.sharesDir ?? path.join(resolveDataDir(), "shares"));
+  let entries: Dirent[];
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  const now = (options.now ?? new Date()).getTime();
+  let removed = 0;
+  for (const entry of entries) {
+    if (!entry.isFile() || !/^[0-9a-f-]{36}\.json$/i.test(entry.name)) continue;
+    const file = path.resolve(dir, entry.name);
+    if (!file.startsWith(dir + path.sep)) continue;
+    try {
+      const share = JSON.parse(await readFile(file, "utf8")) as { expiresAt?: unknown };
+      if (typeof share.expiresAt === "number" && share.expiresAt < now) {
+        await rm(file, { force: true });
+        removed += 1;
+      }
+    } catch (error) {
+      logger.debug("shares.sweep_entry_failed", { file: entry.name, error });
+    }
+  }
+  if (removed) logger.info("shares.swept_expired", { removed });
+  return removed;
 }
 
 /**
@@ -129,10 +180,10 @@ export function guestWorkspace(request: Request | NextRequest) {
   const id = existing && uuid.test(existing) ? existing : randomUUID();
   const base = resolveDataDir();
   if (id !== existing) {
-    // A brand-new guest is the natural moment to reap workspaces that have
-    // been idle past the TTL; never await it, the request must not pay for it.
-    void sweepStaleGuests({ keepWorkspaceId: id })
-      .catch((error) => logger.debug("guests.sweep_failed", { error }));
+    // A brand-new guest is the natural moment to reap expired data; never
+    // await it, the request must not pay for it, and the debounce keeps a
+    // request storm from turning into a stat storm.
+    runMaintenanceOnce(id);
   }
   return { id, fresh: id !== existing, root: path.join(base, "guests", id), base };
 }

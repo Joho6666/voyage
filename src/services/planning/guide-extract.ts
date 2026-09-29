@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { chatJson, getLlmConfig } from "@/services/ai/llm";
+import { logger } from "@/lib/logger";
 import { resolveSourceLink } from "@/services/social/source-link";
 import type { SocialObservation } from "@/services/social/types";
 import type { SocialProviderRouter } from "@/services/social/router";
@@ -186,10 +187,12 @@ export async function extractGuidePlaceNames(text: string): Promise<GuideNameExt
     if (!names.length) throw new Error("LLM guide extraction returned no plausible names");
     return { names, source: "llm" };
   } catch (error) {
+    const fallbackReason = error instanceof Error ? error.message.slice(0, 160) : "LLM 抽取失败，使用规则抽取";
+    logger.warn("guide-extract.llm_fallback_rules", { fallbackReason });
     return {
       names: extractCandidatesWithRules(bounded),
       source: "rules",
-      fallbackReason: error instanceof Error ? error.message.slice(0, 160) : "LLM 抽取失败，使用规则抽取",
+      fallbackReason,
     };
   }
 }

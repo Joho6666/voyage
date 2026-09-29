@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { getLlmConfig, chatJson, type ChatMessage } from "@/services/ai/llm";
+import { logger } from "@/lib/logger";
 import { planWithRules } from "./rule-planner";
 import { MAX_TRIP_DAYS } from "@/lib/trip-limits";
 import type { Place } from "@/types/travel";
@@ -147,6 +148,7 @@ export async function planOutline(input: OutlinePlanningInput): Promise<OutlineP
   try {
     return { outline: await llmOutline(input), source: "llm", llm: "used" };
   } catch (error) {
+    logger.warn("outline-planner.llm_fallback_rules", { error });
     return { outline: ruleOutline(input), source: "rules", llm: "failed", fallbackReason: safeErrorMessage(error) };
   }
 }

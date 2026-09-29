@@ -2,6 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 import { chatJson, getLlmConfig } from "@/services/ai/llm";
+import { logger } from "@/lib/logger";
 import {
   canonicalPlanningProfile,
   mergePlanningProfiles,
@@ -359,6 +360,7 @@ export async function planConversationTurn(input: ConversationPlannerInput): Pro
       llm: "used",
     };
   } catch (error) {
+    logger.warn("conversation-planner.llm_fallback_rules", { error });
     return buildRuleResult(ruleProfile, { llm: "failed", fallbackReason: safeErrorMessage(error) });
   }
 }

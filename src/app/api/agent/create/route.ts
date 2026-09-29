@@ -5,6 +5,7 @@ import { SkillError } from "@/skill/errors";
 import { createTripWebRequestSchema, planTripFromRequest } from "@/services/trip-planner/create-trip";
 import { guestWorkspace, setGuestCookie } from "@/app/api/voyage/workspace";
 import { enforceRateLimit } from "@/lib/api-guards";
+import { logger } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +44,7 @@ export async function POST(request: NextRequest) {
     if (error instanceof SkillError) {
       return reply({ error: error.code, detail: error.message }, statusFor(error));
     }
+    logger.error("agent-create.failed", { error });
     return reply({ error: "INTERNAL_ERROR", detail: "Voyage runtime failed" }, 500);
   }
 }
