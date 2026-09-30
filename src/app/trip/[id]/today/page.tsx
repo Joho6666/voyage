@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   CloudRain,
   Footprints,
@@ -20,6 +20,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TravelImage } from "@/components/travel/TravelImage";
 import { travelAgent } from "@/services/ai";
+import type { AgentMessage, AgentTurn } from "@/services/ai/types";
+import { suggestTodayActions } from "@/features/today/suggestions";
 import { setItemStatus, restoreTrip, TripCommandError } from "@/services/trip-commands";
 import { useHistoryStore } from "@/store/history-store";
 import { useTripStore } from "@/store/trip-store";
@@ -56,6 +58,7 @@ export default function TodayPage() {
 
   const [busy, setBusy] = useState(false);
   const [freeText, setFreeText] = useState("");
+  const [lastReply, setLastReply] = useState<AgentMessage | null>(null);
   const [activeDiff, setActiveDiff] = useState<TripChangeSet | null>(null);
   const [diffOpen, setDiffOpen] = useState(false);
   const [activeRemote, setActiveRemote] = useState<{ tripId: string; proposalId: string; baseRevision: number } | null>(null);
@@ -86,13 +89,29 @@ export default function TodayPage() {
   const doneCount = items.filter((i) => i.status === "done").length;
 
   const stats = useMemo(() => (day ? dayStats(trip, day.id) : null), [trip, day]);
+  // Proactive pulls: computed from trip facts each time the trip (or focus) changes.
+  const suggestions = useMemo(
+    () => suggestTodayActions(trip, selectedDayId ?? null, todayIso),
+    [trip, selectedDayId, todayIso],
+  );
+
+  // Multi-turn context: follow-ups like "再少一点" resolve against what was
+  // already said. The server caps this at 12 turns / 12k chars.
+  const historyRef = useRef<AgentTurn[]>([]);
 
   // Action runner that triggers TripDiffModal
   const handleAction = async (message: string) => {
     if (busy) return;
     setBusy(true);
+    const sentMessage = `[dayId:${day?.id ?? "day-1"}] ${message}`;
     try {
-      const reply = await travelAgent.chat(trip, `[dayId:${day?.id ?? "day-1"}] ${message}`);
+      const reply = await travelAgent.chat(trip, sentMessage, historyRef.current);
+      historyRef.current = [
+        ...historyRef.current,
+        { role: "user" as const, content: sentMessage },
+        { role: "assistant" as const, content: reply.content },
+      ].slice(-8);
+      setLastReply(reply);
       if (reply.proposal?.changeSet) {
         setActiveDiff(reply.proposal.changeSet);
         setActiveRemote(reply.proposal.remote ?? null);
@@ -102,9 +121,9 @@ export default function TodayPage() {
         patch(reply.proposal.apply);
         void persist();
         toast.success(reply.proposal.summary);
-      } else {
-        toast.message(reply.content);
       }
+      // Plain answers (weather, routes, places) stay visible in the reply
+      // card above instead of a toast that disappears in seconds.
     } catch {
       toast.error("AI 请求失败，请重试");
     } finally {
@@ -114,16 +133,9 @@ export default function TodayPage() {
 
   const handleApplyDiff = (changeSet: TripChangeSet) => {
     void (async () => {
-      if (!activeRemote) {
-        // Server write, not a local patch: the old local-only path bumped the
-        // revision to a value the server never issued.
-        const applied = changeSet.proposedTrip;
-        pushHistory(trip);
-        void restoreTrip({ tripId: trip.id, trip: applied, expectedTripRevision: revision })
-          .then(({ trip: saved, revision: savedRevision }) => { setTrip(saved, savedRevision); toast.success(`已应用：${changeSet.summary}`); })
-          .catch((error) => toast.error(error instanceof TripCommandError ? error.message : "应用修改失败，请重试"));
-        return;
-      }
+      // Every agent proposal carries a server-side remote record (the old
+      // local-only apply path was removed with the mock agent surface).
+      if (!activeRemote) { toast.error("方案已过期，请重新生成"); return; }
       const response = await fetch("/api/voyage/command", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ command: "apply-change", input: { ...activeRemote, expectedTripRevision: activeRemote.baseRevision, confirmed: true } }) });
       const envelope = await response.json() as { ok?: boolean; data?: { trip?: import("@/types/travel").Trip; revision?: number }; error?: { message?: string } };
       if (!response.ok || !envelope.ok || !envelope.data?.trip) { toast.error(envelope.error?.message ?? "方案已过期，请重新生成"); return; }
@@ -246,6 +258,28 @@ export default function TodayPage() {
         </div>
       ) : null}
 
+      {/* Proactive suggestions: deterministic rules over trip facts (weather,
+          gaps, budget, quotes) pull the traveller instead of waiting to be
+          discovered inside the drawer. */}
+      {suggestions.length ? (
+        <div className="mt-3 animate-in fade-in slide-in-from-top-2 duration-200">
+          <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">可以根据当前行程状态，试试：</p>
+          <div className="flex flex-wrap gap-1.5">
+            {suggestions.map((suggestion) => (
+              <button
+                key={suggestion.id}
+                type="button"
+                disabled={busy}
+                onClick={() => void handleAction(suggestion.message)}
+                className="rounded-full border border-primary/25 bg-accent/70 px-3 py-1.5 text-[11px] font-medium text-accent-foreground transition-colors hover:border-primary/50 disabled:opacity-40"
+              >
+                {suggestion.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {/* Live Travel Status Card */}
       <section className="mt-4 rounded-[14px] border border-border bg-surface p-4 shadow-sm">
         <div className="grid grid-cols-2 gap-3 pb-3 border-b border-border/70 text-[13px]">
@@ -337,6 +371,47 @@ export default function TodayPage() {
             </p>
           </div>
         </div>
+      ) : null}
+
+      {/* Latest agent reply: persistent (toasts vanished in seconds), showing
+          what the model answered, which tools it called, and a way back to a
+          proposal Diff that was closed without applying. */}
+      {lastReply ? (
+        <section className="mt-4 rounded-[14px] border border-primary/20 bg-surface p-3.5" aria-live="polite">
+          <div className="flex items-start justify-between gap-2">
+            <p className="whitespace-pre-wrap text-[13px] leading-5 text-foreground">{lastReply.content}</p>
+            {lastReply.proposal?.changeSet ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 shrink-0 px-2 text-[11px]"
+                onClick={() => {
+                  setActiveDiff(lastReply.proposal!.changeSet!);
+                  setActiveRemote(lastReply.proposal!.remote ?? null);
+                  setDiffOpen(true);
+                }}
+              >
+                查看修改方案
+              </Button>
+            ) : null}
+          </div>
+          {lastReply.toolCalls?.length ? (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {lastReply.toolCalls.map((call, index) => (
+                <span
+                  key={`${call.name}-${index}`}
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] ${call.ok ? "bg-secondary text-muted-foreground" : "bg-amber-500/10 text-amber-700"}`}
+                  title={`工具调用：${call.name}`}
+                >
+                  {call.ok ? "✓" : "!"} {call.name} · {call.summary}
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {lastReply.warnings?.length ? (
+            <p className="mt-2 text-[11px] text-amber-700">{lastReply.warnings.join("；")}</p>
+          ) : null}
+        </section>
       ) : null}
 
       {/* Adjustments stay behind one tap: eight always-visible buttons competed

@@ -9,6 +9,7 @@ import { guestWorkspace, setGuestCookie } from "@/app/api/voyage/workspace";
 import { JsonSkillRepository } from "@/skill/repository";
 import { chongqingTrip, DEMO_TRIP_ID } from "@/data/demo/chongqing";
 import { failureMessage, toolContextMessage } from "@/lib/failure-message";
+import { weatherDisplay } from "@/lib/weather-display";
 import type { Trip } from "@/types/travel";
 import type { PlanningProfile } from "@/schemas/planning";
 import { enforceRateLimit } from "@/lib/api-guards";
@@ -33,10 +34,6 @@ const inputSchema = z.object({
     }).strict())
     .max(MAX_AGENT_HISTORY_MESSAGES)
     .optional(),
-  applyConfirmation: z.object({
-    proposalId: z.string().min(1),
-    expectedTripRevision: z.number().int().min(1),
-  }).optional(),
 });
 
 /** Keep the most recent turns within both the count and total size bounds. */
@@ -74,11 +71,60 @@ const tools: LlmTool[] = [
 
 const allowedToolNames: Record<string, true> = Object.fromEntries(tools.map((tool) => [tool.function.name, true as const]));
 
+/** What the UI shows per tool call: name + a human-readable arg/result digest. */
+export interface AgentToolCallTrace {
+  name: string;
+  argsSummary: string;
+  resultSummary: string;
+  ok: boolean;
+}
+
+const RESULT_LABELS: Record<string, string> = {
+  places: "地点",
+  offers: "报价",
+  forecast: "天气预报",
+  evidence: "社交证据",
+  matches: "知识条目",
+  routeOptions: "交通候选",
+  route: "路线",
+};
+
+function summarizeArgs(args: Record<string, unknown>) {
+  return Object.entries(args ?? {})
+    .filter(([, value]) => value !== undefined && value !== "" && value !== null)
+    .slice(0, 2)
+    .map(([key, value]) => `${key}=${typeof value === "object" ? "…" : String(value).slice(0, 40)}`)
+    .join(", ");
+}
+
+function summarizeResult(name: string, result: unknown) {
+  if (name === "apply_change") return "已拒绝：提案必须由用户确认";
+  const data = (result as { data?: Record<string, unknown> } | null)?.data;
+  if (!data) return "完成";
+  if (typeof data.proposalId === "string") return "提案已生成，等待用户在 Diff 确认";
+  for (const [key, label] of Object.entries(RESULT_LABELS)) {
+    const value = data[key];
+    if (Array.isArray(value)) return `${label}：${value.length} 条`;
+    if (value && typeof value === "object") return `${label}：已完成`;
+  }
+  if (typeof data.summary === "string" && data.summary.trim()) return data.summary.slice(0, 80);
+  return "完成";
+}
+
 function safeToolResult(name: string, value: unknown) {
   const data = value as { data?: Record<string, unknown>; providerStatus?: unknown; warnings?: unknown };
   if (name === "get_trip") {
     const trip = data.data?.trip as TripSummary | undefined;
-    return JSON.stringify({ destination: trip?.destination, origin: trip?.origin, dates: trip?.days?.map((day) => ({ id: day.id, date: day.date, title: day.title })), places: trip?.places?.slice(0, 20).map((place) => ({ name: place.name, category: place.category, lat: place.lat, lng: place.lng, id: place.id })) });
+    const tasksPending = trip?.tasks?.filter((task) => task.status !== "done").length ?? 0;
+    return JSON.stringify({
+      destination: trip?.destination,
+      origin: trip?.origin,
+      dates: trip?.days?.map((day) => ({ id: day.id, date: day.date, title: day.title, weather: day.weather?.condition ?? "未知" })),
+      places: trip?.places?.slice(0, 20).map((place) => ({ name: place.name, category: place.category, lat: place.lat, lng: place.lng, id: place.id })),
+      tasksPending,
+      tasksTotal: trip?.tasks?.length ?? 0,
+      offersCount: trip?.offers?.length ?? 0,
+    });
   }
   if (name === "search_places" || name === "get_place") {
     const places = (data.data?.places ?? (data.data?.place ? [data.data.place] : [])) as Array<Record<string, unknown>>;
@@ -112,7 +158,14 @@ function safeToolResult(name: string, value: unknown) {
   return JSON.stringify(value, (_key, item) => typeof item === "string" && item.length > 600 ? `${item.slice(0, 600)}…` : item);
 }
 
-type TripSummary = { destination?: string; origin?: string; days?: Array<{ id: string; date: string; title?: string }>; places?: Array<{ name: string; category: string; lat?: number; lng?: number; id?: string }> };
+type TripSummary = {
+  destination?: string;
+  origin?: string;
+  days?: Array<{ id: string; date: string; title?: string; weather?: { condition?: string } }>;
+  places?: Array<{ name: string; category: string; lat?: number; lng?: number; id?: string }>;
+  tasks?: Array<{ status?: string }>;
+  offers?: unknown[];
+};
 
 const PACE_LABEL: Record<NonNullable<PlanningProfile["pace"]>, string> = {
   relaxed: "轻松慢节奏",
@@ -196,6 +249,24 @@ function tripStateLine(trip: Trip) {
   return parts.length ? `当前行程状态：${parts.join("；")}。` : "";
 }
 
+/** Per-day weather the agent can cite without calling get_weather again. */
+function weatherLine(trip: Trip) {
+  const known = (trip.days ?? [])
+    .filter((day) => weatherDisplay(day.weather).known)
+    .slice(0, 7)
+    .map((day) => `${day.date} ${day.weather!.condition}`);
+  return known.length ? `已知天气预报：${known.join("，")}。` : "";
+}
+
+/** Where the traveller is relative to the trip dates, so "今天" is unambiguous. */
+function phaseLine(trip: Trip, todayIso: string) {
+  const dayIndex = trip.days?.findIndex((day) => day.date === todayIso) ?? -1;
+  if (dayIndex >= 0) return `今天是 ${todayIso}，行程第 ${dayIndex + 1} 天（共 ${trip.days?.length ?? 0} 天）。`;
+  if (trip.startDate && todayIso < trip.startDate) return `今天是 ${todayIso}，行程尚未出发（${trip.startDate} 开始）。`;
+  if (trip.endDate && todayIso > trip.endDate) return `今天是 ${todayIso}，行程已结束。`;
+  return `今天是 ${todayIso}。`;
+}
+
 function transportContextFromArgs(args: Record<string, unknown>) {
   const context: Record<string, unknown> = {};
   if (typeof args.walkingTolerance === "string") context.walkingTolerance = args.walkingTolerance;
@@ -222,17 +293,6 @@ export async function POST(request: NextRequest) {
   const trip = tripEnvelope.data?.trip;
   if (!trip) return NextResponse.json({ ok: false, error: "Trip not found" }, { status: 404 });
 
-  // Explicit user confirmation path: the client posts applyConfirmation after
-  // the user accepted a Diff in the UI. The LLM loop can never mint this.
-  if (parsed.data.applyConfirmation) {
-    try {
-      const result = await runtime.execute("apply-change", { tripId: parsed.data.tripId, proposalId: parsed.data.applyConfirmation.proposalId, expectedTripRevision: parsed.data.applyConfirmation.expectedTripRevision, confirmed: true });
-      return setGuestCookie(NextResponse.json({ ok: true, content: "已应用用户确认的修改", toolsUsed: ["apply_change"], proposal: result }), workspace);
-    } catch (error) {
-      return setGuestCookie(NextResponse.json({ ok: false, error: failureMessage(error, "应用失败") }, { status: 422 }), workspace);
-    }
-  }
-
   if (process.env.VOYAGE_DEMO_MODE === "true" &&
     /少走|走路|太累|下雨|雨方案|推迟|跳过|省100|换个地方/.test(parsed.data.message)) {
     try {
@@ -240,26 +300,51 @@ export async function POST(request: NextRequest) {
       const proposal = await runtime.execute("propose-change", commandSchemas["propose-change"].parse({
         tripId: parsed.data.tripId, instruction: parsed.data.message, dayId, fallbackPolicy: "estimated",
       }));
-      return setGuestCookie(NextResponse.json({ ok: true, content: "已生成行程修改建议", toolsUsed: ["propose_change"], proposal }), workspace);
+      return setGuestCookie(NextResponse.json({
+        ok: true,
+        content: "已生成行程修改建议",
+        toolsUsed: ["propose_change"],
+        toolCalls: [{ name: "propose_change", argsSummary: "规则规划", resultSummary: "提案已生成，等待用户在 Diff 确认", ok: true }],
+        proposal,
+      }), workspace);
     } catch (error) {
       return setGuestCookie(NextResponse.json({ ok: false, error: failureMessage(error, "无法生成提案") }, { status: 422 }), workspace);
     }
   }
   const fullTrip = (tripEnvelope.data as { trip?: Trip } | undefined)?.trip;
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const systemPrompt = [
+    "你是 Voyage 旅行助手。用中文回答。",
+    "核心规则：不要编造价格、库存、天气或地点；回答事实性问题前先用工具取真实数据。",
+    "行程修改只能生成提案，必须让用户在 Diff 界面确认后才能应用；禁止自行调用 apply_change，用户问「能不能改」时用 propose_change 生成提案。",
+    "工具使用要点：get_trip 先看行程全貌；get_weather 查天气；search_places 找或换地点；get_route_options / optimize_transport 做市内交通对比；search_travel_offers 查酒店、车票、门票报价；search_social_travel / get_social_evidence 看社交平台的实地反馈；propose_change 生成通用修改提案，replan_trip 专攻某一天的交通方式与顺序。",
+    "用户消息中的 [dayId:xxx] 前缀表示用户当前聚焦的行程日，涉及「今天/这天」的操作优先用它。",
+    "主动牵引：回答末尾用一句话主动建议一个合理的下一步（信息不足就直接反问用户）；不要罗列工具名，不要复述用户已知的内容。",
+    `当前行程：${trip.origin ?? ""} → ${trip.destination ?? ""}，${trip.startDate ?? ""} 至 ${trip.endDate ?? ""}，${trip.travelers ?? 1} 人，总预算 ${trip.budget ?? 0} 元。`,
+    fullTrip ? phaseLine(fullTrip, todayIso) : "",
+    fullTrip ? weatherLine(fullTrip) : "",
+    confirmedPreferenceLine(fullTrip?.planningMetadata?.planningProfile),
+    fullTrip ? tripStateLine(fullTrip) : "",
+  ].filter(Boolean).join("\n");
   const messages: ChatMessage[] = [
-    { role: "system", content: `你是 Voyage 旅行助手。用中文回答。你可以调用白名单工具获取真实数据。不要编造价格、库存、天气或地点。行程修改只能生成提案，必须让用户确认后才能应用；禁止自行调用 apply_change。当前行程：${trip.origin ?? ""} → ${trip.destination ?? ""}，${trip.startDate ?? ""} 至 ${trip.endDate ?? ""}，${trip.travelers ?? 1} 人，总预算 ${trip.budget ?? 0} 元。${confirmedPreferenceLine(fullTrip?.planningMetadata?.planningProfile)}${fullTrip ? tripStateLine(fullTrip) : ""}` },
+    { role: "system", content: systemPrompt },
     ...boundedHistory(parsed.data.history),
     { role: "user", content: parsed.data.message },
   ];
   let proposal: unknown;
+  let lastContent = "";
   const toolTrace: string[] = [];
+  const toolCalls: AgentToolCallTrace[] = [];
   try {
     for (let round = 0; round < 3; round += 1) {
       const answer = await chatWithTools({ messages, tools });
-      if (!answer.toolCalls.length) return setGuestCookie(NextResponse.json({ ok: true, content: answer.content, toolsUsed: toolTrace, proposal }), workspace);
+      if (answer.content) lastContent = answer.content;
+      if (!answer.toolCalls.length) return setGuestCookie(NextResponse.json({ ok: true, content: answer.content, toolsUsed: toolTrace, toolCalls, proposal }), workspace);
       messages.push({ role: "assistant", content: answer.content || null, tool_calls: answer.toolCalls.map((call) => ({ id: call.id, type: "function", function: { name: call.name, arguments: JSON.stringify(call.arguments) } })) });
       for (const call of answer.toolCalls) {
+        const argsSummary = summarizeArgs(call.arguments as Record<string, unknown>);
         if (!(call.name in allowedToolNames)) {
+          toolCalls.push({ name: call.name, argsSummary, resultSummary: "工具不在白名单，已跳过", ok: false });
           messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ error: "Tool is not allowed" }) });
           continue;
         }
@@ -319,14 +404,26 @@ export async function POST(request: NextRequest) {
               break;
           }
           messages.push({ role: "tool", tool_call_id: call.id, content: safeToolResult(call.name, result) });
+          toolCalls.push({ name: call.name, argsSummary, resultSummary: summarizeResult(call.name, result), ok: true });
         } catch (error) {
           // A raw Zod dump in tool context gets echoed back to the user by the model.
-          messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ error: toolContextMessage(error) }) });
+          const reason = toolContextMessage(error);
+          messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ error: reason }) });
+          toolCalls.push({ name: call.name, argsSummary, resultSummary: reason, ok: false });
         }
       }
     }
-    return setGuestCookie(NextResponse.json({ ok: false, error: "TOOL_LOOP_LIMIT", toolsUsed: toolTrace }, { status: 422 }), workspace);
+    // Loop exhausted: return the data already gathered instead of a bare 422
+    // that throws away every tool result the user is waiting for.
+    return setGuestCookie(NextResponse.json({
+      ok: true,
+      content: lastContent || "已完成工具查询，但未能生成最终总结；请换个问法或稍后重试。",
+      toolsUsed: toolTrace,
+      toolCalls,
+      proposal,
+      warnings: ["工具调用轮次达到上限，以上为已获取的部分结果"],
+    }), workspace);
   } catch (error) {
-    return setGuestCookie(NextResponse.json({ ok: false, error: failureMessage(error, "工具调用失败，请稍后重试") }, { status: 502 }), workspace);
+    return setGuestCookie(NextResponse.json({ ok: false, error: failureMessage(error, "工具调用失败，请稍后重试"), toolsUsed: toolTrace, toolCalls }, { status: 502 }), workspace);
   }
 }

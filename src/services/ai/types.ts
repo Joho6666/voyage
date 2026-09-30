@@ -28,11 +28,22 @@ export interface AgentProposal {
   remote?: { tripId: string; proposalId: string; baseRevision: number };
 }
 
+/** A tool call the agent made while producing this message, for UI transparency. */
+export interface AgentToolCall {
+  name: string;
+  summary: string;
+  ok: boolean;
+}
+
 export interface AgentMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   proposal?: AgentProposal;
+  /** Readable trace of the tools the model called (server-verified). */
+  toolCalls?: AgentToolCall[];
+  /** Non-fatal notices, e.g. partial results when the tool loop hit its cap. */
+  warnings?: string[];
 }
 
 /** Bounded prior turns sent back to the server so follow-ups keep their context. */

@@ -60,17 +60,30 @@ export class OpenAITravelAgent extends MockTravelAgent implements TravelAgent {
           ...(history?.length ? { history: history.slice(-12) } : {}),
         }),
       });
-      const envelope = await response.json() as { ok?: boolean; content?: string; toolsUsed?: string[]; proposal?: { data?: { proposalId?: string; tripId?: string; baseRevision?: number; changes?: import("@/types/diff").TripChangeSet; summary?: string } }; error?: string };
+      const envelope = await response.json() as {
+        ok?: boolean;
+        content?: string;
+        toolsUsed?: string[];
+        toolCalls?: Array<{ name: string; resultSummary: string; ok: boolean }>;
+        warnings?: string[];
+        proposal?: { data?: { proposalId?: string; tripId?: string; baseRevision?: number; changes?: import("@/types/diff").TripChangeSet; summary?: string } };
+        error?: string;
+      };
       if (!response.ok || !envelope.ok) throw new Error(envelope.error ?? "AI 工具调用失败");
       const data = envelope.proposal?.data;
-      const summary = data?.summary || envelope.content || "已完成查询";
+      // The model's own explanation outranks the runtime's fixed summary: the
+      // summary is boilerplate ("当前市内交通方式已符合综合评分…"), while the
+      // content is what the model actually answered after reading tool results.
+      const content = envelope.content || data?.summary || "已完成查询";
       return {
         id: `msg_${Date.now()}`,
         role: "assistant",
-        content: `${summary}${envelope.toolsUsed?.length ? `\n已调用：${envelope.toolsUsed.join("、")}` : ""}${data?.proposalId ? "（修改方案待确认）" : ""}`,
+        content,
+        toolCalls: envelope.toolCalls?.map((call) => ({ name: call.name, summary: call.resultSummary, ok: call.ok })),
+        warnings: envelope.warnings,
         proposal: data?.proposalId && data.changes ? {
           id: `prop_${Date.now()}`,
-          summary,
+          summary: data.summary ?? content,
           apply: (current) => current,
           changeSet: data.changes,
           remote: { tripId: data.tripId!, proposalId: data.proposalId, baseRevision: data.baseRevision! },
