@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { BookOpen, Check, ChevronDown, ChevronRight, ExternalLink, LoaderCircle, MapPin, Search, Sparkles } from "lucide-react";
+import { BookOpen, Check, ChevronDown, ChevronRight, ClipboardPaste, ExternalLink, LoaderCircle, MapPin, Search, Sparkles, WandSparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { addPlaceItemToDay, addPlaceToTrip, TripCommandError } from "@/services/trip-commands";
+import { addPlaceToTrip, importRouteToTrip, TripCommandError } from "@/services/trip-commands";
 import { useTripStore } from "@/store/trip-store";
 import { useUiStore } from "@/store/ui-store";
 import { cn } from "@/lib/utils";
@@ -27,6 +27,7 @@ const CATEGORIES: Array<{ id: GuideCategory; label: string; query: string; place
 ];
 
 function postDate(post: GuidePost) {
+  if (post.platform === "pasted") return "手动粘贴";
   const timestamp = post.publishedAt ? Date.parse(post.publishedAt) : NaN;
   return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleDateString("zh-CN") : "日期未知";
 }
@@ -40,15 +41,16 @@ export interface XhsGuidePanelProps {
 }
 
 /**
- * 小红书爆款攻略 → 真实行程与地图。
- * 支持按精选路线、必吃美食、最新笔记及自定义关键词检索小红书公开笔记，
- * 从中抽取地点名称并由高德逐个核实，找到的真实 POI 可一键定位到地图或加入某天行程。
+ * 攻略导入 → 真实行程与地图。
+ * 在线检索当前来自小红书公开笔记；抖音/微信/任意平台的攻略可直接粘贴原文。
+ * 抽取的地点名称由高德逐个核实，找到的真实 POI 可一键定位地图、加入某天，
+ * 或整条路线一键导入并自动生成打卡任务清单。
  */
 export function XhsGuidePanel({
   city,
   defaultCategory = "route",
-  title = "小红书爆款攻略",
-  description = "选一篇攻略，解析成真实地点后一键加入行程与地图；地点由高德核实，找不到的不编造。",
+  title = "攻略导入 · 小红书 / 抖音 / 微信",
+  description = "在线搜索小红书爆款笔记，或直接粘贴任意平台的攻略原文——解析成真实地点后一键生成路线与打卡清单；地点由高德核实，找不到的不编造。",
   className,
 }: XhsGuidePanelProps) {
   const trip = useTripStore((s) => s.trip);
@@ -70,6 +72,12 @@ export function XhsGuidePanel({
   const [addedNames, setAddedNames] = useState<Record<string, string[]>>({});
   const [dayId, setDayId] = useState(trip.days[0]?.id ?? "");
   const [adding, setAdding] = useState(false);
+  const [importingRoute, setImportingRoute] = useState(false);
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+
+  /** Synthetic source id for guides pasted from 抖音/微信/任何平台. */
+  const PASTE_SOURCE_ID = "pasted-guide";
 
   const activeCategoryDef = CATEGORIES.find((c) => c.id === category) ?? CATEGORIES[0];
 
@@ -174,10 +182,10 @@ export function XhsGuidePanel({
   const addSelected = async (post: GuidePost) => {
     const selection = parsed[post.sourceId];
     if (!selection || adding) return;
-    const picked = selection.candidates.filter(
+    const pickedPlaces = selection.candidates.filter(
       (candidate) => candidate.resolved && candidate.place && checked[post.sourceId]?.has(candidate.name),
-    );
-    if (!picked.length) {
+    ).map((candidate) => candidate.place!);
+    if (!pickedPlaces.length) {
       toast.error("请先勾选至少一个地点");
       return;
     }
@@ -187,36 +195,95 @@ export function XhsGuidePanel({
       return;
     }
     setAdding(true);
-    let added = 0;
-    const failed: string[] = [];
-    for (const candidate of picked) {
-      try {
-        const { revision } = useTripStore.getState();
-        const result = await addPlaceItemToDay({
-          tripId: trip.id,
-          place: candidate.place!,
-          dayId: targetDayId,
-          expectedTripRevision: revision,
-        });
-        setTrip(result.trip, result.revision);
-        added += 1;
-      } catch (error) {
-        failed.push(`${candidate.name}：${error instanceof TripCommandError ? error.message : "加入失败"}`);
-      }
-    }
-    setAdding(false);
-    if (added) {
+    try {
+      // One server transaction for the whole selection: atomic, revision-locked,
+      // and each stop gets a check-in task in the same write.
+      const result = await importRouteToTrip({
+        tripId: trip.id,
+        assignments: [{ dayId: targetDayId, places: pickedPlaces }],
+        expectedTripRevision: useTripStore.getState().revision,
+      });
+      setTrip(result.trip, result.revision);
       setAddedNames((current) => ({
         ...current,
-        [post.sourceId]: [
-          ...(current[post.sourceId] ?? []),
-          ...picked.filter((c) => !failed.some((f) => f.startsWith(`${c.name}：`))).map((c) => c.name),
-        ],
+        [post.sourceId]: [...(current[post.sourceId] ?? []), ...selection.candidates.filter((c) => c.resolved && c.place).map((c) => c.name)],
       }));
       const dayLabel = `Day ${trip.days.findIndex((day) => day.id === targetDayId) + 1}`;
-      toast.success(`已加入 ${added} 个地点到 ${dayLabel}，并在地图生成连线`);
+      toast.success(`已加入 ${result.importedCount} 个地点到 ${dayLabel}，地图已连线，打卡任务已生成`);
+    } catch (error) {
+      toast.error(error instanceof TripCommandError ? error.message : "加入失败，请重试");
+    } finally {
+      setAdding(false);
     }
-    if (failed.length) toast.error(failed.join("；"));
+  };
+
+  /**
+   * One-click route generation: every resolved place, in the guide's original
+   * order, spread evenly across the trip's days. The runtime recomputes each
+   * affected day, so the map draws the line immediately, and a check-in task
+   * list appears alongside.
+   */
+  const importRouteAll = async (post: GuidePost) => {
+    const selection = parsed[post.sourceId];
+    if (!selection || importingRoute) return;
+    const places = selection.candidates.filter((candidate) => candidate.resolved && candidate.place).map((candidate) => candidate.place!);
+    if (!places.length) {
+      toast.error("没有已解析成功的地点可以导入");
+      return;
+    }
+    if (places.length > 20) {
+      toast.error("一次最多导入 20 个地点，请取消勾选部分后再试");
+      return;
+    }
+    if (!trip.days.length) {
+      toast.error("行程里还没有可分配的日期");
+      return;
+    }
+    setImportingRoute(true);
+    try {
+      const perDay = Math.ceil(places.length / trip.days.length);
+      const assignments = trip.days.map((day) => ({ dayId: day.id, places: [] as Place[] }));
+      places.forEach((place, index) => {
+        assignments[Math.min(Math.floor(index / perDay), assignments.length - 1)].places.push(place);
+      });
+      const result = await importRouteToTrip({
+        tripId: trip.id,
+        assignments: assignments.filter((assignment) => assignment.places.length > 0),
+        expectedTripRevision: useTripStore.getState().revision,
+      });
+      setTrip(result.trip, result.revision);
+      setAddedNames((current) => ({
+        ...current,
+        [post.sourceId]: [...(current[post.sourceId] ?? []), ...selection.candidates.filter((c) => c.resolved && c.place).map((c) => c.name)],
+      }));
+      toast.success(`已导入 ${result.importedCount} 个地点并自动连线，打卡任务清单已生成`);
+    } catch (error) {
+      toast.error(error instanceof TripCommandError ? error.message : "路线导入失败，请重试");
+    } finally {
+      setImportingRoute(false);
+    }
+  };
+
+  /** Paste entry: 抖音/微信/任何平台的攻略文本都走同一个抽取器。 */
+  const parsePasted = async () => {
+    const text = pasteText.trim();
+    if (text.length < 10) {
+      toast.error("攻略文本太短（至少 10 字）");
+      return;
+    }
+    const pastedPost: GuidePost = {
+      platform: "pasted",
+      sourceId: PASTE_SOURCE_ID,
+      summary: text.slice(0, 60),
+      content: text.slice(0, 4000),
+      fetchedAt: new Date().toISOString(),
+      metrics: {},
+    };
+    setOpenPostId(PASTE_SOURCE_ID);
+    if (!posts.some((post) => post.sourceId === PASTE_SOURCE_ID)) {
+      setPosts((current) => [pastedPost, ...current]);
+    }
+    await parse(pastedPost);
   };
 
   return (
@@ -284,8 +351,39 @@ export function XhsGuidePanel({
       {error ? <p role="alert" className="mt-2 rounded-lg border border-rose-500/25 bg-rose-500/[0.06] px-3 py-2 text-[11px] text-rose-800">{error}</p> : null}
       {warnings.length ? <p className="mt-2 text-[11px] text-amber-700">{warnings.slice(0, 2).join("；")}</p> : null}
 
+      {/* Paste entry: 小红书/抖音/微信/任意平台的攻略文本都走同一个抽取器。 */}
+      <div className="mt-3 rounded-[12px] border border-dashed border-border bg-background/50">
+        <button
+          type="button"
+          onClick={() => setPasteOpen((open) => !open)}
+          className="flex w-full items-center gap-2 px-3 py-2.5 text-[12px] font-medium text-muted-foreground hover:text-foreground"
+          aria-expanded={pasteOpen}
+        >
+          <ClipboardPaste className="size-3.5 text-primary" />
+          粘贴攻略文本（抖音 / 微信 / 小红书 / 任何平台）
+        </button>
+        {pasteOpen ? (
+          <div className="px-3 pb-3">
+            <textarea
+              value={pasteText}
+              onChange={(event) => setPasteText(event.target.value)}
+              placeholder="把刷到的攻略原文粘进来：行程顺序、地点名、天数都行——例如「Day1 洪崖洞→十八梯→长江索道，Day2 磁器口…」"
+              className="min-h-28 w-full resize-y rounded-[10px] border border-border bg-surface p-2.5 text-[12px] leading-5 outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+              aria-label="粘贴攻略原文"
+            />
+            <div className="mt-2 flex items-center justify-between">
+              <p className="text-[10px] text-muted-foreground">按原文顺序抽取地点，由高德逐个核实；找不到的不编造。</p>
+              <Button size="sm" disabled={parsing === PASTE_SOURCE_ID || pasteText.trim().length < 10} onClick={() => void parsePasted()}>
+                {parsing === PASTE_SOURCE_ID ? <LoaderCircle className="size-3.5 animate-spin" /> : <WandSparkles className="size-3.5" />}
+                解析地点
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
       {phase === "done" && posts.length === 0 && !error ? (
-        <p className="mt-3 text-[11px] text-muted-foreground">没有找到适合解析的小红书笔记。可以换个关键词重试。</p>
+        <p className="mt-3 text-[11px] text-muted-foreground">没有找到适合解析的小红书笔记。可以换个关键词重试，或直接粘贴攻略文本。</p>
       ) : null}
 
       <div className="mt-3 space-y-2">
@@ -306,7 +404,7 @@ export function XhsGuidePanel({
                 <span className="min-w-0 flex-1">
                   <span className="block text-[12px] font-medium leading-5 text-foreground line-clamp-2">{post.summary}</span>
                   <span className="mt-0.5 block text-[10px] text-muted-foreground">
-                    小红书 · {postDate(post)} · {Object.entries(post.metrics).filter(([, v]) => typeof v === "number").slice(0, 2).map(([k, v]) => `${k} ${v}`).join(" · ") || "公开笔记"}
+                    {post.platform === "pasted" ? "粘贴的攻略" : "小红书"} · {postDate(post)} · {Object.entries(post.metrics).filter(([, v]) => typeof v === "number").slice(0, 2).map(([k, v]) => `${k} ${v}`).join(" · ") || "公开笔记"}
                     {post.sourceUrl ? " · " : ""}
                     {post.sourceUrl ? (
                       <a
@@ -413,9 +511,20 @@ export function XhsGuidePanel({
                           {adding ? <LoaderCircle className="size-3.5 animate-spin" /> : null}
                           加入所选地点
                         </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1 border-primary/40 text-primary"
+                          disabled={importingRoute || adding}
+                          onClick={() => void importRouteAll(post)}
+                          title="把解析出的全部地点按攻略原文顺序自动分配到各天，生成路线与打卡清单"
+                        >
+                          {importingRoute ? <LoaderCircle className="size-3.5 animate-spin" /> : <WandSparkles className="size-3.5" />}
+                          一键生成路线图
+                        </Button>
                       </div>
                       <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">
-                        勾选后点击可将真实 POI 保存到选定日期的行程并重新计算路线。
+                        「加入所选地点」保存到选定日期；「一键生成路线图」按攻略原文顺序分配到各天并生成打卡清单。
                       </p>
                     </>
                   )}

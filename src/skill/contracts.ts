@@ -172,6 +172,33 @@ export const setItemStatusInputSchema = z.object({
 });
 
 /**
+ * One-click import of a guide route (小红书/抖音/微信 text): ordered places are
+ * spread across trip days in one transaction, each getting a check-in task so
+ * the traveller can tick them off as they go. Total places are capped — this
+ * is an interactive import, not a bulk data load.
+ */
+export const importRouteInputSchema = z.object({
+  tripId: z.string().min(1),
+  assignments: z
+    .array(z.object({
+      dayId: z.string().min(1),
+      places: z.array(placeSchema).min(1).max(20),
+    }).strict())
+    .min(1)
+    .max(7),
+  createTasks: z.boolean().default(true),
+  expectedTripRevision: z.number().int().min(1),
+});
+
+/** Persisting a task checkbox (the inline list used to patch local state only). */
+export const setTaskStatusInputSchema = z.object({
+  tripId: z.string().min(1),
+  taskId: z.string().min(1),
+  status: z.enum(["todo", "done"]),
+  expectedTripRevision: z.number().int().min(1),
+});
+
+/**
  * Bookmarking a provider place onto the trip's map without scheduling it.
  * The map-mark buttons used to patch the local store only, so every mark
  * vanished on the next server rehydrate.
@@ -269,6 +296,8 @@ export const commandSchemas = {
   "add-place-item": addPlaceItemInputSchema,
   "set-item-status": setItemStatusInputSchema,
   "add-place": addPlaceInputSchema,
+  "import-route": importRouteInputSchema,
+  "set-task-status": setTaskStatusInputSchema,
   "restore-trip": restoreTripInputSchema,
   "propose-change": proposeChangeInputSchema,
   "apply-change": applyChangeInputSchema,
@@ -323,6 +352,8 @@ export const outputSchemas = {
   "add-place-item": tripDataSchema,
   "set-item-status": tripDataSchema,
   "add-place": tripDataSchema,
+  "import-route": tripDataSchema,
+  "set-task-status": tripDataSchema,
   "restore-trip": tripDataSchema,
   "search-places": z.object({ places: z.array(z.object({ id: z.string(), name: z.string(), category: z.string() }).passthrough()) }).passthrough(),
   "get-place": z.object({ place: z.object({ id: z.string(), name: z.string() }).passthrough(), matchBasis: z.enum(["trip_lookup", "provider_search"]) }).passthrough(),

@@ -1,4 +1,4 @@
-import type { ItemStatus, Place, Trip } from "@/types/travel";
+import type { ItemStatus, Place, TaskStatus, Trip } from "@/types/travel";
 
 export interface AddPlaceResult {
   trip: Trip;
@@ -141,6 +141,78 @@ export async function setItemStatus(input: {
   }
   if (!envelope.ok || !envelope.data?.trip) {
     throw new TripCommandError(envelope.error?.message ?? "状态保存失败，请重试", envelope.error?.code);
+  }
+  return { trip: envelope.data.trip, revision: envelope.data.revision ?? input.expectedTripRevision + 1 };
+}
+
+/**
+ * One-click guide import: ordered places are spread across trip days in a
+ * single server transaction, each stop getting a check-in task. Replaces the
+ * old per-place loop that could leave half-imported routes on failure.
+ */
+export async function importRouteToTrip(input: {
+  tripId: string;
+  assignments: Array<{ dayId: string; places: Place[] }>;
+  createTasks?: boolean;
+  expectedTripRevision: number;
+}): Promise<AddPlaceResult & { importedCount: number }> {
+  let envelope: { ok?: boolean; data?: { trip?: Trip; revision?: number; importedCount?: number }; error?: { code?: string; message?: string } };
+  try {
+    const response = await fetch("/api/voyage/command", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        command: "import-route",
+        input: {
+          tripId: input.tripId,
+          assignments: input.assignments,
+          createTasks: input.createTasks ?? true,
+          expectedTripRevision: input.expectedTripRevision,
+        },
+      }),
+    });
+    envelope = await response.json();
+  } catch {
+    throw new TripCommandError("网络异常，路线导入失败，请重试");
+  }
+  if (!envelope.ok || !envelope.data?.trip) {
+    throw new TripCommandError(envelope.error?.message ?? "路线导入失败，请重试", envelope.error?.code);
+  }
+  return {
+    trip: envelope.data.trip,
+    revision: envelope.data.revision ?? input.expectedTripRevision + 1,
+    importedCount: envelope.data.importedCount ?? 0,
+  };
+}
+
+/** Persists a task checkbox (the inline list used to patch local state only). */
+export async function setTaskStatus(input: {
+  tripId: string;
+  taskId: string;
+  status: TaskStatus;
+  expectedTripRevision: number;
+}): Promise<AddPlaceResult> {
+  let envelope: { ok?: boolean; data?: { trip?: Trip; revision?: number }; error?: { code?: string; message?: string } };
+  try {
+    const response = await fetch("/api/voyage/command", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        command: "set-task-status",
+        input: {
+          tripId: input.tripId,
+          taskId: input.taskId,
+          status: input.status,
+          expectedTripRevision: input.expectedTripRevision,
+        },
+      }),
+    });
+    envelope = await response.json();
+  } catch {
+    throw new TripCommandError("网络异常，任务状态保存失败，请重试");
+  }
+  if (!envelope.ok || !envelope.data?.trip) {
+    throw new TripCommandError(envelope.error?.message ?? "任务状态保存失败，请重试", envelope.error?.code);
   }
   return { trip: envelope.data.trip, revision: envelope.data.revision ?? input.expectedTripRevision + 1 };
 }

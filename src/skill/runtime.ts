@@ -18,7 +18,7 @@ import {
 } from "@/services/planning/profile";
 import { recomputeDay, recomputeTrip } from "@/services/routing";
 import { weatherForDate } from "@/services/weather/merge";
-import type { Day, ItineraryItem, Place, RouteSegment, Trip } from "@/types/travel";
+import type { Day, ItineraryItem, Place, RouteSegment, TaskStatus, Trip } from "@/types/travel";
 import type { PlanningProfile } from "@/schemas/planning";
 import {
   applyChangeInputSchema,
@@ -42,6 +42,8 @@ import {
   reorderDayInputSchema,
   addPlaceItemInputSchema,
   setItemStatusInputSchema,
+  importRouteInputSchema,
+  setTaskStatusInputSchema,
   addPlaceInputSchema,
   restoreTripInputSchema,
   updateTripInputSchema,
@@ -261,6 +263,12 @@ async function collectCandidates(provider: TravelDataProvider, destination: stri
   const candidates = uniquePlaces(results.flat());
   if (candidates.length < 4) throw new SkillError("NO_POI_RESULTS", `Only ${candidates.length} valid POIs were returned`);
   return candidates;
+}
+
+/** A place must trace back to real provider data — never an invented object. */
+function placeProvenanceVerified(place: Place) {
+  return place.provenance?.source === "amap" || place.provenance?.source === "demo"
+    || ((place.source === "amap" || place.source === "demo") && Boolean(place.sourceId));
 }
 
 function itemType(place: Place): ItineraryItem["type"] {
@@ -1039,9 +1047,7 @@ export class VoyageSkillRuntime {
     const place = input.place;
     // Provenance guard: the place must be traceable to real provider data. A
     // hand-built or LLM-invented object can never enter a trip through here.
-    const provenanceOk = place.provenance?.source === "amap" || place.provenance?.source === "demo"
-      || ((place.source === "amap" || place.source === "demo") && Boolean(place.sourceId));
-    if (!provenanceOk) {
+    if (!placeProvenanceVerified(place)) {
       throw new SkillError("PLACE_SOURCE_UNVERIFIED", "该地点缺少可核实的真实数据来源，不能加入行程");
     }
     let trip = structuredClone(stored.trip);
@@ -1095,15 +1101,106 @@ export class VoyageSkillRuntime {
     if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
     if (stored.revision !== input.expectedTripRevision) throw new SkillError("REVISION_CONFLICT", "Trip revision does not match expectedTripRevision");
     const place = input.place;
-    const provenanceOk = place.provenance?.source === "amap" || place.provenance?.source === "demo"
-      || ((place.source === "amap" || place.source === "demo") && Boolean(place.sourceId));
-    if (!provenanceOk) {
+    if (!placeProvenanceVerified(place)) {
       throw new SkillError("PLACE_SOURCE_UNVERIFIED", "该地点缺少可核实的真实数据来源，不能加入地图");
     }
     if (stored.trip.places.some((existing) => existing.id === place.id)) {
       return successEnvelope({ tripId: input.tripId, trip: stored.trip, revision: stored.revision, tripHash: stored.hash });
     }
     const trip = { ...stored.trip, places: [...stored.trip.places, place] };
+    const saved = await this.repository.updateTrip({ tripId: input.tripId, expectedRevision: stored.revision, trip });
+    return successEnvelope({ tripId: input.tripId, trip: saved.trip, revision: saved.revision, tripHash: saved.hash });
+  }
+
+  /**
+   * One-click guide import: ordered, provenance-verified places are spread
+   * across trip days in a single transaction, each stop getting a check-in
+   * task linked to its item. Recomputing every affected day draws the route
+   * lines immediately.
+   */
+  async importRoute(raw: unknown) {
+    const input = importRouteInputSchema.parse(raw);
+    const stored = await this.repository.getTrip(input.tripId);
+    if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+    if (stored.revision !== input.expectedTripRevision) throw new SkillError("REVISION_CONFLICT", "Trip revision does not match expectedTripRevision");
+    const totalPlaces = input.assignments.reduce((total, assignment) => total + assignment.places.length, 0);
+    if (totalPlaces > 20) throw new SkillError("INVALID_INPUT", "一次最多导入 20 个地点");
+
+    let trip = structuredClone(stored.trip);
+    const touchedDays = new Set<string>();
+    let importedCount = 0;
+    for (const assignment of input.assignments) {
+      if (!trip.days.some((day) => day.id === assignment.dayId)) {
+        throw new SkillError("INVALID_INPUT", `目标日期不存在：${assignment.dayId}`);
+      }
+      let order = trip.items.filter((item) => item.dayId === assignment.dayId).length;
+      for (const place of assignment.places) {
+        if (!placeProvenanceVerified(place)) {
+          throw new SkillError("PLACE_SOURCE_UNVERIFIED", `「${place.name}」缺少可核实的真实数据来源，不能导入`);
+        }
+        const duplicate = trip.items.some((item) => item.dayId === assignment.dayId && item.placeId === place.id);
+        if (duplicate) continue;
+        if (!trip.places.some((existing) => existing.id === place.id)) trip.places.push(place);
+        const itemId = crypto.randomUUID();
+        trip.items.push({
+          id: itemId,
+          dayId: assignment.dayId,
+          type: itemType(place),
+          placeId: place.id,
+          startTime: "10:00",
+          duration: place.stayMinutes || 60,
+          order,
+          status: "planned",
+        });
+        order += 1;
+        touchedDays.add(assignment.dayId);
+        importedCount += 1;
+        if (input.createTasks && !trip.tasks.some((task) => task.dayId === assignment.dayId && task.placeId === place.id)) {
+          trip.tasks.push({
+            id: crypto.randomUUID(),
+            tripId: input.tripId,
+            dayId: assignment.dayId,
+            placeId: place.id,
+            linkedItemId: itemId,
+            title: place.name,
+            group: "day",
+            status: "todo",
+            checkin: true,
+          });
+        }
+      }
+    }
+    if (!importedCount) {
+      // Every place was already on the plan — nothing to write, no revision bump.
+      return successEnvelope({ tripId: input.tripId, trip: stored.trip, revision: stored.revision, tripHash: stored.hash });
+    }
+    for (const dayId of touchedDays) {
+      trip = recomputeDay(trip, dayId);
+    }
+    const saved = await this.repository.updateTrip({ tripId: input.tripId, expectedRevision: stored.revision, trip });
+    return successEnvelope({
+      tripId: input.tripId,
+      trip: saved.trip,
+      revision: saved.revision,
+      tripHash: saved.hash,
+      importedCount,
+    });
+  }
+
+  async setTaskStatus(raw: unknown) {
+    const input = setTaskStatusInputSchema.parse(raw);
+    const stored = await this.repository.getTrip(input.tripId);
+    if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+    if (stored.revision !== input.expectedTripRevision) throw new SkillError("REVISION_CONFLICT", "Trip revision does not match expectedTripRevision");
+    const task = stored.trip.tasks.find((candidate) => candidate.id === input.taskId);
+    if (!task) throw new SkillError("INVALID_INPUT", "任务不存在");
+    if (task.status === input.status) {
+      return successEnvelope({ tripId: input.tripId, trip: stored.trip, revision: stored.revision, tripHash: stored.hash });
+    }
+    const trip = {
+      ...stored.trip,
+      tasks: stored.trip.tasks.map((candidate) => candidate.id === input.taskId ? { ...candidate, status: input.status } : candidate),
+    };
     const saved = await this.repository.updateTrip({ tripId: input.tripId, expectedRevision: stored.revision, trip });
     return successEnvelope({ tripId: input.tripId, trip: saved.trip, revision: saved.revision, tripHash: saved.hash });
   }
@@ -1118,9 +1215,17 @@ export class VoyageSkillRuntime {
     if (item.status === input.status) {
       return successEnvelope({ tripId: input.tripId, trip: stored.trip, revision: stored.revision, tripHash: stored.hash });
     }
+    // Check-in linkage: ticking a stop off also ticks (or unticks, symmetrically)
+    // its linked check-in task, so the checklist strikes itself through.
+    const taskStatus: TaskStatus = input.status === "done" ? "done" : "todo";
     const trip = {
       ...stored.trip,
       items: stored.trip.items.map((candidate) => candidate.id === input.itemId ? { ...candidate, status: input.status } : candidate),
+      tasks: stored.trip.tasks.map((task) => {
+        const linked = task.linkedItemId === item.id
+          || (Boolean(task.checkin) && task.dayId === item.dayId && task.placeId === item.placeId);
+        return linked ? { ...task, status: taskStatus } : task;
+      }),
     };
     const saved = await this.repository.updateTrip({ tripId: input.tripId, expectedRevision: stored.revision, trip });
     return successEnvelope({ tripId: input.tripId, trip: saved.trip, revision: saved.revision, tripHash: saved.hash });
@@ -1328,6 +1433,8 @@ export class VoyageSkillRuntime {
       case "set-item-status": return this.setItemStatus(input);
       case "add-place": return this.addPlace(input);
       case "restore-trip": return this.restoreTrip(input);
+      case "import-route": return this.importRoute(input);
+      case "set-task-status": return this.setTaskStatus(input);
       case "propose-change": return this.proposeChange(input);
       case "apply-change": return this.applyChange(input);
       case "get-place": return this.getPlace(input);

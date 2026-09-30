@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { DayTimeline } from "./DayTimeline";
 import { DayTabs } from "./DayTabs";
 import { DayFocusCard } from "./DayFocusCard";
@@ -10,26 +11,47 @@ import { useTripStore } from "@/store/trip-store";
 import { useUiStore, type WorkspaceTab } from "@/store/ui-store";
 import { cn } from "@/lib/utils";
 import { MapPin } from "lucide-react";
+import { toast } from "sonner";
 import { useRouter } from "next/navigation";
+import { setTaskStatus } from "@/services/trip-commands";
+import type { TaskStatus } from "@/types/travel";
 
 /**
  * The tasks tab renders inline (the standalone /tasks page was removed with
- * the page-count reduction): checking a task patches the local store view,
- * same as before — the checklist is advisory, not a revision-locked write.
+ * the page-count reduction). Toggles persist through the runtime now — they
+ * participate in the same check-in linkage as the today screen.
  */
 function TaskList() {
   const trip = useTripStore((s) => s.trip);
   const patch = useTripStore((s) => s.patchTrip);
+  const setTrip = useTripStore((s) => s.setTrip);
+  const revision = useTripStore((s) => s.revision);
   const done = trip.tasks.filter((t) => t.status === "done").length;
   const before = trip.tasks.filter((t) => t.group === "before");
+  const [savingTaskId, setSavingTaskId] = useState<string | null>(null);
 
   const toggle = (id: string) => {
+    const task = trip.tasks.find((candidate) => candidate.id === id);
+    if (!task) return;
+    const nextStatus: TaskStatus = task.status === "done" ? "todo" : "done";
+    // Optimistic flip, then a revision-locked server write with rollback.
     patch((t) => ({
       ...t,
-      tasks: t.tasks.map((task) =>
-        task.id === id ? { ...task, status: task.status === "done" ? "todo" : "done" } : task,
+      tasks: t.tasks.map((candidate) =>
+        candidate.id === id ? { ...candidate, status: nextStatus } : candidate,
       ),
     }));
+    setSavingTaskId(id);
+    void setTaskStatus({ tripId: trip.id, taskId: id, status: nextStatus, expectedTripRevision: useTripStore.getState().revision })
+      .then(({ trip: saved, revision: savedRevision }) => {
+        setTrip(saved, savedRevision);
+        setSavingTaskId(null);
+      })
+      .catch(() => {
+        setTrip(trip, revision);
+        setSavingTaskId(null);
+        toast.error("任务状态保存失败，请重试");
+      });
   };
 
   if (trip.tasks.length === 0) {
@@ -43,7 +65,13 @@ function TaskList() {
         <h3 className="text-[13px] font-medium text-muted-foreground">旅行前</h3>
         <ul className="mt-2 space-y-1">
           {before.map((task) => (
-            <TaskRow key={task.id} title={task.title} done={task.status === "done"} onToggle={() => toggle(task.id)} />
+            <TaskRow
+              key={task.id}
+              title={task.title}
+              done={task.status === "done"}
+              disabled={savingTaskId === task.id}
+              onToggle={() => toggle(task.id)}
+            />
           ))}
         </ul>
       </section>
@@ -60,6 +88,7 @@ function TaskList() {
                   title={task.title}
                   done={task.status === "done"}
                   checkin={task.checkin}
+                  disabled={savingTaskId === task.id}
                   onToggle={() => toggle(task.id)}
                 />
               ))}
@@ -75,21 +104,25 @@ function TaskRow({
   title,
   done,
   checkin,
+  disabled = false,
   onToggle,
 }: {
   title: string;
   done: boolean;
   checkin?: boolean;
+  disabled?: boolean;
   onToggle: () => void;
 }) {
   return (
     <li className="flex items-center gap-2 rounded-[10px] px-2 py-2 hover:bg-secondary">
       <button
         type="button"
+        disabled={disabled}
         onClick={onToggle}
         className={cn(
-          "grid size-4 place-items-center rounded border",
+          "grid size-4 place-items-center rounded border transition-opacity",
           done ? "border-primary bg-primary text-[10px] text-white" : "border-border",
+          disabled && "opacity-50",
         )}
         aria-checked={done}
         role="checkbox"

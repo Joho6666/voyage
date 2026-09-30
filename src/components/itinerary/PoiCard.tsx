@@ -74,7 +74,10 @@ export function PoiCard({
         <TravelImage src={place.image} alt={place.name} className="h-[72px] w-[96px] rounded-[10px]" />
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <h3 className="truncate text-sm font-medium">{place.name}</h3>
+            <h3 className={cn("truncate text-sm font-medium", item.status === "done" && "text-muted-foreground line-through")}>{place.name}</h3>
+            {item.status === "done" ? (
+              <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600">已完成</span>
+            ) : null}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
