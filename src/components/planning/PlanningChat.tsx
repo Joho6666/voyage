@@ -190,7 +190,7 @@ export function PlanningChat({
             disabled={disabled}
             rows={2}
             className="min-h-12 resize-none border-0 bg-transparent px-2 py-1.5 text-[13px] leading-5 shadow-none focus-visible:ring-0"
-            placeholder="比如：少走路，多留一点时间吃本地菜……"
+            placeholder="比如：少走路…… 或直接粘贴小红书/抖音攻略链接，自动解析成路线"
             aria-label="补充旅行偏好"
           />
           <Button type="submit" size="icon" disabled={disabled || !draft.trim()} aria-label="发送消息" className="mb-0.5 shrink-0">

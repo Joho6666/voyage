@@ -163,6 +163,9 @@ export const planningConflictSchema = z.object({
   resolutionOptions: z.array(boundedText(120)).max(4).optional(),
 }).strict();
 
+/** Place names carried in from a pasted guide link, unioned into the session. */
+export const importedPlacesInputSchema = z.array(boundedText(80)).max(20);
+
 export const planningSessionSchema = z
   .object({
     id: boundedText(100),
@@ -186,6 +189,13 @@ export const planningSessionSchema = z
     llmStatus: planningLlmStatusSchema.default("skipped"),
     fallbackReason: z.string().trim().max(240).optional(),
     tripId: boundedText(100).optional(),
+    /**
+     * Place names imported from a pasted 小红书/抖音 link during planning.
+     * Names only (not Place objects) — planning.ts must not import trip.ts's
+     * schemas, and names are re-resolved against a real provider at generate
+     * time, so nothing here is trusted as a location.
+     */
+    importedPlaces: z.array(boundedText(80)).max(20).default([]),
     lastQuestion: z.string().trim().max(240).nullable().optional(),
     createdAt: z.string().min(1).max(80),
     updatedAt: z.string().min(1).max(80),
@@ -199,6 +209,7 @@ export const planningTurnInputSchema = z
     profile: planningProfilePatchSchema.optional(),
     planningProfile: planningProfilePatchSchema.optional(),
     expectedRevision: z.number().int().min(1).optional(),
+    importedPlaces: importedPlacesInputSchema.optional(),
   })
   .strict()
   .refine((input) => input.message !== undefined || input.profile !== undefined || input.planningProfile !== undefined, {

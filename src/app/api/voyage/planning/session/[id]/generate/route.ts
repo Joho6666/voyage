@@ -4,7 +4,10 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { planningProfileSchema } from "@/schemas/planning";
 import { alignPlanningDays, effectiveTripDays } from "@/services/planning/profile";
+import { resolveGuideCandidates } from "@/services/planning/guide-extract";
+import { providerFromEnvironment } from "@/skill/providers";
 import { createRuntime } from "@/skill/runtime";
+import type { Place } from "@/types/travel";
 import { MAX_TRIP_DAYS } from "@/lib/trip-limits";
 import { JsonSkillRepository, type StoredPlanningSession } from "@/skill/repository";
 import { SkillError } from "@/skill/errors";
@@ -149,14 +152,58 @@ export async function POST(request: NextRequest, context: Context) {
   }
 
   try {
-    const result = await createRuntime(workspace.root).createTrip(input);
-    const data = runtimeData(result);
+    const runtime = createRuntime(workspace.root);
+    const result = await runtime.createTrip(input);
+    let data = runtimeData(result);
     const tripId = data && typeof data.tripId === "string"
       ? data.tripId
       : data && isRecord(data.trip) && typeof data.trip.id === "string"
         ? data.trip.id
         : undefined;
     if (!tripId) throw new SkillError("INTERNAL_ERROR", "路线 Runtime 没有返回行程 ID");
+
+    // A guide link pasted during planning: re-resolve its place names against a
+    // real provider here (names from the client are never trusted as
+    // locations) and seed them into the new trip, spread evenly across days in
+    // the guide's original order. Failure never blocks generation.
+    const extraWarnings: string[] = [];
+    const importedNames = stored.importedPlaces ?? [];
+    if (importedNames.length && data) {
+      try {
+        const provider = await providerFromEnvironment();
+        const candidates = await resolveGuideCandidates(provider, stored.profile.destination ?? "", importedNames);
+        const resolvedPlaces = candidates.filter((candidate) => candidate.resolved && candidate.place).map((candidate) => candidate.place as Place);
+        const tripDays = isRecord(data.trip) && Array.isArray(data.trip.days)
+          ? (data.trip.days as Array<{ id?: unknown }>).filter((day): day is { id: string } => typeof day?.id === "string")
+          : [];
+        if (resolvedPlaces.length && tripDays.length) {
+          const perDay = Math.ceil(resolvedPlaces.length / tripDays.length);
+          const assignments = tripDays.map((day) => ({ dayId: day.id, places: [] as Place[] }));
+          resolvedPlaces.forEach((place, index) => {
+            assignments[Math.min(Math.floor(index / perDay), assignments.length - 1)].places.push(place);
+          });
+          const imported = await runtime.importRoute({
+            tripId,
+            assignments: assignments.filter((assignment) => assignment.places.length > 0),
+            createTasks: true,
+            expectedTripRevision: typeof data.revision === "number" ? data.revision : 1,
+          });
+          const importedData = runtimeData(imported);
+          if (isRecord(importedData?.trip)) {
+            // Carry the post-import revision: the client hydrates its store from
+            // this, and every later write is revision-locked.
+            data = { ...data, trip: importedData.trip, revision: importedData.revision ?? data.revision, importedCount: importedData.importedCount ?? resolvedPlaces.length };
+          }
+        }
+        const unresolved = candidates.filter((candidate) => !candidate.resolved).map((candidate) => candidate.name);
+        if (unresolved.length) {
+          extraWarnings.push(`链接里有 ${unresolved.length} 个地点没有在高德找到、未编造：${unresolved.slice(0, 3).join("、")}`);
+        }
+      } catch (error) {
+        logger.warn("planning-generate.imported-places-failed", { error });
+        extraWarnings.push(`攻略链接里的地点导入未完成：${planningFailureMessage(error, "导入失败")}`);
+      }
+    }
 
     const completed = await repository.updatePlanningSession({
       sessionId: id,
@@ -175,6 +222,9 @@ export async function POST(request: NextRequest, context: Context) {
     if (!isRecord(result)) throw new SkillError("INTERNAL_ERROR", "路线 Runtime 返回格式无效");
     return planningReply(workspace, {
       ...result,
+      ...(extraWarnings.length
+        ? { warnings: [...(Array.isArray((result as { warnings?: unknown }).warnings) ? (result as { warnings: string[] }).warnings : []), ...extraWarnings] }
+        : {}),
       data: {
         ...(data ?? {}),
         sessionId: id,

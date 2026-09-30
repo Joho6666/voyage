@@ -7,6 +7,7 @@ import { ArrowRight, Check, CircleAlert, Compass, LoaderCircle, RotateCcw, Shiel
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { brand } from "@/lib/brand";
+import { toast } from "sonner";
 import { hydrateTrip } from "@/store/trip-store";
 import { usePlanningStore } from "@/store/planning-store";
 import type { Trip } from "@/types/travel";
@@ -40,6 +41,18 @@ const MISSING_FIELD_LABELS: Record<string, string> = {
 };
 
 const GENERATION_STAGES = ["读取已确认的旅行偏好", "整理候选地点与外部数据", "编排每天的行程节奏", "计算交通并保存路线"];
+
+const LINK_URL_PATTERN = /https?:\/\/[^\s，。；！？、"'<>）)】\]]+/i;
+const SUPPORTED_LINK_HOST = /(?:xiaohongshu\.com|xhslink\.com|douyin\.com|iesdouyin\.com)/i;
+
+interface LinkImportData {
+  platform: string;
+  platformLabel: string;
+  sourceUrl: string;
+  title: string;
+  resolvedCount: number;
+  candidates: Array<{ name: string; resolved: boolean; place?: { name: string; district?: string; rating?: number } }>;
+}
 
 type View = "landing" | "conversation";
 type BusyState = "idle" | "starting" | "sending" | "generating" | "restoring";
@@ -498,6 +511,7 @@ export function NewTripExperience() {
   const [profileDirty, setProfileDirty] = useState(false);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [resumable, setResumable] = useState<{ sessionId: string; destination: string; updatedAt: string | null } | null>(null);
+  const [linkImport, setLinkImport] = useState<LinkImportData | null>(null);
   const messagesRef = useRef<PlanningMessage[]>([]);
   const profileRef = useRef(profile);
 
@@ -611,14 +625,47 @@ export function NewTripExperience() {
     setStreamingMessageId(null);
     const structuredProfile = profileDirty ? profilePatchFromDraft(currentProfile) : undefined;
     try {
+      // A pasted 小红书/抖音 link: resolve it server-side into verified places
+      // before the conversation continues, so the planner talks about real
+      // stops and the generate step can seed them into the trip.
+      let plannerText = text;
+      let importedNames: string[] | undefined;
+      const link = text.match(LINK_URL_PATTERN)?.[0];
+      if (link && SUPPORTED_LINK_HOST.test(link)) {
+        if (!currentProfile.destination.trim()) {
+          throw new Error("先告诉我目的地城市（例如「去重庆」），我才能用高德核实链接里的地点");
+        }
+        let result: { ok?: boolean; data?: LinkImportData; error?: { message?: string } };
+        try {
+          const response = await fetch("/api/voyage/social/extract-link", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ url: link, city: currentProfile.destination || "" }),
+          });
+          result = await response.json() as typeof result;
+        } catch {
+          throw new Error("链接解析请求失败，请检查网络后重试，或改用「粘贴攻略文本」");
+        }
+        if (!result.ok || !result.data) {
+          throw new Error(result.error?.message ?? "链接解析失败，可改用「粘贴攻略文本」");
+        }
+        const data = result.data;
+        importedNames = data.candidates.filter((candidate) => candidate.resolved && candidate.place).map((candidate) => candidate.place!.name);
+        setLinkImport(data);
+        // Talk about the stops, not the URL: the planner cannot fetch links.
+        if (importedNames.length) {
+          plannerText = `${text.replace(link, "").trim()}\n（已从${data.platformLabel}攻略链接解析出这些地点，请纳入行程：${importedNames.join("、")}）`.trim();
+        }
+      }
       const response = await fetch(`/api/voyage/planning/session/${encodeURIComponent(sessionId)}/message`, {
         method: "POST",
         headers: { "content-type": "application/json", accept: "application/json" },
         cache: "no-store",
         body: JSON.stringify({
-          message: text,
+          message: plannerText,
           expectedRevision: revision,
           ...(structuredProfile && Object.keys(structuredProfile).length ? { profile: structuredProfile } : {}),
+          ...(importedNames?.length ? { importedPlaces: importedNames } : {}),
         }),
       });
       const payload = await readPayload(response);
@@ -770,10 +817,34 @@ export function NewTripExperience() {
     if (resynced !== undefined) setWarnings(["可以在修改信息后直接再点一次「生成路线图」，这次会话和偏好都不会丢失。"]);
   };
 
+  /**
+   * Removing a mis-parsed entry (extraction noise) rewrites the session's
+   * imported list exactly — a list edit, not a conversation turn.
+   */
+  const removeImportedPlace = (name: string) => {
+    if (!linkImport || !sessionId) return;
+    const remaining = linkImport.candidates.filter((candidate) => (candidate.place?.name ?? candidate.name) !== name);
+    setLinkImport({ ...linkImport, candidates: remaining, resolvedCount: remaining.filter((candidate) => candidate.resolved).length });
+    const names = remaining.filter((candidate) => candidate.resolved).map((candidate) => candidate.place?.name ?? candidate.name);
+    void fetch(`/api/voyage/planning/session/${encodeURIComponent(sessionId)}/imported-places`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ places: names, expectedRevision: revision }),
+    })
+      .then(async (response) => {
+        const payload = await response.json() as { ok?: boolean; data?: { revision?: number }; error?: { message?: string } };
+        if (!response.ok || !payload.ok) throw new Error(payload.error?.message ?? "更新导入列表失败");
+        if (payload.data?.revision !== undefined) setRevision(payload.data.revision);
+        toast.success(`已移除「${name}」，生成时不会再排入`);
+      })
+      .catch((error) => toast.error(error instanceof Error ? error.message : "更新导入列表失败，请刷新重试"));
+  };
+
   const reset = () => {
     const fresh = createDefaultProfile();
     setView("landing");
     setSessionId(null);
+    setLinkImport(null);
     usePlanningStore.getState().clearSession();
     setResumable(null);
     setRevision(0);
@@ -848,7 +919,40 @@ export function NewTripExperience() {
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><button type="button" onClick={reset} className="grid size-9 place-items-center rounded-xl border border-border bg-surface text-muted-foreground transition-colors hover:bg-secondary" aria-label="重新开始"><RotateCcw className="size-4" /></button><div><p className="text-[10px] uppercase tracking-[0.16em] text-primary">Planning session</p><h1 className="mt-1 text-xl font-semibold tracking-tight sm:text-2xl">一起把这趟旅行定下来</h1></div></div><div className="flex items-center gap-2"><span className="hidden rounded-full border border-border bg-surface px-2.5 py-1 text-[10px] text-muted-foreground sm:inline-flex">版本 {revision}</span><PlanningStatusCard status={llmStatus} compact /></div></div>
             {warnings.length ? <div className="mb-4 rounded-[14px] border border-amber-500/25 bg-amber-500/[0.07] px-3 py-2 text-xs text-amber-900 dark:text-amber-100">{warnings.map((warning) => <p key={warning}>{warning}</p>)}</div> : null}
             <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
-              <div className="min-w-0"><PlanningChat messages={messages} suggestedReplies={suggestedReplies} draft={draft} onDraftChange={setDraft} onSend={(message) => void sendMessage(message)} disabled={busy === "sending" || busy === "generating"} isTyping={busy === "sending"} streamingMessageId={streamingMessageId} />{error ? <div role="alert" className="mt-3 flex items-start gap-2 rounded-[14px] border border-rose-500/25 bg-rose-500/[0.06] px-3 py-2.5 text-xs text-rose-800"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{error}</span></div> : null}{busy === "generating" ? <div className="mt-4"><GenerationProgress destination={profile.destination} /></div> : null}</div>
+              <div className="min-w-0">
+                {linkImport ? (
+                  <div className="mb-3 rounded-[16px] border border-primary/25 bg-accent/50 p-3.5" aria-live="polite">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-medium text-primary">
+                          已从{linkImport.platformLabel}链接解析 · 高德已核实 {linkImport.resolvedCount} 个地点
+                        </p>
+                        <p className="mt-0.5 truncate text-[12px] text-muted-foreground">{linkImport.title}</p>
+                      </div>
+                      <button type="button" onClick={() => setLinkImport(null)} className="shrink-0 text-[11px] text-muted-foreground hover:text-foreground">收起</button>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {linkImport.candidates.map((candidate) => (
+                        <button
+                          key={candidate.name}
+                          type="button"
+                          onClick={() => removeImportedPlace(candidate.place?.name ?? candidate.name)}
+                          className={candidate.resolved
+                            ? "group rounded-full border border-primary/25 bg-surface px-2.5 py-1 text-[11px] text-foreground transition-colors hover:border-rose-400/60 hover:text-rose-700"
+                            : "rounded-full border border-dashed border-border px-2.5 py-1 text-[11px] text-muted-foreground line-through"}
+                          title={candidate.resolved ? `高德核实：${candidate.place?.name ?? candidate.name}（点击移除）` : "未在高德找到，不会被编造"}
+                        >
+                          {candidate.resolved ? candidate.place?.name ?? candidate.name : `${candidate.name}（未找到）`}
+                          {candidate.resolved ? <span className="ml-1 opacity-0 transition-opacity group-hover:opacity-100">×</span> : null}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
+                      生成路线时会把这些地点按链接顺序排进每天并画到地图上；点选可移除识别错误的地点，找不到的地点不会被编造。
+                    </p>
+                  </div>
+                ) : null}
+                <PlanningChat messages={messages} suggestedReplies={suggestedReplies} draft={draft} onDraftChange={setDraft} onSend={(message) => void sendMessage(message)} disabled={busy === "sending" || busy === "generating"} isTyping={busy === "sending"} streamingMessageId={streamingMessageId} />{error ? <div role="alert" className="mt-3 flex items-start gap-2 rounded-[14px] border border-rose-500/25 bg-rose-500/[0.06] px-3 py-2.5 text-xs text-rose-800"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{error}</span></div> : null}{busy === "generating" ? <div className="mt-4"><GenerationProgress destination={profile.destination} /></div> : null}</div>
               <aside className="lg:sticky lg:top-5"><PlanningProfilePanel profile={profile} onChange={updateProfile} onGenerate={() => void generateRoute()} generating={busy === "generating"} disabled={busy !== "idle"} llmStatus={llmStatus} missingFields={missingFields} blockers={blockers} days={plannerDays} rangeWarning={rangeWarning} /><div className="mt-3 rounded-[14px] border border-border bg-surface/60 p-3 text-[11px] leading-5 text-muted-foreground"><div className="flex items-center gap-2 text-foreground"><Check className="size-3.5 text-primary" /><span className="font-medium">确认后才会调用路线与供应商能力</span></div><p className="mt-1">模型只负责理解偏好；地点、路线、天气和报价会在生成阶段按 provider 来源标注。</p>{missingFields.length ? <p className="mt-2">还可以补充：{missingFields.join("、")}</p> : null}</div></aside>
             </div>
             <div className="mt-5 flex flex-wrap items-center justify-between gap-3 text-[10px] text-muted-foreground"><p>会话数据只通过当前页面的相对 API 路径传输，不包含任何 API Key。</p><button type="button" onClick={reset} className="inline-flex items-center gap-1 text-foreground hover:text-primary">重新开始 <ArrowRight className="size-3" /></button></div>

@@ -33,7 +33,7 @@ function buildRequest(input: { platform?: string; query?: string; city?: string;
   return { endpoint, params };
 }
 
-function detailRequest(operation: string, input: { platform?: string; sourceId?: string; query?: string; city?: string }) {
+function detailRequest(operation: string, input: { platform?: string; sourceId?: string; query?: string; city?: string; shareUrl?: string }) {
   const id = input.sourceId?.trim();
   const platform = input.platform;
   if (operation === "getTrending") {
@@ -44,7 +44,12 @@ function detailRequest(operation: string, input: { platform?: string; sourceId?:
   if (!id) throw new SocialProviderRequestError("TikHub content lookup requires a source id");
   if (platform === "douyin" && operation === "getContent") return { method: "GET", path: "/api/v1/douyin/web/fetch_one_video", params: { aweme_id: id } };
   if (platform === "douyin" && operation === "getComments") return { method: "GET", path: "/api/v1/douyin/app/v3/fetch_video_comments", params: { aweme_id: id, cursor: 0, count: 20 } };
-  if (platform === "xiaohongshu" && operation === "getContent") return { method: "GET", path: "/api/v1/xiaohongshu/web_v3/fetch_note_detail", params: { note_id: id, xsec_token: "" } };
+  // 小红书 web_v3 详情端点已随上游下线（实测 400）；app_v2 的 share_text
+  // 直接接受分享链接，且实测无需 xsec_token 即可取回正文。
+  if (platform === "xiaohongshu" && operation === "getContent") {
+    const shareText = input.shareUrl?.trim() || `https://www.xiaohongshu.com/explore/${id}`;
+    return { method: "GET", path: "/api/v1/xiaohongshu/app_v2/get_video_note_detail", params: { share_text: shareText } };
+  }
   if (platform === "xiaohongshu" && operation === "getComments") return { method: "GET", path: "/api/v1/xiaohongshu/app_v2/get_note_comments", params: { note_id: id, cursor: "", index: 0 } };
   if (platform === "weibo" && operation === "getContent") return { method: "GET", path: "/api/v1/weibo/web_v2/fetch_post_detail", params: { id } };
   if (platform === "weibo" && operation === "getComments") return { method: "GET", path: "/api/v1/weibo/web_v2/fetch_post_comments", params: { id, count: 20, max_id: 0 } };
@@ -85,7 +90,8 @@ async function requestJson(url: URL, method: string, body: Record<string, unknow
 /** TikTok web general search; this endpoint is documented by TikHub. */
 export const tikHubSearchTransport: SocialRequestTransport = async ({ operation, apiKey, input }) => {
   const search = input as { platform?: string; city?: string; query?: string; limit?: number };
-  const request = operation === "searchContent" ? buildRequest(search) : detailRequest(operation, input as { platform?: string; sourceId?: string; query?: string; city?: string });
+  const detail = input as { platform?: string; sourceId?: string; query?: string; city?: string; shareUrl?: string };
+  const request = operation === "searchContent" ? buildRequest(search) : detailRequest(operation, detail);
   const { endpoint, params } = "endpoint" in request ? request : { endpoint: { method: request.method, path: request.path }, params: request.params };
   const base = new URL(TIKHUB_API_BASE_URL);
   const url = new URL(endpoint.path, base);
@@ -102,7 +108,16 @@ export const tikHubSearchTransport: SocialRequestTransport = async ({ operation,
     Object.assign(body, params);
   }
 
-  return requestJson(url, endpoint.method, body, apiKey);
+  const payload = await requestJson(url, endpoint.method, body, apiKey);
+  // 小红书笔记分视频/图文两类端点。video 端点对多数笔记都返回卡片，但图文
+  // 笔记偶尔只有 image 端点给得出正文，因此没有取到内容时补一次。
+  if (operation === "getContent" && detail.platform === "xiaohongshu" && !/note_card|"desc"|"title"/.test(JSON.stringify(payload ?? {}).slice(0, 8000))) {
+    const shareText = detail.shareUrl?.trim() || `https://www.xiaohongshu.com/explore/${detail.sourceId ?? ""}`;
+    const fallback = new URL("/api/v1/xiaohongshu/app_v2/get_image_note_detail", base);
+    fallback.searchParams.set("share_text", shareText);
+    return requestJson(fallback, "GET", {}, apiKey);
+  }
+  return payload;
 };
 
 export function createTikHubProvider(options: {

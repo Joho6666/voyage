@@ -2,7 +2,7 @@ import "server-only";
 
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { MAX_PLANNING_MESSAGE_CHARS, planningProfilePatchSchema } from "@/schemas/planning";
+import { MAX_PLANNING_MESSAGE_CHARS, importedPlacesInputSchema, planningProfilePatchSchema } from "@/schemas/planning";
 import { effectiveTripDays } from "@/services/planning/profile";
 import { MAX_TRIP_DAYS } from "@/lib/trip-limits";
 import { mergePlanningProfiles, planConversationTurn } from "@/services/planning/conversation-planner";
@@ -30,6 +30,8 @@ const inputSchema = z.object({
   message: z.string().trim().min(1).max(MAX_PLANNING_MESSAGE_CHARS),
   expectedRevision: z.number().int().min(1),
   profile: planningProfilePatchSchema.optional(),
+  /** Place names imported from a pasted 小红书/抖音 link, unioned into the session. */
+  importedPlaces: importedPlacesInputSchema.optional(),
 }).strict();
 
 export async function POST(request: NextRequest, context: Context) {
@@ -66,6 +68,12 @@ export async function POST(request: NextRequest, context: Context) {
       turn.assistantMessage,
     ]);
     const session = planningSessionValue(stored);
+    // Union imported names (bounded, deduped) so the generate step can seed
+    // them into the trip; nothing is dropped when a later link adds more.
+    const importedPlaces = Array.from(new Set([
+      ...(session.importedPlaces ?? []),
+      ...(parsed.data.importedPlaces ?? []),
+    ])).slice(0, 20);
     const updated = await repository.updatePlanningSession({
       sessionId: id,
       expectedRevision: parsed.data.expectedRevision,
@@ -79,6 +87,7 @@ export async function POST(request: NextRequest, context: Context) {
         conflicts: [],
         llmStatus: turn.llm,
         fallbackReason: turn.fallbackReason,
+        importedPlaces,
         lastQuestion: turn.question,
         updatedAt: now(),
       },

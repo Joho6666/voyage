@@ -59,7 +59,7 @@ function rows(value: unknown): unknown[] {
   });
   const item = record(value);
   if (!item) return [];
-  for (const key of ["items", "results", "comments", "aweme_list", "video_list", "item_list", "search_list", "list", "item", "data", "aweme_info"]) {
+  for (const key of ["items", "results", "comments", "aweme_list", "aweme_detail", "video_list", "item_list", "search_list", "list", "item", "data", "aweme_info"]) {
     const nested = item[key];
     if (Array.isArray(nested)) return rows(nested);
     if (record(nested)) {
@@ -79,9 +79,10 @@ function normalizeObservation(
 ): SocialObservation | null {
   const row = record(value);
   if (!row) return null;
-  // Wrapped containers per platform generation: douyin aweme_info, xiaohongshu
-  // app_v2 `note`, legacy note_card, weibo card `data`, generic item/video/card.
-  const wrapped = record(row.item) ?? record(row.aweme_info) ?? record(row.video) ?? record(row.note) ?? record(row.note_card) ?? record(row.mblog) ?? record(row.data) ?? record(row.card) ?? row;
+  // Wrapped containers per platform generation: douyin aweme_info / aweme_detail
+  // (detail must precede `video`, which is the media object, not the post),
+  // xiaohongshu app_v2 `note`, legacy note_card, weibo card `data`, generic item/video/card.
+  const wrapped = record(row.item) ?? record(row.aweme_info) ?? record(row.aweme_detail) ?? record(row.video) ?? record(row.note) ?? record(row.note_card) ?? record(row.mblog) ?? record(row.data) ?? record(row.card) ?? row;
   const sourceId = nonempty(wrapped.sourceId ?? wrapped.source_id ?? wrapped.aweme_id ?? wrapped.note_id ?? wrapped.docID ?? wrapped.itemId ?? wrapped.id);
   const rawContent = nonempty(wrapped.content ?? wrapped.text_raw ?? wrapped.text ?? wrapped.desc ?? wrapped.description ?? wrapped.title ?? wrapped.note_title ?? row.title ?? row.desc);
   // Live weibo/xhs payloads embed light markup; plain text downstream.

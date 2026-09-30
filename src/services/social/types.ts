@@ -44,6 +44,8 @@ export interface SocialContentInput {
   sourceId: string;
   city?: string;
   limit?: number;
+  /** Canonical share URL; 小红书's app_v2 detail endpoint takes this directly. */
+  shareUrl?: string;
 }
 
 export type SocialProviderStatus = "ok" | "unavailable" | "error";
