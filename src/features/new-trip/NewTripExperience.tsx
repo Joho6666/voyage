@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "motion/react";
-import { ArrowRight, Check, CircleAlert, Compass, LoaderCircle, RotateCcw, ShieldCheck, Sparkles, WandSparkles } from "lucide-react";
+import { ArrowRight, Check, CircleAlert, Compass, LoaderCircle, RotateCcw, ShieldCheck, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { brand } from "@/lib/brand";
@@ -40,9 +40,7 @@ const MISSING_FIELD_LABELS: Record<string, string> = {
   socialOptIn: "社区攻略授权",
 };
 
-const GENERATION_STAGES = ["读取已确认的旅行偏好", "整理候选地点与外部数据", "编排每天的行程节奏", "计算交通并保存路线"];
-
-const LINK_URL_PATTERN = /https?:\/\/[^\s，。；！？、"'<>）)】\]]+/i;
+const GENERATION_STAGES = ["读取已确认的旅行偏好", "整理候选地点与外部数据", "编排每天的行程节奏", "计算交通并保存路线"];const LINK_URL_PATTERN = /https?:\/\/[^\s，。；！？、"'<>）)】\]]+/i;
 const SUPPORTED_LINK_HOST = /(?:xiaohongshu\.com|xhslink\.com|douyin\.com|iesdouyin\.com)/i;
 
 interface LinkImportData {
@@ -54,7 +52,6 @@ interface LinkImportData {
   candidates: Array<{ name: string; resolved: boolean; place?: { name: string; district?: string; rating?: number } }>;
 }
 
-type View = "landing" | "conversation";
 type BusyState = "idle" | "starting" | "sending" | "generating" | "restoring";
 type UnknownRecord = Record<string, unknown>;
 
@@ -494,7 +491,6 @@ function GenerationProgress({ destination }: { destination: string }) {
 export function NewTripExperience() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [view, setView] = useState<View>("landing");
   const [prompt, setPrompt] = useState("喜欢美食和夜景，安排轻松一点。");
   const [profile, setProfile] = useState<PlanningProfileDraft>(() => createDefaultProfile());
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -547,7 +543,7 @@ export function NewTripExperience() {
     setMessages(bounded);
   };
 
-  const adoptPayload = (parsed: ParsedPlanningPayload, baseProfile: PlanningProfileDraft, enterConversation = false) => {
+  const adoptPayload = (parsed: ParsedPlanningPayload, baseProfile: PlanningProfileDraft) => {
     const nextProfile = parsed.profile ?? baseProfile;
     setProfile(nextProfile);
     profileRef.current = nextProfile;
@@ -562,7 +558,6 @@ export function NewTripExperience() {
       const nextMessages = messagesRef.current.length ? mergeMessages(messagesRef.current, parsed.messages) : parsed.messages;
       replaceMessages(nextMessages);
     }
-    if (enterConversation) setView("conversation");
   };
 
   const requestSession = async (initialPrompt?: string, initialProfile?: PlanningProfileDraft) => {
@@ -592,7 +587,7 @@ export function NewTripExperience() {
       const parsed = await requestSession(prompt);
       setSessionId(parsed.sessionId ?? null);
       usePlanningStore.getState().setSession({ sessionId: parsed.sessionId ?? "", destination: parsed.profile.destination });
-      adoptPayload(parsed, profileRef.current, true);
+      adoptPayload(parsed, profileRef.current);
       const initialMessages = parsed.messages.some((message) => message.role === "assistant")
         ? parsed.messages
         : [...parsed.messages, welcomeMessage(prompt, parsed.profile)];
@@ -765,7 +760,7 @@ export function NewTripExperience() {
       usePlanningStore.getState().setSession({ sessionId: parsed.sessionId, destination: parsed.profile.destination });
       setSessionId(parsed.sessionId);
       setRevision(parsed.revision ?? 1);
-      adoptPayload(parsed, profileRef.current, true);
+      adoptPayload(parsed, profileRef.current);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "会话恢复失败，请重试。");
     } finally {
@@ -842,7 +837,6 @@ export function NewTripExperience() {
 
   const reset = () => {
     const fresh = createDefaultProfile();
-    setView("landing");
     setSessionId(null);
     setLinkImport(null);
     usePlanningStore.getState().clearSession();
@@ -875,89 +869,91 @@ export function NewTripExperience() {
           <div className="flex items-center gap-2 text-[10px] text-muted-foreground"><ShieldCheck className="size-3.5 text-primary" />服务端规划 · 凭据不下发</div>
         </header>
 
-        {view === "landing" ? (
-          <div className="mt-10 grid gap-8 lg:grid-cols-[minmax(0,1.03fr)_minmax(360px,0.97fr)] lg:items-start lg:gap-12 lg:pt-8">
-            <motion.section initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45 }} className="pt-2 lg:pt-10">
-              <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-accent/70 px-3 py-1.5 text-[11px] text-accent-foreground"><WandSparkles className="size-3.5" />先聊清楚，再生成路线</div>
-              <h1 className="mt-5 max-w-xl text-[clamp(2.4rem,6vw,5.2rem)] font-medium leading-[0.98] tracking-[-0.055em] text-balance">把“想去”<br /><span className="text-primary">聊成一条</span><br />真的能走的路线。</h1>
-              <p className="mt-6 max-w-lg text-[15px] leading-7 text-muted-foreground">Voyage 会先听懂你的旅行画像，再在你确认后调用真实数据生成每天的路线。你不需要一次把所有细节想完。</p>
-              <div className="mt-8 grid max-w-lg grid-cols-3 gap-2 text-[11px] text-muted-foreground">
-                {[{ icon: "01", title: "说出念头", text: "自然描述即可" }, { icon: "02", title: "一起校准", text: "画像随对话更新" }, { icon: "03", title: "确认生成", text: "路线可继续调整" }].map((item) => <div key={item.icon} className="border-l border-border pl-3"><span className="font-mono text-primary">{item.icon}</span><p className="mt-1 font-medium text-foreground">{item.title}</p><p className="mt-0.5 leading-4">{item.text}</p></div>)}
-              </div>
-            </motion.section>
-
-            <motion.section initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08, duration: 0.45 }} className="space-y-3">
-              <div className="rounded-[24px] border border-border bg-surface p-4 shadow-[0_22px_70px_rgba(28,25,23,0.08)] sm:p-5">
-                <div className="flex items-start justify-between gap-3"><div><p className="text-[11px] font-medium uppercase tracking-[0.16em] text-primary">Start here</p><h2 className="mt-2 text-xl font-semibold tracking-tight">先说说这趟旅行</h2></div><Sparkles className="mt-1 size-5 text-primary" /></div>
-                <Textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") void startConversation(); }} className="mt-5 min-h-32 resize-none border-border/80 bg-background/60 px-3.5 py-3 text-[14px] leading-6 shadow-none focus-visible:ring-primary/20" placeholder="告诉我你想去哪里、玩几天、和谁一起、预算和喜好……" aria-label="旅行初始想法" />
-                {searchParams.get("q") ? <p className="mt-2 text-[11px] text-primary">已带入首页的旅行描述，可以继续修改。</p> : null}
-                <div className="mt-4"><p className="mb-2 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">灵感提示</p><div className="flex flex-wrap gap-1.5">{QUICK_PROMPTS.map((item) => <button key={item} type="button" onClick={() => setPrompt(item)} className="rounded-full border border-border bg-background px-2.5 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:border-primary/30 hover:bg-accent hover:text-accent-foreground">{item}</button>)}</div></div>
-                <div className="mt-5 flex flex-col-reverse gap-2 border-t border-border/80 pt-4 sm:flex-row sm:items-center sm:justify-between"><p className="text-[10px] leading-4 text-muted-foreground">Enter 不会直接生成<br />你可以在对话里慢慢补充</p><Button size="lg" onClick={() => void startConversation()} disabled={isBusy}>{busy === "starting" ? <LoaderCircle className="animate-spin" /> : <ArrowRight />}开始对话</Button></div>
-              </div>
-
-              {resumable ? (
-                <div className="flex items-center justify-between gap-3 rounded-[18px] border border-primary/25 bg-accent/60 px-4 py-3">
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium text-foreground">继续上次规划{resumable.destination ? ` · ${resumable.destination}` : ""}</p>
-                    <p className="mt-0.5 text-[10px] text-muted-foreground">会话保存在服务端；继续会接上之前的对话和画像，刷新也不会再丢失。</p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    <Button size="sm" variant="ghost" disabled={isBusy} onClick={() => { usePlanningStore.getState().clearSession(); setResumable(null); }}>开新的</Button>
-                    <Button size="sm" onClick={() => void resumePlanning()} disabled={isBusy}>
-                      {busy === "restoring" ? <LoaderCircle className="animate-spin" /> : <RotateCcw className="size-3.5" />}继续
-                    </Button>
-                  </div>
-                </div>
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-7">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              {sessionId ? (
+                <button type="button" onClick={reset} className="grid size-9 place-items-center rounded-xl border border-border bg-surface text-muted-foreground transition-colors hover:bg-secondary" aria-label="重新开始"><RotateCcw className="size-4" /></button>
               ) : null}
-
-              {error ? <div role="alert" className="flex items-start gap-2 rounded-[14px] border border-rose-500/25 bg-rose-500/[0.06] px-3 py-2.5 text-xs text-rose-800"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{error}</span></div> : null}
-              {busy === "generating" ? <GenerationProgress destination={profile.destination} /> : null}
-            </motion.section>
-          </div>
-        ) : (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-7">
-            <div className="mb-5 flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><button type="button" onClick={reset} className="grid size-9 place-items-center rounded-xl border border-border bg-surface text-muted-foreground transition-colors hover:bg-secondary" aria-label="重新开始"><RotateCcw className="size-4" /></button><div><p className="text-[10px] uppercase tracking-[0.16em] text-primary">Planning session</p><h1 className="mt-1 text-xl font-semibold tracking-tight sm:text-2xl">一起把这趟旅行定下来</h1></div></div><div className="flex items-center gap-2"><span className="hidden rounded-full border border-border bg-surface px-2.5 py-1 text-[10px] text-muted-foreground sm:inline-flex">版本 {revision}</span><PlanningStatusCard status={llmStatus} compact /></div></div>
-            {warnings.length ? <div className="mb-4 rounded-[14px] border border-amber-500/25 bg-amber-500/[0.07] px-3 py-2 text-xs text-amber-900 dark:text-amber-100">{warnings.map((warning) => <p key={warning}>{warning}</p>)}</div> : null}
-            <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
-              <div className="min-w-0">
-                {linkImport ? (
-                  <div className="mb-3 rounded-[16px] border border-primary/25 bg-accent/50 p-3.5" aria-live="polite">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-[11px] font-medium text-primary">
-                          已从{linkImport.platformLabel}链接解析 · 高德已核实 {linkImport.resolvedCount} 个地点
-                        </p>
-                        <p className="mt-0.5 truncate text-[12px] text-muted-foreground">{linkImport.title}</p>
-                      </div>
-                      <button type="button" onClick={() => setLinkImport(null)} className="shrink-0 text-[11px] text-muted-foreground hover:text-foreground">收起</button>
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {linkImport.candidates.map((candidate) => (
-                        <button
-                          key={candidate.name}
-                          type="button"
-                          onClick={() => removeImportedPlace(candidate.place?.name ?? candidate.name)}
-                          className={candidate.resolved
-                            ? "group rounded-full border border-primary/25 bg-surface px-2.5 py-1 text-[11px] text-foreground transition-colors hover:border-rose-400/60 hover:text-rose-700"
-                            : "rounded-full border border-dashed border-border px-2.5 py-1 text-[11px] text-muted-foreground line-through"}
-                          title={candidate.resolved ? `高德核实：${candidate.place?.name ?? candidate.name}（点击移除）` : "未在高德找到，不会被编造"}
-                        >
-                          {candidate.resolved ? candidate.place?.name ?? candidate.name : `${candidate.name}（未找到）`}
-                          {candidate.resolved ? <span className="ml-1 opacity-0 transition-opacity group-hover:opacity-100">×</span> : null}
-                        </button>
-                      ))}
-                    </div>
-                    <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
-                      生成路线时会把这些地点按链接顺序排进每天并画到地图上；点选可移除识别错误的地点，找不到的地点不会被编造。
-                    </p>
-                  </div>
-                ) : null}
-                <PlanningChat messages={messages} suggestedReplies={suggestedReplies} draft={draft} onDraftChange={setDraft} onSend={(message) => void sendMessage(message)} disabled={busy === "sending" || busy === "generating"} isTyping={busy === "sending"} streamingMessageId={streamingMessageId} />{error ? <div role="alert" className="mt-3 flex items-start gap-2 rounded-[14px] border border-rose-500/25 bg-rose-500/[0.06] px-3 py-2.5 text-xs text-rose-800"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{error}</span></div> : null}{busy === "generating" ? <div className="mt-4"><GenerationProgress destination={profile.destination} /></div> : null}</div>
-              <aside className="lg:sticky lg:top-5"><PlanningProfilePanel profile={profile} onChange={updateProfile} onGenerate={() => void generateRoute()} generating={busy === "generating"} disabled={busy !== "idle"} llmStatus={llmStatus} missingFields={missingFields} blockers={blockers} days={plannerDays} rangeWarning={rangeWarning} /><div className="mt-3 rounded-[14px] border border-border bg-surface/60 p-3 text-[11px] leading-5 text-muted-foreground"><div className="flex items-center gap-2 text-foreground"><Check className="size-3.5 text-primary" /><span className="font-medium">确认后才会调用路线与供应商能力</span></div><p className="mt-1">模型只负责理解偏好；地点、路线、天气和报价会在生成阶段按 provider 来源标注。</p>{missingFields.length ? <p className="mt-2">还可以补充：{missingFields.join("、")}</p> : null}</div></aside>
+              <div><p className="text-[10px] uppercase tracking-[0.16em] text-primary">Planning session</p><h1 className="mt-1 text-xl font-semibold tracking-tight sm:text-2xl">一起把这趟旅行定下来</h1></div>
             </div>
-            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 text-[10px] text-muted-foreground"><p>会话数据只通过当前页面的相对 API 路径传输，不包含任何 API Key。</p><button type="button" onClick={reset} className="inline-flex items-center gap-1 text-foreground hover:text-primary">重新开始 <ArrowRight className="size-3" /></button></div>
-          </motion.div>
-        )}
+            <div className="flex items-center gap-2">
+              {sessionId ? <span className="hidden rounded-full border border-border bg-surface px-2.5 py-1 text-[10px] text-muted-foreground sm:inline-flex">版本 {revision}</span> : null}
+              <PlanningStatusCard status={llmStatus} compact />
+            </div>
+          </div>
+          {warnings.length ? <div className="mb-4 rounded-[14px] border border-amber-500/25 bg-amber-500/[0.07] px-3 py-2 text-xs text-amber-900 dark:text-amber-100">{warnings.map((warning) => <p key={warning}>{warning}</p>)}</div> : null}
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
+            <div className="min-w-0">
+              {!sessionId ? (
+                <>
+                  {resumable ? (
+                    <div className="mb-3 flex items-center justify-between gap-3 rounded-[18px] border border-primary/25 bg-accent/60 px-4 py-3">
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-foreground">继续上次规划{resumable.destination ? ` · ${resumable.destination}` : ""}</p>
+                        <p className="mt-0.5 text-[10px] text-muted-foreground">会话保存在服务端；继续会接上之前的对话和画像，刷新也不会再丢失。</p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <Button size="sm" variant="ghost" disabled={isBusy} onClick={() => { usePlanningStore.getState().clearSession(); setResumable(null); }}>开新的</Button>
+                        <Button size="sm" onClick={() => void resumePlanning()} disabled={isBusy}>
+                          {busy === "restoring" ? <LoaderCircle className="animate-spin" /> : <RotateCcw className="size-3.5" />}继续
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="rounded-[24px] border border-border bg-surface p-4 shadow-[0_22px_70px_rgba(28,25,23,0.08)] sm:p-5">
+                    <div className="flex items-start justify-between gap-3"><div><p className="text-[11px] font-medium uppercase tracking-[0.16em] text-primary">Start here</p><h2 className="mt-2 text-xl font-semibold tracking-tight">先说说这趟旅行</h2></div><Sparkles className="mt-1 size-5 text-primary" /></div>
+                    <Textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") void startConversation(); }} className="mt-5 min-h-32 resize-none border-border/80 bg-background/60 px-3.5 py-3 text-[14px] leading-6 shadow-none focus-visible:ring-primary/20" placeholder="告诉我你想去哪里、玩几天、和谁一起、预算和喜好……" aria-label="旅行初始想法" />
+                    {searchParams.get("q") ? <p className="mt-2 text-[11px] text-primary">已带入首页的旅行描述，可以继续修改。</p> : null}
+                    <div className="mt-4"><p className="mb-2 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">灵感提示</p><div className="flex flex-wrap gap-1.5">{QUICK_PROMPTS.map((item) => <button key={item} type="button" onClick={() => setPrompt(item)} className="rounded-full border border-border bg-background px-2.5 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:border-primary/30 hover:bg-accent hover:text-accent-foreground">{item}</button>)}</div></div>
+                    <div className="mt-5 flex flex-col-reverse gap-2 border-t border-border/80 pt-4 sm:flex-row sm:items-center sm:justify-between"><p className="text-[10px] leading-4 text-muted-foreground">Enter 不会直接生成<br />你可以在对话里慢慢补充</p><Button size="lg" onClick={() => void startConversation()} disabled={isBusy}>{busy === "starting" ? <LoaderCircle className="animate-spin" /> : <ArrowRight />}开始对话</Button></div>
+                  </div>
+                  {error ? <div role="alert" className="mt-3 flex items-start gap-2 rounded-[14px] border border-rose-500/25 bg-rose-500/[0.06] px-3 py-2.5 text-xs text-rose-800"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{error}</span></div> : null}
+                </>
+              ) : (
+                <>
+                  {linkImport ? (
+                    <div className="mb-3 rounded-[16px] border border-primary/25 bg-accent/50 p-3.5" aria-live="polite">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-medium text-primary">
+                            已从{linkImport.platformLabel}链接解析 · 高德已核实 {linkImport.resolvedCount} 个地点
+                          </p>
+                          <p className="mt-0.5 truncate text-[12px] text-muted-foreground">{linkImport.title}</p>
+                        </div>
+                        <button type="button" onClick={() => setLinkImport(null)} className="shrink-0 text-[11px] text-muted-foreground hover:text-foreground">收起</button>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {linkImport.candidates.map((candidate) => (
+                          <button
+                            key={candidate.name}
+                            type="button"
+                            onClick={() => removeImportedPlace(candidate.place?.name ?? candidate.name)}
+                            className={candidate.resolved
+                              ? "group rounded-full border border-primary/25 bg-surface px-2.5 py-1 text-[11px] text-foreground transition-colors hover:border-rose-400/60 hover:text-rose-700"
+                              : "rounded-full border border-dashed border-border px-2.5 py-1 text-[11px] text-muted-foreground line-through"}
+                            title={candidate.resolved ? `高德核实：${candidate.place?.name ?? candidate.name}（点击移除）` : "未在高德找到，不会被编造"}
+                          >
+                            {candidate.resolved ? candidate.place?.name ?? candidate.name : `${candidate.name}（未找到）`}
+                            {candidate.resolved ? <span className="ml-1 opacity-0 transition-opacity group-hover:opacity-100">×</span> : null}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
+                        生成路线时会把这些地点按链接顺序排进每天并画到地图上；点选可移除识别错误的地点，找不到的地点不会被编造。
+                      </p>
+                    </div>
+                  ) : null}
+                  <PlanningChat messages={messages} suggestedReplies={suggestedReplies} draft={draft} onDraftChange={setDraft} onSend={(message) => void sendMessage(message)} disabled={busy === "sending" || busy === "generating"} isTyping={busy === "sending"} streamingMessageId={streamingMessageId} />
+                  {error ? <div role="alert" className="mt-3 flex items-start gap-2 rounded-[14px] border border-rose-500/25 bg-rose-500/[0.06] px-3 py-2.5 text-xs text-rose-800"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{error}</span></div> : null}
+                  {busy === "generating" ? <div className="mt-4"><GenerationProgress destination={profile.destination} /></div> : null}
+                </>
+              )}
+            </div>
+            <aside className="lg:sticky lg:top-5"><PlanningProfilePanel profile={profile} onChange={updateProfile} onGenerate={sessionId ? () => void generateRoute() : undefined} generating={busy === "generating"} disabled={busy !== "idle"} llmStatus={llmStatus} missingFields={missingFields} blockers={blockers} days={plannerDays} rangeWarning={rangeWarning} /><div className="mt-3 rounded-[14px] border border-border bg-surface/60 p-3 text-[11px] leading-5 text-muted-foreground"><div className="flex items-center gap-2 text-foreground"><Check className="size-3.5 text-primary" /><span className="font-medium">确认后才会调用路线与供应商能力</span></div><p className="mt-1">模型只负责理解偏好；地点、路线、天气和报价会在生成阶段按 provider 来源标注。</p>{missingFields.length ? <p className="mt-2">还可以补充：{missingFields.join("、")}</p> : null}</div></aside>
+          </div>
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 text-[10px] text-muted-foreground"><p>会话数据只通过当前页面的相对 API 路径传输，不包含任何 API Key。</p>{sessionId ? <button type="button" onClick={reset} className="inline-flex items-center gap-1 text-foreground hover:text-primary">重新开始 <ArrowRight className="size-3" /></button> : null}</div>
+        </motion.div>
       </div>
     </main>
   );
