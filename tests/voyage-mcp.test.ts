@@ -57,11 +57,12 @@ describe("voyage MCP adapter", () => {
     await rm(dataDir, { recursive: true, force: true });
   });
 
-  it("exposes exactly the 12 first-wave tools mapped to runtime commands", () => {
+  it("exposes exactly the 13 first-wave tools mapped to runtime commands", () => {
     expect(Object.keys(voyageTools).sort()).toEqual([
       "voyage_apply_change", "voyage_create_trip", "voyage_get_route_options", "voyage_get_trip",
-      "voyage_get_weather", "voyage_optimize_transport", "voyage_plan_route", "voyage_propose_change",
-      "voyage_retrieve_knowledge", "voyage_search_offers", "voyage_search_places", "voyage_search_social",
+      "voyage_get_weather", "voyage_optimize_itinerary", "voyage_optimize_transport", "voyage_plan_route",
+      "voyage_propose_change", "voyage_retrieve_knowledge", "voyage_search_offers", "voyage_search_places",
+      "voyage_search_social",
     ]);
   });
 
@@ -146,7 +147,7 @@ describe("voyage MCP adapter", () => {
         expect(definition.annotations.readOnlyHint).toBe(false);
         continue;
       }
-      if (name === "voyage_create_trip" || name === "voyage_propose_change") {
+      if (name === "voyage_create_trip" || name === "voyage_propose_change" || name === "voyage_optimize_itinerary") {
         expect(definition.annotations.readOnlyHint, name).toBe(false);
         expect(definition.annotations.destructiveHint, name).toBe(false);
         continue;

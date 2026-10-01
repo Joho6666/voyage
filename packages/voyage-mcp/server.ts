@@ -194,6 +194,16 @@ export const voyageTools: Record<string, VoyageToolDefinition> = {
     "apply-change",
     { annotations: DESTRUCTIVE },
   ),
+  voyage_optimize_itinerary: tool(
+    "Re-schedule the trip's planned stops into geographically clustered, time-window aware days (Itinerary Optimizer v1); returns a Diff proposal — show it and only apply after explicit consent",
+    {
+      tripId: z.string(), expectedTripRevision: z.number(),
+      strategy: z.enum(["balanced"]).optional(), preserveMustVisit: z.boolean().optional(),
+      fallbackPolicy: z.enum(["deny", "estimated"]).optional(),
+    },
+    "optimize-itinerary",
+    { annotations: WRITE, format: formatDiffSummary },
+  ),
 };
 
 export function normalizeToolError(error: unknown) {
