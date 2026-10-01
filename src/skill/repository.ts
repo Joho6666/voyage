@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { TravelAction } from "@/services/ai/actions/types";
@@ -30,11 +30,29 @@ export interface ProposalRecord {
   changeSet: TripChangeSet;
   proposedTrip: Trip;
   createdAt: string;
+  /** sha256 of the one-time proposalToken; the plaintext token is never stored. */
+  tokenHash: string;
+  /** RFC3339 deadline after which the token is rejected (PROPOSAL_EXPIRED). */
+  expiresAt: string;
+  /** sha256 of the changeSet at propose time; recomputed at apply to detect tampering. */
+  changeSetHash: string;
   consumedAt?: string;
 }
 
+export const DEFAULT_PROPOSAL_TTL_SEC = 600;
+
 function digest(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function digestText(value: string) {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+/** Constant-time comparison of two sha256 hex digests. */
+function hashMatches(stored: string, computed: string) {
+  if (stored.length !== computed.length) return false;
+  return timingSafeEqual(Buffer.from(stored, "hex"), Buffer.from(computed, "hex"));
 }
 
 function preservePlanningProfile(input: Trip, parsed: Trip): Trip {
@@ -57,8 +75,16 @@ function preservePlanningProfile(input: Trip, parsed: Trip): Trip {
   };
 }
 
+export interface RepositoryOptions {
+  /** How long a proposalToken stays valid. Default 10 minutes. */
+  proposalTtlSec?: number;
+}
+
 export class JsonSkillRepository {
-  constructor(private readonly root: string) {}
+  constructor(
+    private readonly root: string,
+    private readonly options: RepositoryOptions = {},
+  ) {}
 
   /**
    * Joins a record name under the workspace root and proves the result stays
@@ -244,21 +270,45 @@ export class JsonSkillRepository {
     return next;
   }
 
-  async saveProposal(input: Omit<ProposalRecord, "id" | "createdAt">): Promise<ProposalRecord> {
-    const record: ProposalRecord = { ...input, id: randomUUID(), createdAt: new Date().toISOString() };
+  /**
+   * Persists a proposal and mints its one-time proposalToken. The plaintext
+   * token is returned to the caller exactly once and only its sha256 is
+   * stored — apply-change must present it, so a model cannot apply its own
+   * proposal without a human seeing the diff.
+   */
+  async saveProposal(input: Omit<ProposalRecord, "id" | "createdAt" | "tokenHash" | "expiresAt" | "changeSetHash">): Promise<{ record: ProposalRecord; token: string }> {
+    const ttlSec = Math.max(1, this.options.proposalTtlSec ?? DEFAULT_PROPOSAL_TTL_SEC);
+    const token = randomBytes(32).toString("base64url");
+    const record: ProposalRecord = {
+      ...input,
+      id: randomUUID(),
+      createdAt: new Date().toISOString(),
+      tokenHash: digestText(token),
+      expiresAt: new Date(Date.now() + ttlSec * 1000).toISOString(),
+      changeSetHash: digest(input.changeSet),
+    };
     await this.atomicWrite(this.proposalPath(record.id), record);
-    return record;
+    return { record, token };
   }
 
   async getProposal(id: string) {
     return this.readJson<ProposalRecord>(this.proposalPath(id));
   }
 
-  async applyProposal(input: { tripId: string; proposalId: string; expectedTripRevision: number; confirmed: boolean }) {
+  async applyProposal(input: { tripId: string; proposalId: string; expectedTripRevision: number; confirmed: boolean; proposalToken: string }) {
     if (input.confirmed !== true) throw new SkillError("CONFIRMATION_REQUIRED", "Explicit confirmed=true is required");
     const proposal = await this.getProposal(input.proposalId);
     if (!proposal || proposal.tripId !== input.tripId) throw new SkillError("PROPOSAL_NOT_FOUND", "Proposal not found");
     if (proposal.consumedAt) throw new SkillError("PROPOSAL_ALREADY_APPLIED", "Proposal has already been applied");
+    if (new Date(proposal.expiresAt).getTime() < Date.now()) {
+      throw new SkillError("PROPOSAL_EXPIRED", "Proposal token has expired — propose again");
+    }
+    if (!hashMatches(proposal.tokenHash, digestText(input.proposalToken))) {
+      throw new SkillError("PROPOSAL_TOKEN_INVALID", "proposalToken does not match this proposal");
+    }
+    if (!hashMatches(proposal.changeSetHash, digest(proposal.changeSet))) {
+      throw new SkillError("PROPOSAL_TAMPERED", "Stored changeSet no longer matches the hash minted at propose time");
+    }
     const current = await this.getTrip(input.tripId);
     if (!current) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
     if (

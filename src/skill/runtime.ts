@@ -909,7 +909,7 @@ export class VoyageSkillRuntime {
 
     const summary = "已按时间、费用、步行、换乘、天气、疲劳与数据可靠性重新评估市内交通。";
     const changeSet = computeTripChangeSet(original, proposed, execution.applied, summary);
-    const proposal = await this.repository.saveProposal({
+    const { record: proposal, token } = await this.repository.saveProposal({
       tripId: original.id,
       baseRevision: stored.revision,
       baseHash: stored.hash,
@@ -919,6 +919,7 @@ export class VoyageSkillRuntime {
     });
     return successEnvelope({
       proposalId: proposal.id,
+      proposalToken: token,
       tripId: original.id,
       baseRevision: proposal.baseRevision,
       actions: proposal.actions,
@@ -1293,7 +1294,7 @@ export class VoyageSkillRuntime {
     }
     proposed = restoreLockedItems(original, proposed, locked);
     const changeSet = computeTripChangeSet(original, proposed, execution.applied, actionPlan.summary);
-    const proposal = await this.repository.saveProposal({
+    const { record: proposal, token } = await this.repository.saveProposal({
       tripId: original.id,
       baseRevision: stored.revision,
       baseHash: stored.hash,
@@ -1301,12 +1302,15 @@ export class VoyageSkillRuntime {
       changeSet,
       proposedTrip: proposed,
     });
-    return successEnvelope({ proposalId: proposal.id, tripId: original.id, baseRevision: proposal.baseRevision, actions: proposal.actions, changes: proposal.changeSet, summary: proposal.changeSet.summary }, status(placeLevel(provider), routeStatus, "UNKNOWN"), warnings);
+    return successEnvelope({ proposalId: proposal.id, proposalToken: token, tripId: original.id, baseRevision: proposal.baseRevision, actions: proposal.actions, changes: proposal.changeSet, summary: proposal.changeSet.summary }, status(placeLevel(provider), routeStatus, "UNKNOWN"), warnings);
   }
 
   async applyChange(raw: unknown) {
     if (!raw || typeof raw !== "object" || (raw as { confirmed?: unknown }).confirmed !== true) {
       throw new SkillError("CONFIRMATION_REQUIRED", "Explicit confirmed=true is required");
+    }
+    if (typeof (raw as { proposalToken?: unknown }).proposalToken !== "string") {
+      throw new SkillError("PROPOSAL_TOKEN_REQUIRED", "proposalToken from propose-change is required to apply");
     }
     const input = applyChangeInputSchema.parse(raw);
     const stored = await this.repository.applyProposal(input);
@@ -1446,6 +1450,9 @@ export class VoyageSkillRuntime {
   }
 }
 
-export function createRuntime(dataDir = process.env.VOYAGE_DATA_DIR ?? path.join(process.cwd(), ".voyage")) {
-  return new VoyageSkillRuntime(new JsonSkillRepository(dataDir));
+export function createRuntime(
+  dataDir = process.env.VOYAGE_DATA_DIR ?? path.join(process.cwd(), ".voyage"),
+  repositoryOptions: { proposalTtlSec?: number } = {},
+) {
+  return new VoyageSkillRuntime(new JsonSkillRepository(dataDir, repositoryOptions));
 }

@@ -29,12 +29,12 @@ describe("JsonSkillRepository proposal lifecycle", () => {
   it("deletes a proposal once it has been applied", async () => {
     const repository = new JsonSkillRepository(dataDir);
     const stored = await repository.createTrip(structuredClone(chongqingTrip));
-    const proposal = await repository.saveProposal(proposalFixture(chongqingTrip.id, stored.revision, stored.hash));
+    const { record: proposal, token } = await repository.saveProposal(proposalFixture(chongqingTrip.id, stored.revision, stored.hash));
 
     const filesBefore = await readdir(path.join(dataDir, "proposals"));
     expect(filesBefore).toContain(`${proposal.id}.json`);
 
-    await repository.applyProposal({ tripId: chongqingTrip.id, proposalId: proposal.id, expectedTripRevision: stored.revision, confirmed: true });
+    await repository.applyProposal({ tripId: chongqingTrip.id, proposalId: proposal.id, expectedTripRevision: stored.revision, confirmed: true, proposalToken: token });
 
     // A consumed proposal embeds a whole proposed trip; leaving the file
     // behind made proposals/ grow without bound.
@@ -45,7 +45,7 @@ describe("JsonSkillRepository proposal lifecycle", () => {
   it("cascades proposal cleanup when the trip is deleted", async () => {
     const repository = new JsonSkillRepository(dataDir);
     const stored = await repository.createTrip(structuredClone(chongqingTrip));
-    const proposal = await repository.saveProposal(proposalFixture(chongqingTrip.id, stored.revision, stored.hash));
+    const { record: proposal } = await repository.saveProposal(proposalFixture(chongqingTrip.id, stored.revision, stored.hash));
 
     await repository.deleteTrip(chongqingTrip.id);
     const files = await readdir(path.join(dataDir, "proposals"));

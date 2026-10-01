@@ -137,8 +137,9 @@ describe("Golden Travel Cases", () => {
       instruction: "明天太累了，少走一点。",
       dayId: trip.days[1].id,
       fallbackPolicy: "estimated",
-    }) as { data: { proposalId: string; baseRevision: number } };
+    }) as { data: { proposalId: string; proposalToken: string; baseRevision: number } };
     expect(proposal.data.baseRevision).toBe(created.data.revision);
+    expect(proposal.data.proposalToken).toBeTruthy();
 
     await expect(runtime.applyChange({
       tripId: trip.id, proposalId: proposal.data.proposalId, expectedTripRevision: created.data.revision, confirmed: false as never,
@@ -148,7 +149,7 @@ describe("Golden Travel Cases", () => {
     })).rejects.toThrow();
 
     const applied = await runtime.applyChange({
-      tripId: trip.id, proposalId: proposal.data.proposalId, expectedTripRevision: created.data.revision, confirmed: true,
+      tripId: trip.id, proposalId: proposal.data.proposalId, expectedTripRevision: created.data.revision, confirmed: true, proposalToken: proposal.data.proposalToken,
     }) as { data: { revision: number } };
     expect(applied.data.revision).toBeGreaterThan(created.data.revision);
   });

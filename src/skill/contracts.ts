@@ -234,6 +234,10 @@ export const applyChangeInputSchema = z.object({
   proposalId: z.string().min(1),
   expectedTripRevision: z.number().int().min(1),
   confirmed: z.literal(true),
+  /** One-time credential issued by propose-change; short TTL, bound to the
+   * proposal's changeSet hash. Without it the model could apply its own
+   * proposal without a human in the loop. */
+  proposalToken: z.string().min(1),
 });
 
 export const getPlaceInputSchema = z.object({

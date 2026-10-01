@@ -143,13 +143,13 @@ describe("Voyage Skill runtime", () => {
     const first = await runtime.proposeChange({ tripId, instruction: "第二天少走一点", fallbackPolicy: "estimated" }) as any;
     const second = await runtime.proposeChange({ tripId, instruction: "第二天省100元", fallbackPolicy: "estimated" }) as any;
     await expect(runtime.applyChange({ tripId, proposalId: first.data.proposalId, expectedTripRevision: 1, confirmed: false })).rejects.toMatchObject({ code: "CONFIRMATION_REQUIRED" });
-    const applied = await runtime.applyChange({ tripId, proposalId: first.data.proposalId, expectedTripRevision: 1, confirmed: true }) as any;
+    const applied = await runtime.applyChange({ tripId, proposalId: first.data.proposalId, expectedTripRevision: 1, confirmed: true, proposalToken: first.data.proposalToken }) as any;
     expect(applied.data.revision).toBe(2);
     // Applying deletes the proposal record (it embeds a whole proposed trip),
     // so a replay fails closed on the missing record rather than on a
     // consumed flag — both refuse the second apply.
-    await expect(runtime.applyChange({ tripId, proposalId: first.data.proposalId, expectedTripRevision: 1, confirmed: true })).rejects.toMatchObject({ code: "PROPOSAL_NOT_FOUND" });
-    await expect(runtime.applyChange({ tripId, proposalId: second.data.proposalId, expectedTripRevision: 1, confirmed: true })).rejects.toMatchObject({ code: "PROPOSAL_STALE" });
+    await expect(runtime.applyChange({ tripId, proposalId: first.data.proposalId, expectedTripRevision: 1, confirmed: true, proposalToken: first.data.proposalToken })).rejects.toMatchObject({ code: "PROPOSAL_NOT_FOUND" });
+    await expect(runtime.applyChange({ tripId, proposalId: second.data.proposalId, expectedTripRevision: 1, confirmed: true, proposalToken: second.data.proposalToken })).rejects.toMatchObject({ code: "PROPOSAL_STALE" });
   });
 
   it("fails real mode explicitly when no AMap key exists", async () => {
