@@ -2,6 +2,11 @@
 
 本文件记录面向使用者的显著变更。日期为合并到 main 的日期。
 
+## 2026-10-01 · 开源开箱即用（README + Auth 弱化）
+
+- **README 第一屏重写**：标题改为 "Open-source AI-native Travel OS"，一屏列出核心承诺（No account required / Local-first / BYO API keys / Real POI·route·weather / 攻略导入 / AI 排程 / Today 执行模式 / Skill+MCP），并新增 **Provider 分级表**：Level 0 Demo（零配置可完整体验）→ Level 1 AMap → Level 2 LLM → Level 3 Social/Offers，明确"不配任何 Key 也能用"。
+- **账号入口弱化**：侧栏账户按钮文案从"点击登录与同步"改为"可选 · 数据保存在本地"，明确无需注册即可完整体验（登录仅为可选跨设备同步）。不删除 Supabase 代码，保持 Optional。
+
 ## 2026-10-01 · Today Mode v2（旅行执行控制台）
 
 - **新只读命令 `get-today-context`**：一次返回当前站、下一站（名称、停留、真实距离与推荐交通含估算标注、建议出发/预计到达时间）、今天剩余（地点数、剩余步行米数、预计结束时间）、比计划晚了多少分钟、当天天气（带 provenance，未知保持未知）、以及确定性规则建议（下雨 / 剩余步行超限 / 落后于计划 / 下一站过远）。全部建议都是 advisory：任何修改仍走 propose → Diff → 用户确认。

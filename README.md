@@ -1,8 +1,34 @@
-# Voyage · Travel OS
+# Voyage · Open-source AI-native Travel OS
 
-> **Voyage is an AI-native Travel OS.**  
-> 不是攻略生成器，不是长篇 Markdown 机器，也不是臃肿的 OTA 销售平台。  
+> **Voyage is an open-source AI-native Travel OS.**
+> 不是攻略生成器，不是长篇 Markdown 机器，也不是臃肿的 OTA 销售平台。
 > 它的使命是：**让一个真实的人，真的敢拿 Voyage 去完成一次旅行。**
+
+**一屏了解：**
+
+- **No account required** — 打开就能用，不需要注册登录（登录只为可选的跨设备同步）。
+- **Local-first** — 行程、提案、知识都保存在你自己的 `.voyage/` 目录，不经过任何 Voyage 服务器。
+- **Bring your own API keys** — 高德 / LLM / 社交数据全部自带 Key；不配任何 Key 也能用 Demo 模式完整体验。
+- **Real POI / routes / weather** — 坐标、路线、天气来自真实 Provider，估算值永远带标注，绝不伪造。
+- **Import 小红书 / 抖音 travel guides** — 粘贴链接或攻略文本，地点逐名核验后进入行程。
+- **AI itinerary optimization** — 智能排程按地理聚类、时间窗、天气与你的节奏/步行偏好重排每天（Itinerary Optimizer v1）。
+- **Today travel execution mode** — 旅途中一屏告诉你：下一站、怎么去、几点出发、还剩多少路、预计几点结束、要不要调整。
+- **Skill + MCP support** — 同一套 Runtime 以 CLI、MCP server（Claude Desktop / Cursor）和 Web Agent 三种方式驱动。
+
+## Provider 分级：从零配置开始
+
+不需要配置任何 Key 也能完整体验。按需逐级解锁：
+
+| 级别 | 需要什么 | 解锁什么 |
+|---|---|---|
+| **Level 0 · Demo** | 什么都不用 | `VOYAGE_DEMO_MODE=true`，内置重庆示例行程 + 矢量底图，完整体验规划 / Diff 确认 / Today 模式 |
+| **Level 1 · AMap** | `AMAP_SERVER_KEY`（+ `NEXT_PUBLIC_AMAP_KEY` 真地图） | 真实 POI 搜索、真实路网路线、真实天气 |
+| **Level 2 · LLM** | `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` | 自然语言规划对话、攻略链接解析、Today Agent 多轮修改建议 |
+| **Level 3 · Social / Offers** | `TIKHUB_API_KEY`（社交）、`MEITUAN_HT_TOKEN`（美团）、`FLIGGY_*`（飞猪） | 小红书/抖音攻略抓取、热度信号、机票与本地生活报价 |
+
+任意级别缺失时，Voyage 会**降级并如实标注**（`providerStatus`: `REAL` / `ESTIMATED` / `CURATED` / `UNAVAILABLE`…），绝不把估算伪装成真实数据。
+
+## 它是怎么工作的
 
 用户输入一句简单愿望：
 > “从桂林去重庆玩 3 天，2 个人，预算 2500，喜欢美食和夜景，不想每天走太多路。”
@@ -15,7 +41,7 @@ Voyage 在几秒钟内生成一个**真实的、结构化的、带高德坐标�
 - “今天省 100 块” → 打车智能回退为地铁，餐饮结构微调；
 - “推迟一小时” → 节点整体顺延，重新校准各段交通；
 
-每一个自然语言指令，都会被编译成经过 Zod 校验的结构化 `TravelAction`，生成量化对比报告（`TripChangeSet`）呈现在 Diff 审阅弹窗中，待用户确认后才应用。
+每一个自然语言指令，都会被编译成经过 Zod 校验的结构化 `TravelAction`，生成量化对比报告（`TripChangeSet`）呈现在 Diff 审阅弹窗中，**待用户确认后才应用**（一次性 proposalToken，10 分钟有效，防重放与篡改）。
 
 ---
 
