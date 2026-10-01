@@ -5,6 +5,7 @@ import { BookOpen, Check, ChevronDown, ChevronRight, ClipboardPaste, ExternalLin
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { addPlaceToTrip, importRouteToTrip, TripCommandError } from "@/services/trip-commands";
+import { optimizeGuideDayAssignment } from "@/services/itinerary-optimizer";
 import { useTripStore } from "@/store/trip-store";
 import { useUiStore } from "@/store/ui-store";
 import { cn } from "@/lib/utils";
@@ -241,14 +242,21 @@ export function XhsGuidePanel({
     }
     setImportingRoute(true);
     try {
-      const perDay = Math.ceil(places.length / trip.days.length);
-      const assignments = trip.days.map((day) => ({ dayId: day.id, places: [] as Place[] }));
-      places.forEach((place, index) => {
-        assignments[Math.min(Math.floor(index / perDay), assignments.length - 1)].places.push(place);
+      // The itinerary optimizer clusters places geographically, respects time
+      // windows (night views late, meals at meal times), and applies the
+      // trip's planning profile; the guide's original order stays a signal.
+      const optimization = optimizeGuideDayAssignment({
+        places,
+        days: trip.days.map((day) => ({ dayId: day.id, date: day.date, weather: { condition: day.weather?.condition, icon: day.weather?.icon } })),
+        profile: trip.planningMetadata?.planningProfile ?? null,
+        hotel: trip.places.find((candidate) => candidate.category === "hotel") ?? null,
       });
+      const assignments = optimization.assignments
+        .map((assignment) => ({ dayId: assignment.dayId, places: assignment.places }))
+        .filter((assignment) => assignment.places.length > 0);
       const result = await importRouteToTrip({
         tripId: trip.id,
-        assignments: assignments.filter((assignment) => assignment.places.length > 0),
+        assignments,
         expectedTripRevision: useTripStore.getState().revision,
       });
       setTrip(result.trip, result.revision);
@@ -256,7 +264,8 @@ export function XhsGuidePanel({
         ...current,
         [post.sourceId]: [...(current[post.sourceId] ?? []), ...selection.candidates.filter((c) => c.resolved && c.place).map((c) => c.name)],
       }));
-      toast.success(`已导入 ${result.importedCount} 个地点并自动连线，打卡任务清单已生成`);
+      const scheduleNote = optimization.decisions[0]?.reason;
+      toast.success(`已导入 ${result.importedCount} 个地点并智能排程，打卡任务清单已生成${scheduleNote ? `。${scheduleNote}` : ""}`);
     } catch (error) {
       toast.error(error instanceof TripCommandError ? error.message : "路线导入失败，请重试");
     } finally {

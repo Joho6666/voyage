@@ -5,6 +5,7 @@ import { z } from "zod";
 import { planningProfileSchema } from "@/schemas/planning";
 import { alignPlanningDays, effectiveTripDays } from "@/services/planning/profile";
 import { resolveGuideCandidates } from "@/services/planning/guide-extract";
+import { optimizeGuideDayAssignment } from "@/services/itinerary-optimizer";
 import { providerFromEnvironment } from "@/skill/providers";
 import { createRuntime } from "@/skill/runtime";
 import type { Place } from "@/types/travel";
@@ -164,8 +165,10 @@ export async function POST(request: NextRequest, context: Context) {
 
     // A guide link pasted during planning: re-resolve its place names against a
     // real provider here (names from the client are never trusted as
-    // locations) and seed them into the new trip, spread evenly across days in
-    // the guide's original order. Failure never blocks generation.
+    // locations) and seed them into the new trip through the itinerary
+    // optimizer, which clusters geographically and respects time windows and
+    // the user's profile. The guide's original order stays a signal. Failure
+    // never blocks generation.
     const extraWarnings: string[] = [];
     const importedNames = stored.importedPlaces ?? [];
     if (importedNames.length && data) {
@@ -174,17 +177,28 @@ export async function POST(request: NextRequest, context: Context) {
         const candidates = await resolveGuideCandidates(provider, stored.profile.destination ?? "", importedNames);
         const resolvedPlaces = candidates.filter((candidate) => candidate.resolved && candidate.place).map((candidate) => candidate.place as Place);
         const tripDays = isRecord(data.trip) && Array.isArray(data.trip.days)
-          ? (data.trip.days as Array<{ id?: unknown }>).filter((day): day is { id: string } => typeof day?.id === "string")
+          ? (data.trip.days as Array<{ id?: unknown; date?: unknown; weather?: { condition?: string; icon?: string } }>)
+              .filter((day): day is { id: string; date?: string; weather?: { condition?: string; icon?: string } } => typeof day?.id === "string")
           : [];
         if (resolvedPlaces.length && tripDays.length) {
-          const perDay = Math.ceil(resolvedPlaces.length / tripDays.length);
-          const assignments = tripDays.map((day) => ({ dayId: day.id, places: [] as Place[] }));
-          resolvedPlaces.forEach((place, index) => {
-            assignments[Math.min(Math.floor(index / perDay), assignments.length - 1)].places.push(place);
+          const optimization = optimizeGuideDayAssignment({
+            places: resolvedPlaces,
+            days: tripDays.map((day) => ({ dayId: day.id, date: day.date, weather: day.weather })),
+            profile: stored.profile ?? null,
+            hotel: isRecord(data.trip) && Array.isArray(data.trip.hotels) ? (data.trip.hotels as Place[])[0] ?? null : null,
           });
+          const assignments = optimization.assignments
+            .map((assignment) => ({ dayId: assignment.dayId, places: assignment.places }))
+            .filter((assignment) => assignment.places.length > 0);
+          if (optimization.decisions.length) {
+            extraWarnings.push(`智能排程：${optimization.decisions.slice(0, 2).map((decision) => decision.reason).join("；")}`);
+          }
+          if (optimization.unresolvedConstraints.length) {
+            extraWarnings.push(optimization.unresolvedConstraints[0]);
+          }
           const imported = await runtime.importRoute({
             tripId,
-            assignments: assignments.filter((assignment) => assignment.places.length > 0),
+            assignments,
             createTasks: true,
             expectedTripRevision: typeof data.revision === "number" ? data.revision : 1,
           });
