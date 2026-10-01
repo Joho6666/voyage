@@ -2,6 +2,14 @@
 
 本文件记录面向使用者的显著变更。日期为合并到 main 的日期。
 
+## 2026-10-01 · MCP 确认机制加固（proposalToken）
+
+- **提案应用必须携带一次性 proposalToken**：`propose-change`（含 replan 产生的提案）现在签发短时效（默认 10 分钟，可通过 repository 选项调整）、一次性、绑定 tripId + revision + changeSet 哈希的 token；`apply-change` 缺 token、token 错误、过期、已消费、revision 漂移或 changeSet 被篡改时分别以 `PROPOSAL_TOKEN_REQUIRED` / `PROPOSAL_TOKEN_INVALID` / `PROPOSAL_EXPIRED` / `PROPOSAL_ALREADY_APPLIED` / `PROPOSAL_STALE` / `PROPOSAL_TAMPERED` 明确拒绝。服务端只存 token 的 sha256，明文只出现在 propose 响应里。此前 MCP 端模型可以自己 propose 再自己 apply（`confirmed:true` 模型可自行填写），现在这条捷径被关闭。
+- **MCP 工具补齐 annotations**：全部 12 个工具改用 SDK `registerTool` 注册——9 个只读查询工具 `readOnlyHint: true`，`voyage_create_trip` / `voyage_propose_change` 非破坏性写，`voyage_apply_change` 标注 `destructiveHint: true`，宿主（Claude Desktop / Cursor 等）可据此弹确认。顺手补上 `voyage_propose_change` 缺失的 `asOf` 参数。
+- **propose 返回人类可读 Diff 摘要**：步行距离前后与差值、费用差、交通方式置换、条目增删明细，以及「先展示 Diff 征得同意」的提示，Agent 可原样展示给用户。
+- **Web 端透明接入**：Diff 弹窗确认后自动透传 proposalToken（token 只增时效与防篡改，用户点击仍是唯一确认来源）。
+- SKILL.md 与 runtime-api.md 已同步 ADAPT 规则与新错误码。
+
 ## 2026-09-30 · 规划对话内粘贴链接 → 自动成图
 
 - **在规划页直接粘贴小红书/抖音链接**：对话框输入框支持直接贴链接（含 xhslink.com、v.douyin.com 短链），服务端解析短链、抓取笔记/视频正文、抽取地点并由高德逐个核实；对话里出现「已核实 N 个地点」卡片，可点选剔除识别错误的地点。生成路线时这些地点按链接原文顺序排进每天、地图自动连线，并生成「到达后打卡」任务清单。

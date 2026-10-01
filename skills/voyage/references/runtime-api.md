@@ -19,8 +19,8 @@ Commands:
 - `search-travel-offers`: `{origin?, destination, startDate?, endDate?, travelers?, budget?, query, city?, categories?}`
 - `refresh-travel-offers`: `{tripId, expectedTripRevision, origin?, destination, startDate?, endDate?, travelers?, budget?, query, city?, categories?}`
 - `reorder-day`: `{tripId, dayId, orderedItemIds, expectedTripRevision}` — reorder items in one day under a revision lock.
-- `propose-change`: `{tripId, instruction, dayId?, asOf?, fallbackPolicy}`
-- `apply-change`: `{tripId, proposalId, expectedTripRevision, confirmed:true}`
+- `propose-change`: `{tripId, instruction, dayId?, asOf?, fallbackPolicy}` — returns `proposalId`, a one-time `proposalToken` (10-minute TTL), `baseRevision`, actions, and the full Diff metrics (walking distance before/after, cost delta, transit swaps, item changes). Show the Diff to the user before applying.
+- `apply-change`: `{tripId, proposalId, expectedTripRevision, confirmed:true, proposalToken}` — the token is minted by `propose-change`, is single-use, and is bound to that proposal's changeSet hash. Rejections: `PROPOSAL_TOKEN_REQUIRED` (missing token), `PROPOSAL_TOKEN_INVALID` (wrong token), `PROPOSAL_EXPIRED` (past TTL), `PROPOSAL_TAMPERED` (stored changeSet no longer matches its minted hash), `PROPOSAL_ALREADY_APPLIED`, `PROPOSAL_NOT_FOUND` (applied proposals are deleted), `PROPOSAL_STALE` (trip moved on).
 - `search-social`: `{city, query?, poi?, platform?, limit?}` — live multi-platform social content; evidence carries platform, sourceId, sourceUrl, publishedAt, metrics, fetchedAt, confidence, poiMatches.
 - `get-social-trending`: `{city, platform?, limit?}` — engagement-ranked trending observations.
 - `get-social-evidence`: `{city, poi?, query?, tripId?, limit?}` — aggregated evidence plus crowd/trend context; with `tripId`, evidence is aligned to trip POIs (entity id or name containment; unmatched stays unknown).
@@ -33,7 +33,7 @@ Successful output:
 
 `providerStatus` levels: `REAL`, `ESTIMATED`, `CACHED`, `CURATED`, `SOCIAL`, `MOCK`, `UNKNOWN`, `UNAVAILABLE`, `UNSTRUCTURED`, `PERMISSION_REQUIRED`. `overall` degrades to the weakest level present.
 
-Errors include `ok:false`, a stable `error.code`, and a non-zero exit code. Important codes include `NO_PROVIDER_CONFIGURED`, `PROVIDER_AUTH_FAILED`, `NO_POI_RESULTS`, `WEATHER_UNAVAILABLE`, `ROUTE_PROVIDER_UNAVAILABLE`, `PLACE_NOT_FOUND`, `CONFIRMATION_REQUIRED`, `REVISION_CONFLICT`, and `PROPOSAL_STALE`.
+Errors include `ok:false`, a stable `error.code`, and a non-zero exit code. Important codes include `NO_PROVIDER_CONFIGURED`, `PROVIDER_AUTH_FAILED`, `NO_POI_RESULTS`, `WEATHER_UNAVAILABLE`, `ROUTE_PROVIDER_UNAVAILABLE`, `PLACE_NOT_FOUND`, `CONFIRMATION_REQUIRED`, `REVISION_CONFLICT`, `PROPOSAL_STALE`, `PROPOSAL_TOKEN_REQUIRED`, `PROPOSAL_TOKEN_INVALID`, `PROPOSAL_EXPIRED`, `PROPOSAL_TAMPERED`, and `PROPOSAL_ALREADY_APPLIED`.
 ## Meituan offers
 
 `search-travel-offers` accepts `origin`, `destination`, optional dates, `travelers`, `budget`, `query`, and `categories` (`train`, `hotel`, `flight`, `ticket`, `restaurant`, `coupon`). It returns `offers` plus raw response data and a `travelOffers` provider status.
