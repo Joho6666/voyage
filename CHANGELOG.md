@@ -2,6 +2,14 @@
 
 本文件记录面向使用者的显著变更。日期为合并到 main 的日期。
 
+## 2026-10-01 · Itinerary Optimizer v1（智能排程）
+
+- **新 Runtime 命令 `optimize-itinerary`**：对已有行程的 planned 条目做整体重排——按经纬度地理聚类（farthest-first 确定性种子 + k-means，无随机）、日内 nearest-neighbour 链、时间窗就位（观景/夜景放晚间档、餐饮锚定正餐）、用户画像生效（pace 控制每日密度、low 步行耐受触发日步行预算并把最孤立地点外移、elderly/children 降低密度）、雨天室内优先并把高体力户外移出。**始终产出提案**（Diff + proposalToken），用户确认后才应用；done/current 条目原地保留；无法排程的事实（营业时间 unknown、无天气预报）如实记入 unresolvedConstraints，绝不伪造。
+- **攻略导入接入优化器**：规划会话贴链接生成、行程页一键导入两处的"按攻略顺序平均切块"替换为 `optimizeGuideDayAssignment`——攻略原始顺序保留为信号（聚类种子与 tie-breaker），地理相近的地点优先同日，导入 toast 展示排程理由。
+- **解释而非黑箱**：每次排程输出 `decisions[]`（基于真实距离/类型/天气/画像的中文理由，如"洪崖洞与解放碑两地相距约 350 m"）、`warnings[]`、`estimatedWalkingMetersByDay`。
+- **MCP**：新增 `voyage_optimize_itinerary`（WRITE annotation，返回 Diff 摘要）；命令暴露矩阵文档化于 `docs/RUNTIME_COMMAND_EXPOSURE.md`。
+- 12 项 Optimizer 纯函数测试 + 4 项 runtime proposal 流测试；验收场景（桂林→重庆 8 地点 3 天）通过：磁器口（西）不与南山（东南）同日、南山一棵树排晚间、低步行偏好显著降低总步行、同输入输出完全确定。
+
 ## 2026-10-01 · MCP 确认机制加固（proposalToken）
 
 - **提案应用必须携带一次性 proposalToken**：`propose-change`（含 replan 产生的提案）现在签发短时效（默认 10 分钟，可通过 repository 选项调整）、一次性、绑定 tripId + revision + changeSet 哈希的 token；`apply-change` 缺 token、token 错误、过期、已消费、revision 漂移或 changeSet 被篡改时分别以 `PROPOSAL_TOKEN_REQUIRED` / `PROPOSAL_TOKEN_INVALID` / `PROPOSAL_EXPIRED` / `PROPOSAL_ALREADY_APPLIED` / `PROPOSAL_STALE` / `PROPOSAL_TAMPERED` 明确拒绝。服务端只存 token 的 sha256，明文只出现在 propose 响应里。此前 MCP 端模型可以自己 propose 再自己 apply（`confirmed:true` 模型可自行填写），现在这条捷径被关闭。
