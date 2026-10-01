@@ -240,6 +240,20 @@ export const applyChangeInputSchema = z.object({
   proposalToken: z.string().min(1),
 });
 
+/**
+ * Itinerary Optimizer v1: reschedules planned items of an existing trip into
+ * a geographically clustered, time-window aware plan. The result is always a
+ * proposal (Diff + proposalToken) — never a direct write — so the user sees
+ * and confirms every move.
+ */
+export const optimizeItineraryInputSchema = z.object({
+  tripId: z.string().min(1),
+  expectedTripRevision: z.number().int().min(1),
+  strategy: z.enum(["balanced"]).default("balanced"),
+  preserveMustVisit: z.boolean().default(true),
+  fallbackPolicy: fallbackPolicySchema,
+});
+
 export const getPlaceInputSchema = z.object({
   placeId: z.string().min(1).optional(),
   tripId: z.string().min(1).optional(),
@@ -305,6 +319,7 @@ export const commandSchemas = {
   "restore-trip": restoreTripInputSchema,
   "propose-change": proposeChangeInputSchema,
   "apply-change": applyChangeInputSchema,
+  "optimize-itinerary": optimizeItineraryInputSchema,
   "get-place": getPlaceInputSchema,
   "update-trip": updateTripInputSchema,
   "search-social": searchSocialInputSchema,

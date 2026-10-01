@@ -8,6 +8,7 @@ import { buildTransportKnowledgeContext } from "@/services/knowledge/context-bui
 import type { ScoredTransportOption, TransportContext } from "@/types/transport-intelligence";
 import { planActionsWithRules, resolveRequestedDay } from "@/services/ai/actions/rule-planner";
 import { computeTripChangeSet } from "@/services/ai/diff";
+import { optimizeTripPlan } from "@/services/itinerary-optimizer";
 import { haversineMeters, estimateTransit } from "@/lib/utils";
 import { createTripId } from "@/services/planning/rule-planner";
 import { planOutline } from "@/services/planning/outline-planner";
@@ -30,6 +31,7 @@ import {
   getWeatherInputSchema,
   getRouteOptionsInputSchema,
   optimizeTransportInputSchema,
+  optimizeItineraryInputSchema,
   retrieveTravelKnowledgeInputSchema,
   replanTripInputSchema,
   searchFlightsInputSchema,
@@ -1317,6 +1319,66 @@ export class VoyageSkillRuntime {
     return successEnvelope({ tripId: input.tripId, proposalId: input.proposalId, trip: stored.trip, revision: stored.revision, tripHash: stored.hash });
   }
 
+  /**
+   * Itinerary Optimizer v1: reschedules planned items into a geographically
+   * clustered plan that respects day-part placement and the user's profile.
+   * Always produces a proposal (Diff + proposalToken)
+   * for the user to confirm — the optimizer never writes the trip directly.
+   */
+  async optimizeItinerary(raw: unknown) {
+    const input = optimizeItineraryInputSchema.parse(raw);
+    const stored = await this.repository.getTrip(input.tripId);
+    if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+    if (stored.revision !== input.expectedTripRevision) throw new SkillError("REVISION_CONFLICT", "Trip revision does not match expectedTripRevision");
+
+    const result = optimizeTripPlan({ trip: stored.trip });
+    const optimizationEnvelope = {
+      decisions: result?.optimization.decisions ?? [],
+      warnings: result?.optimization.warnings ?? [],
+      unresolvedConstraints: result?.optimization.unresolvedConstraints ?? [],
+      estimatedWalkingMetersByDay: result?.optimization.metrics.estimatedWalkingMetersByDay ?? {},
+    };
+    if (!result || !result.changedDayIds.length) {
+      return successEnvelope(
+        {
+          tripId: input.tripId,
+          changed: false,
+          message: result ? "当前安排已是优化器的最优解，未生成提案" : "没有可重排的 planned 行程项",
+          optimization: optimizationEnvelope,
+        },
+        status("UNKNOWN", "UNKNOWN", "UNKNOWN"),
+      );
+    }
+
+    let proposed = result.trip;
+    for (const dayId of result.changedDayIds) {
+      proposed = recomputeDay(proposed, dayId);
+    }
+    const actions: TravelAction[] = result.changedDayIds.map((dayId) => ({ type: "OPTIMIZE_DAY" as const, payload: { dayId } }));
+    const changeSet = computeTripChangeSet(stored.trip, proposed, actions, "智能排程优化：按地理位置聚类、时间窗与偏好重排");
+    const { record: proposal, token } = await this.repository.saveProposal({
+      tripId: stored.trip.id,
+      baseRevision: stored.revision,
+      baseHash: stored.hash,
+      actions,
+      changeSet,
+      proposedTrip: proposed,
+    });
+    return successEnvelope(
+      {
+        proposalId: proposal.id,
+        proposalToken: token,
+        tripId: input.tripId,
+        baseRevision: proposal.baseRevision,
+        actions,
+        changes: changeSet,
+        summary: changeSet.summary,
+        optimization: optimizationEnvelope,
+      },
+      status("UNKNOWN", "UNKNOWN", "UNKNOWN"),
+    );
+  }
+
   async getPlace(raw: unknown) {
     const input = getPlaceInputSchema.parse(raw);
     if (input.tripId && input.placeId) {
@@ -1441,6 +1503,7 @@ export class VoyageSkillRuntime {
       case "set-task-status": return this.setTaskStatus(input);
       case "propose-change": return this.proposeChange(input);
       case "apply-change": return this.applyChange(input);
+      case "optimize-itinerary": return this.optimizeItinerary(input);
       case "get-place": return this.getPlace(input);
       case "update-trip": return this.updateTrip(input);
       case "search-social": return this.searchSocial(input);
