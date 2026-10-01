@@ -2,13 +2,15 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Place } from "@/types/travel";
 import type { ProviderForecast, ProviderRoute, TravelDataProvider } from "@/skill/providers";
 import { JsonSkillRepository } from "@/skill/repository";
 import { VoyageSkillRuntime } from "@/skill/runtime";
 import { normalizeToolError, voyageTools } from "../packages/voyage-mcp/server";
 import { SkillError } from "@/skill/errors";
+
+vi.setConfig({ testTimeout: 30_000 });
 
 class FixtureProvider implements TravelDataProvider {
   readonly kind = "amap" as const;
@@ -99,12 +101,71 @@ describe("voyage MCP adapter", () => {
     }) as { data: { tripId: string; revision: number } };
 
     const rejected = await voyageTools.voyage_apply_change.run(runtime, {
-      tripId: created.data.tripId, proposalId: "does-not-exist", expectedTripRevision: created.data.revision, confirmed: true,
+      tripId: created.data.tripId, proposalId: "does-not-exist", expectedTripRevision: created.data.revision, confirmed: true, proposalToken: "any-token",
     }).then(
       (envelope) => envelope as { ok: boolean; error?: { code: string } },
       (error) => normalizeToolError(error) as { ok: boolean; error?: { code: string } },
     );
     expect(rejected.ok).toBe(false);
     expect(rejected.error?.code).toBeTruthy();
+  });
+
+  it("runs create → propose → apply end to end with the minted proposalToken", async () => {
+    const created = await voyageTools.voyage_create_trip.run(runtime, {
+      destination: "重庆", startDate: "2026-10-01", days: 2, people: 2, budget: 1000, fallbackPolicy: "estimated",
+    }) as { ok: boolean; data: { tripId: string; revision: number; trip: { days: Array<{ id: string }> } } };
+
+    const proposed = await voyageTools.voyage_propose_change.run(runtime, {
+      tripId: created.data.tripId, instruction: "第二天少走一点", fallbackPolicy: "estimated",
+    }) as { ok: boolean; data: { proposalId: string; proposalToken: string; baseRevision: number; changes: { summary: string } } };
+    expect(proposed.ok).toBe(true);
+    expect(proposed.data.proposalToken).toBeTruthy();
+
+    const applied = await voyageTools.voyage_apply_change.run(runtime, {
+      tripId: created.data.tripId, proposalId: proposed.data.proposalId, expectedTripRevision: proposed.data.baseRevision,
+      confirmed: true, proposalToken: proposed.data.proposalToken,
+    }) as { ok: boolean; data: { revision: number } };
+    expect(applied.ok).toBe(true);
+    expect(applied.data.revision).toBe(proposed.data.baseRevision + 1);
+
+    const replay = await voyageTools.voyage_apply_change.run(runtime, {
+      tripId: created.data.tripId, proposalId: proposed.data.proposalId, expectedTripRevision: proposed.data.baseRevision,
+      confirmed: true, proposalToken: proposed.data.proposalToken,
+    }).then(
+      (envelope) => envelope as { ok: boolean; error?: { code: string } },
+      (error) => normalizeToolError(error) as { ok: boolean; error?: { code: string } },
+    );
+    expect(replay.ok).toBe(false);
+    expect(replay.error?.code).toBe("PROPOSAL_NOT_FOUND");
+  });
+
+  it("annotates tools so hosts can gate writes behind confirmation", () => {
+    for (const [name, definition] of Object.entries(voyageTools)) {
+      if (name === "voyage_apply_change") {
+        expect(definition.annotations.destructiveHint).toBe(true);
+        expect(definition.annotations.readOnlyHint).toBe(false);
+        continue;
+      }
+      if (name === "voyage_create_trip" || name === "voyage_propose_change") {
+        expect(definition.annotations.readOnlyHint, name).toBe(false);
+        expect(definition.annotations.destructiveHint, name).toBe(false);
+        continue;
+      }
+      expect(definition.annotations.readOnlyHint, name).toBe(true);
+    }
+  });
+
+  it("renders a human-readable diff summary for propose_change", async () => {
+    const created = await voyageTools.voyage_create_trip.run(runtime, {
+      destination: "重庆", startDate: "2026-10-01", days: 2, people: 2, budget: 1000, fallbackPolicy: "estimated",
+    }) as { data: { tripId: string } };
+    const proposed = await voyageTools.voyage_propose_change.run(runtime, {
+      tripId: created.data.tripId, instruction: "第二天少走一点", fallbackPolicy: "estimated",
+    }) as unknown as Record<string, unknown>;
+    const summary = voyageTools.voyage_propose_change.format?.(proposed) ?? "";
+    expect(summary).toContain("提案 Diff");
+    expect(summary).toContain("步行距离");
+    expect(summary).toContain("proposalToken");
+    expect(summary).toContain("voyage_apply_change");
   });
 });
