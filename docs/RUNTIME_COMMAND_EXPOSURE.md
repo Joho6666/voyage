@@ -33,6 +33,7 @@ intent-level work instead of dozens of low-level mutations.
 | `propose-change` | ✓ | `propose_change` | ✓ | `voyage_propose_change` | ✓ keep |
 | `apply-change` | ✓ | hard-blocked for the LLM | ✓ | `voyage_apply_change` | ✓ keep (proposalToken-gated) |
 | `optimize-itinerary` | ✓ | — | ✓ | `voyage_optimize_itinerary` | ✓ keep (Itinerary Optimizer v1) |
+| `get-today-context` | ✓ | — | ✓ | `voyage_get_today_context` | ✓ keep (Today Mode v2, read-only) |
 | `search-social` | ✓ | `search_social_travel` | ✓ | `voyage_search_social` | env-gated (`VOYAGE_ENABLE_SOCIAL_TOOLS=1`) |
 | `get-social-trending` | ✓ | `find_trending_places` | ✓ | — | env-gated, together with `search-social` |
 | `get-social-evidence` | ✓ | `get_social_evidence` | ✓ | — | env-gated, together with `search-social` |

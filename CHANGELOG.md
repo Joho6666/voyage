@@ -2,6 +2,14 @@
 
 本文件记录面向使用者的显著变更。日期为合并到 main 的日期。
 
+## 2026-10-01 · Today Mode v2（旅行执行控制台）
+
+- **新只读命令 `get-today-context`**：一次返回当前站、下一站（名称、停留、真实距离与推荐交通含估算标注、建议出发/预计到达时间）、今天剩余（地点数、剩余步行米数、预计结束时间）、比计划晚了多少分钟、当天天气（带 provenance，未知保持未知）、以及确定性规则建议（下雨 / 剩余步行超限 / 落后于计划 / 下一站过远）。全部建议都是 advisory：任何修改仍走 propose → Diff → 用户确认。
+- **纯函数在 service 层共享**（`src/services/today/context.ts`）：runtime 命令与 Today 页控制台使用同一份计算，页面显示的剩余步行/预计结束与 Agent 看到的数字永远一致，不重复业务逻辑。
+- **Today 页新增执行台条**：导航按钮下方常显"今天剩余 N 个地点 · 剩余步行 X km · 预计结束 HH:mm"，迟到超过 30 分钟时显示"比计划晚了约 N 分钟"提示；已完成/跳过地点不计入剩余，也不被重排。
+- **MCP**：新增 `voyage_get_today_context`（只读）；命令暴露矩阵同步。
+- 6 项新测试：当前/下一站与交通计算、done 不计入剩余、迟到检测、雨天建议、剩余步行建议、未知天气不伪造。
+
 ## 2026-10-01 · Itinerary Optimizer v1（智能排程）
 
 - **新 Runtime 命令 `optimize-itinerary`**：对已有行程的 planned 条目做整体重排——按经纬度地理聚类（farthest-first 确定性种子 + k-means，无随机）、日内 nearest-neighbour 链、时间窗就位（观景/夜景放晚间档、餐饮锚定正餐）、用户画像生效（pace 控制每日密度、low 步行耐受触发日步行预算并把最孤立地点外移、elderly/children 降低密度）、雨天室内优先并把高体力户外移出。**始终产出提案**（Diff + proposalToken），用户确认后才应用；done/current 条目原地保留；无法排程的事实（营业时间 unknown、无天气预报）如实记入 unresolvedConstraints，绝不伪造。
