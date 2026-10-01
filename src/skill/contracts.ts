@@ -254,6 +254,14 @@ export const optimizeItineraryInputSchema = z.object({
   fallbackPolicy: fallbackPolicySchema,
 });
 
+/** Today Mode v2: read-only execution context for the current day. */
+export const getTodayContextInputSchema = z.object({
+  tripId: z.string().min(1),
+  dayId: z.string().min(1).optional(),
+  /** ISO datetime or "HH:mm" — drives lateness detection and day resolution. */
+  asOf: z.string().min(4).max(40).optional(),
+});
+
 export const getPlaceInputSchema = z.object({
   placeId: z.string().min(1).optional(),
   tripId: z.string().min(1).optional(),
@@ -320,6 +328,7 @@ export const commandSchemas = {
   "propose-change": proposeChangeInputSchema,
   "apply-change": applyChangeInputSchema,
   "optimize-itinerary": optimizeItineraryInputSchema,
+  "get-today-context": getTodayContextInputSchema,
   "get-place": getPlaceInputSchema,
   "update-trip": updateTripInputSchema,
   "search-social": searchSocialInputSchema,

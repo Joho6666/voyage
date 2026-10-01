@@ -9,6 +9,7 @@ import type { ScoredTransportOption, TransportContext } from "@/types/transport-
 import { planActionsWithRules, resolveRequestedDay } from "@/services/ai/actions/rule-planner";
 import { computeTripChangeSet } from "@/services/ai/diff";
 import { optimizeTripPlan } from "@/services/itinerary-optimizer";
+import { buildTodayContext } from "@/services/today/context";
 import { haversineMeters, estimateTransit } from "@/lib/utils";
 import { createTripId } from "@/services/planning/rule-planner";
 import { planOutline } from "@/services/planning/outline-planner";
@@ -32,6 +33,7 @@ import {
   getRouteOptionsInputSchema,
   optimizeTransportInputSchema,
   optimizeItineraryInputSchema,
+  getTodayContextInputSchema,
   retrieveTravelKnowledgeInputSchema,
   replanTripInputSchema,
   searchFlightsInputSchema,
@@ -1379,6 +1381,30 @@ export class VoyageSkillRuntime {
     );
   }
 
+  /**
+   * Today Mode v2: the execution console's single source of truth. Read-only;
+   * deterministic rules only — lateness, remaining walking, next-hop
+   * distance, weather — every suggestion maps to a user-initiated
+   * propose-change, never a direct write.
+   */
+  async getTodayContext(raw: unknown) {
+    const input = getTodayContextInputSchema.parse(raw);
+    const stored = await this.repository.getTrip(input.tripId);
+    if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+    let context;
+    try {
+      context = buildTodayContext(stored.trip, { dayId: input.dayId, asOf: input.asOf });
+    } catch {
+      throw new SkillError("TRIP_NOT_FOUND", "Trip has no days");
+    }
+    return successEnvelope(
+      { tripId: input.tripId, ...context },
+      status("UNKNOWN", "UNKNOWN", "UNKNOWN", undefined, context.weather?.provenance?.source === "amap" ? "REAL" : "UNKNOWN"),
+      [],
+      context.weather?.provenance ? { source: context.weather.provenance.source } : undefined,
+    );
+  }
+
   async getPlace(raw: unknown) {
     const input = getPlaceInputSchema.parse(raw);
     if (input.tripId && input.placeId) {
@@ -1504,6 +1530,7 @@ export class VoyageSkillRuntime {
       case "propose-change": return this.proposeChange(input);
       case "apply-change": return this.applyChange(input);
       case "optimize-itinerary": return this.optimizeItinerary(input);
+      case "get-today-context": return this.getTodayContext(input);
       case "get-place": return this.getPlace(input);
       case "update-trip": return this.updateTrip(input);
       case "search-social": return this.searchSocial(input);
