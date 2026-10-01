@@ -204,6 +204,13 @@ export const voyageTools: Record<string, VoyageToolDefinition> = {
     "optimize-itinerary",
     { annotations: WRITE, format: formatDiffSummary },
   ),
+  voyage_get_today_context: tool(
+    "Today execution console: current stop, next hop (distance, transit, departure/arrival times), remaining stops/walking/end time, lateness vs plan, and deterministic suggestions. Read-only.",
+    {
+      tripId: z.string(), dayId: z.string().optional(), asOf: z.string().optional(),
+    },
+    "get-today-context",
+  ),
 };
 
 export function normalizeToolError(error: unknown) {

@@ -28,6 +28,7 @@ import { useTripStore } from "@/store/trip-store";
 import { useUiStore } from "@/store/ui-store";
 import { useDayFocus } from "@/components/itinerary/useDayFocus";
 import { dayStats } from "@/services/routing";
+import { buildTodayContext } from "@/services/today/context";
 import { buildWeatherContext } from "@/services/weather/context";
 import { TripDiffModal } from "@/components/ai/TripDiffModal";
 import { weatherDisplay } from "@/lib/weather-display";
@@ -89,6 +90,17 @@ export default function TodayPage() {
   const doneCount = items.filter((i) => i.status === "done").length;
 
   const stats = useMemo(() => (day ? dayStats(trip, day.id) : null), [trip, day]);
+  // Today console facts (remaining places/walking/end time, lateness) come from
+  // the same shared pure function the runtime serves to agents, so the page
+  // and the agent never disagree on the numbers.
+  const todayConsole = useMemo(() => {
+    if (!day) return null;
+    try {
+      return buildTodayContext(trip, { dayId: day.id });
+    } catch {
+      return null;
+    }
+  }, [trip, day]);
   // Proactive pulls: computed from trip facts each time the trip (or focus) changes.
   const suggestions = useMemo(
     () => suggestTodayActions(trip, selectedDayId ?? null, todayIso),
@@ -359,6 +371,30 @@ export default function TodayPage() {
           <Navigation className="size-4" />
           开始导航（高德地图）
         </Button>
+
+        {/* Today execution console (Today Mode v2): remaining budget for the
+            day, computed by the same shared pure function the runtime's
+            get-today-context command serves to agents. */}
+        {todayConsole ? (
+          <div className="mt-3 rounded-[10px] border border-border/70 px-3 py-2">
+            {todayConsole.lateMinutes !== null && todayConsole.lateMinutes > 30 ? (
+              <p className="mb-1.5 text-[11px] font-medium text-amber-600">
+                比计划晚了约 {todayConsole.lateMinutes} 分钟
+              </p>
+            ) : null}
+            <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+              <span>
+                今天剩余：<span className="font-medium text-foreground">{todayConsole.remaining.places}</span> 个地点
+              </span>
+              <span>
+                剩余步行 <span className="font-medium text-foreground tabular-nums">{todayConsole.remaining.walkMeters >= 1000 ? `${(todayConsole.remaining.walkMeters / 1000).toFixed(1)} km` : `${todayConsole.remaining.walkMeters} m`}</span>
+              </span>
+              <span>
+                预计结束 <span className="font-medium text-foreground tabular-nums">{todayConsole.remaining.estimatedEndTime ?? "—"}</span>
+              </span>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       {/* Hero Destination Image if available */}
