@@ -25,7 +25,9 @@ export interface AgentProposal {
   summary: string;
   apply: (trip: Trip) => Trip;
   changeSet?: import("@/types/diff").TripChangeSet;
-  remote?: { tripId: string; proposalId: string; baseRevision: number };
+  /** proposalToken is the one-time credential the server minted for this
+   * proposal; apply-change rejects anything without it. */
+  remote?: { tripId: string; proposalId: string; baseRevision: number; proposalToken: string };
 }
 
 /** A tool call the agent made while producing this message, for UI transparency. */

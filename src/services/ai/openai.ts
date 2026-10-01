@@ -66,7 +66,7 @@ export class OpenAITravelAgent extends MockTravelAgent implements TravelAgent {
         toolsUsed?: string[];
         toolCalls?: Array<{ name: string; resultSummary: string; ok: boolean }>;
         warnings?: string[];
-        proposal?: { data?: { proposalId?: string; tripId?: string; baseRevision?: number; changes?: import("@/types/diff").TripChangeSet; summary?: string } };
+        proposal?: { data?: { proposalId?: string; proposalToken?: string; tripId?: string; baseRevision?: number; changes?: import("@/types/diff").TripChangeSet; summary?: string } };
         error?: string;
       };
       if (!response.ok || !envelope.ok) throw new Error(envelope.error ?? "AI 工具调用失败");
@@ -86,7 +86,7 @@ export class OpenAITravelAgent extends MockTravelAgent implements TravelAgent {
           summary: data.summary ?? content,
           apply: (current) => current,
           changeSet: data.changes,
-          remote: { tripId: data.tripId!, proposalId: data.proposalId, baseRevision: data.baseRevision! },
+          remote: { tripId: data.tripId!, proposalId: data.proposalId, baseRevision: data.baseRevision!, proposalToken: data.proposalToken! },
         } : undefined,
       };
     } catch (error) {
