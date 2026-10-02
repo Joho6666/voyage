@@ -114,6 +114,16 @@ export default function LandingPage() {
           </div>
         </form>
 
+        {/* Demo fixture is server-gated by VOYAGE_DEMO_MODE; this public flag
+            must mirror it or the link 404-toast back to /trips. */}
+        {process.env.NEXT_PUBLIC_VOYAGE_DEMO_MODE === "true" ? (
+          <div className="mt-3 text-center sm:text-left">
+            <Link href="/trip/chongqing-2026" className="text-[12px] text-muted-foreground underline-offset-2 transition-colors hover:text-primary hover:underline">
+              不想打字？先看一个示例行程 →
+            </Link>
+          </div>
+        ) : null}
+
         {/* 4 Core Pillars of Voyage: Plan, Explore, Adapt, Travel */}
         <div className="mt-14 grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div className="rounded-[12px] border border-border/70 bg-surface p-3.5 space-y-1">

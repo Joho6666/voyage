@@ -908,11 +908,14 @@ export function NewTripExperience() {
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[420px] bg-[radial-gradient(circle_at_15%_0%,rgba(15,118,110,0.12),transparent_32%),radial-gradient(circle_at_90%_5%,rgba(194,65,12,0.08),transparent_26%)]" />
       <div className="relative mx-auto max-w-6xl px-4 pb-12 pt-5 sm:px-6 sm:pt-7 lg:px-8">
         <header className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5">
+          <Link href="/" className="flex items-center gap-2.5" aria-label="返回首页">
             <span className="grid size-9 place-items-center rounded-xl bg-foreground text-background"><Compass className="size-4" /></span>
             <div><p className="text-[13px] font-semibold tracking-tight">{brand.name}</p><p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{brand.product}</p></div>
+          </Link>
+          <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+            <Link href="/trips" className="px-1 transition-colors hover:text-foreground">我的旅行</Link>
+            <span className="inline-flex items-center gap-1.5"><ShieldCheck className="size-3.5 text-primary" />服务端规划 · 凭据不下发</span>
           </div>
-          <div className="flex items-center gap-2 text-[10px] text-muted-foreground"><ShieldCheck className="size-3.5 text-primary" />服务端规划 · 凭据不下发</div>
         </header>
 
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-7">

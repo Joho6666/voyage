@@ -162,6 +162,12 @@ export default function TripsPage() {
             <Button asChild variant="outline" size="sm">
               <Link href="/new-trip">立即规划一次旅行</Link>
             </Button>
+            {process.env.NEXT_PUBLIC_VOYAGE_DEMO_MODE === "true" ? (
+              // Mirrors the server-side VOYAGE_DEMO_MODE gate on the demo fixture.
+              <Link href="/trip/chongqing-2026" className="text-[12px] text-muted-foreground transition-colors hover:text-primary">
+                先看看示例行程
+              </Link>
+            ) : null}
           </div>
         ) : (
           <div className="mt-6 grid gap-5 sm:grid-cols-2">

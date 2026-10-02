@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   CloudRain,
   Footprints,
@@ -49,7 +50,6 @@ import { toast } from "sonner";
 
 export default function TodayPage() {
   const trip = useTripStore((s) => s.trip);
-  const revision = useTripStore((s) => s.revision);
   const patch = useTripStore((s) => s.patchTrip);
   const setTrip = useTripStore((s) => s.setTrip);
   const persist = useTripStore((s) => s.persist);
@@ -167,9 +167,21 @@ export default function TodayPage() {
   };
 
   if (!day) {
+    // A bare sentence here used to be a dead end — the traveller had no way
+    // forward except the browser back button.
     return (
-      <div className="grid h-full place-items-center p-6 text-sm text-muted-foreground">
-        还没有行程。先去创建一次旅行。
+      <div className="grid h-full place-items-center p-6 text-center">
+        <div>
+          <p className="text-sm text-muted-foreground">还没有行程。</p>
+          <div className="mt-3 flex items-center justify-center gap-2">
+            <Button asChild size="sm">
+              <Link href="/new-trip">创建一次旅行</Link>
+            </Button>
+            <Button asChild size="sm" variant="outline">
+              <Link href="/trips">返回列表</Link>
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }

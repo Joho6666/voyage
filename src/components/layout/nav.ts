@@ -9,7 +9,9 @@ export interface NavItem {
 
 export const globalNav: NavItem[] = [
   { href: "/trips", label: "我的旅行", icon: Route },
-  { href: "/new-trip", label: "探索", icon: Compass },
+  // "规划" (the chat that builds a trip) — "探索" would collide with the
+  // trip-internal explore page and its own bottom-nav label.
+  { href: "/new-trip", label: "规划", icon: Compass },
 ];
 
 export interface NavGroupDef {
