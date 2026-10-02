@@ -110,7 +110,7 @@ export function PoiCard({
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="rounded-[8px] p-1 text-muted-foreground opacity-0 hover:bg-secondary group-hover:opacity-100"
+                  className="rounded-[8px] p-1 text-muted-foreground opacity-0 hover:bg-secondary group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100"
                   aria-label="更多"
                   onClick={(e) => e.stopPropagation()}
                 >
@@ -138,7 +138,7 @@ export function PoiCard({
         </div>
         <button
           type="button"
-          className="self-center text-muted-foreground opacity-0 group-hover:opacity-100"
+          className="self-center text-muted-foreground opacity-0 group-hover:opacity-100 touch-none [@media(pointer:coarse)]:opacity-100"
           aria-label="拖动排序"
           {...attributes}
           {...listeners}
