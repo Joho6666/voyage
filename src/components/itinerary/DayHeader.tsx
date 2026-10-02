@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { formatKm, formatShortDate, weekdayZh } from "@/lib/utils";
 import { dayStats } from "@/services/routing";
 import { removeDayFromTrip, TripCommandError } from "@/services/trip-commands";
@@ -15,13 +16,26 @@ export function DayHeader({ trip, day }: { trip: Trip; day: Day }) {
   const pushHistory = useHistoryStore((s) => s.push);
   const stats = dayStats(trip, day.id);
   const color = DAY_COLORS[day.index % DAY_COLORS.length];
+  // Two-step confirm instead of window.confirm: browsers that suppress
+  // dialogs return false and made deletion silently impossible.
+  const [armed, setArmed] = useState(false);
+
+  useEffect(() => {
+    if (!armed) return;
+    const timer = setTimeout(() => setArmed(false), 3000);
+    return () => clearTimeout(timer);
+  }, [armed]);
 
   const removeDay = () => {
     if (trip.days.length <= 1) {
       toast.error("至少要保留一天行程");
       return;
     }
-    if (!window.confirm(`确定删除 Day ${day.index + 1}（${day.date}）的全部安排吗？删除后可以在「今天」页撤销。`)) return;
+    if (!armed) {
+      setArmed(true);
+      return;
+    }
+    setArmed(false);
     const snapshot = useTripStore.getState().trip;
     const snapshotRevision = useTripStore.getState().revision;
     pushHistory(snapshot);
@@ -60,9 +74,12 @@ export function DayHeader({ trip, day }: { trip: Trip; day: Day }) {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={removeDay} className="text-rose-600 focus:text-rose-700">
+            <DropdownMenuItem
+              onSelect={removeDay}
+              className={armed ? "bg-rose-500/10 text-rose-600 focus:text-rose-700" : "text-rose-600 focus:text-rose-700"}
+            >
               <Trash2 className="mr-2 size-3.5" />
-              删除这一天
+              {armed ? "再点一次确认删除" : "删除这一天"}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

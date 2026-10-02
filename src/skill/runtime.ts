@@ -208,6 +208,21 @@ function routeSegment(input: {
   };
 }
 
+/** Maps a list with at most `limit` workers in flight. Route planning jobs are
+ * independent provider calls; AMap personal keys allow ~3 QPS, so 3 is the
+ * throughput ceiling we are willing to use. */
+async function mapWithConcurrency<T, R>(items: T[], limit: number, worker: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await worker(items[index], index);
+    }
+  }));
+  return results;
+}
+
 async function enrichRoutes(
   trip: Trip,
   provider: TravelDataProvider,
@@ -220,9 +235,13 @@ async function enrichRoutes(
   let level: ProviderLevel = provider.kind === "amap" ? "REAL" : "MOCK";
   const warnings: string[] = [];
 
+  // Collect every hop across the target days first, then plan them with a
+  // small worker pool — the old per-day serial loop left most of the QPS
+  // budget idle and stretched generation by seconds per day.
+  type SegmentJob = { dayId: string; from: ItineraryItem; to: ItineraryItem; fromPlace: Place; toPlace: Place; mode: "walk" | "metro" | "bus" | "taxi" | "drive" };
+  const jobs: SegmentJob[] = [];
   for (const dayId of dayIds) {
     const items = next.items.filter((item) => item.dayId === dayId).sort((a, b) => a.order - b.order);
-    const resolved: RouteSegment[] = [];
     for (let index = 0; index < items.length - 1; index += 1) {
       const from = items[index];
       const to = items[index + 1];
@@ -233,18 +252,33 @@ async function enrichRoutes(
       const mode = baseline?.mode === "highspeed" || baseline?.mode === "flight"
         ? "taxi"
         : preferredMode ?? baseline?.mode ?? "walk";
-      try {
-        const route = await provider.planRoute({ origin: fromPlace, destination: toPlace, mode, city: next.destination });
-        resolved.push(routeSegment({ trip: next, dayId, from, to, fromPlace, toPlace, route, estimated: provider.kind !== "amap" }));
-      } catch (error) {
-        if (!allowEstimate) throw normalizeProviderError(error, "ROUTE_PROVIDER_UNAVAILABLE");
-        const route = estimateRoute(fromPlace, toPlace, mode);
-        resolved.push(routeSegment({ trip: next, dayId, from, to, fromPlace, toPlace, route, estimated: true }));
-        level = "ESTIMATED";
-        warnings.push(`Route ${fromPlace.name} → ${toPlace.name} uses Haversine estimation`);
-      }
+      jobs.push({ dayId, from, to, fromPlace, toPlace, mode });
     }
-    next = { ...next, segments: [...next.segments.filter((segment) => segment.dayId !== dayId), ...resolved] };
+  }
+  const routed = await mapWithConcurrency(jobs, 3, async (job) => {
+    try {
+      const route = await provider.planRoute({ origin: job.fromPlace, destination: job.toPlace, mode: job.mode, city: next.destination });
+      return { segment: routeSegment({ trip: next, dayId: job.dayId, from: job.from, to: job.to, fromPlace: job.fromPlace, toPlace: job.toPlace, route, estimated: provider.kind !== "amap" }), estimated: false };
+    } catch (error) {
+      if (!allowEstimate) throw normalizeProviderError(error, "ROUTE_PROVIDER_UNAVAILABLE");
+      const route = estimateRoute(job.fromPlace, job.toPlace, job.mode);
+      return { segment: routeSegment({ trip: next, dayId: job.dayId, from: job.from, to: job.to, fromPlace: job.fromPlace, toPlace: job.toPlace, route, estimated: true }), estimated: true };
+    }
+  });
+  const resolvedByDay = new Map<string, RouteSegment[]>();
+  for (let index = 0; index < jobs.length; index += 1) {
+    const job = jobs[index];
+    const { segment, estimated } = routed[index];
+    const list = resolvedByDay.get(job.dayId) ?? [];
+    list.push(segment);
+    resolvedByDay.set(job.dayId, list);
+    if (estimated) {
+      level = "ESTIMATED";
+      warnings.push(`Route ${job.fromPlace.name} → ${job.toPlace.name} uses Haversine estimation`);
+    }
+  }
+  for (const dayId of dayIds) {
+    next = { ...next, segments: [...next.segments.filter((segment) => segment.dayId !== dayId), ...resolvedByDay.get(dayId) ?? []] };
     next = recomputeDay(next, dayId);
   }
   return { trip: next, level, warnings };
@@ -258,13 +292,17 @@ async function collectCandidates(provider: TravelDataProvider, destination: stri
   const groups: Array<[string, Place["category"]]> = [
     ["景点", "attraction"], ["美食", "food"], ["咖啡", "cafe"], ["酒店", "hotel"], ["购物", "shopping"], ["展览 室内", "activity"],
   ];
-  // AMap Web Service keys commonly have a low QPS limit. Avoid firing all
-  // category searches concurrently during trip creation; this also keeps the
-  // provider boundary predictable for other rate-limited implementations.
+  // AMap Web Service keys commonly have a low per-second quota: fire the six
+  // category searches in two concurrent batches of three with a short pause
+  // between batches — roughly twice as fast as strictly serial (which also
+  // paid a fixed 500ms per category) while staying inside the QPS ceiling.
+  const batchSize = provider.kind === "amap" ? 3 : groups.length;
   const results: Place[][] = [];
-  for (const [index, [query, category]] of groups.entries()) {
-    if (provider.kind === "amap" && index > 0) await new Promise((resolve) => setTimeout(resolve, 500));
-    results.push(await provider.searchPlaces({ destination, query, category, limit: 12 }));
+  for (let index = 0; index < groups.length; index += batchSize) {
+    if (provider.kind === "amap" && index > 0) await new Promise((resolve) => setTimeout(resolve, 350));
+    results.push(...await Promise.all(groups.slice(index, index + batchSize).map(([query, category]) =>
+      provider.searchPlaces({ destination, query, category, limit: 12 }),
+    )));
   }
   const candidates = uniquePlaces(results.flat());
   if (candidates.length < 4) throw new SkillError("NO_POI_RESULTS", `Only ${candidates.length} valid POIs were returned`);
@@ -481,20 +519,10 @@ export class VoyageSkillRuntime {
     const input = createTripInputSchema.parse(raw);
     const provider = await this.providerFactory();
     const finish = input.endDate ?? endDate(input.startDate, input.days ?? 1);
-    const providerCandidates = await collectCandidates(provider, input.destination).catch((error) => {
-      throw normalizeProviderError(error, "NO_POI_RESULTS");
-    });
     const profile = input.planningProfile;
     // One truth for the trip length: every prompt, filter and validation below
     // must agree, so the profile is normalised before anything reads it.
     const alignedProfile = profile ? alignPlanningDays(profile) : undefined;
-    const candidates = alignedProfile
-      ? filterPlanningCandidates(providerCandidates, alignedProfile, daysBetween(input.startDate, finish))
-      : providerCandidates;
-    const constraintWarnings = planningConstraintWarnings(alignedProfile, providerCandidates, candidates);
-    if (!candidates.length) {
-      throw new SkillError("NO_POI_RESULTS", "旅行画像过滤后没有可用的 provider 候选", { warnings: constraintWarnings });
-    }
     const planningPrompt = alignedProfile
       ? [input.prompt, planningProfileToPrompt(alignedProfile)].filter(Boolean).join("\n")
       : input.prompt;
@@ -503,22 +531,36 @@ export class VoyageSkillRuntime {
     const effectiveVibes = alignedProfile?.vibes.length ? alignedProfile.vibes : input.vibes ?? input.preferences;
     const includeSocial = input.includeSocialEvidence || Boolean(alignedProfile?.socialOptIn || alignedProfile?.includeSocialEvidence);
     const includeOffers = input.includeExternalOffers || Boolean(alignedProfile?.includeExternalOffers);
-    const forecasts = await provider.getWeather(input.destination).catch((error) => {
-      if (input.fallbackPolicy !== "estimated") throw normalizeProviderError(error, "WEATHER_UNAVAILABLE");
-      return [];
-    });
-
-    const social = includeSocial
-      ? await collectSocialObservations(this.socialRouterFactory(), {
-          city: input.destination,
-          query: planningPrompt,
-          limit: 5,
-        }).catch((error) => ({
-          observations: [] as SocialObservation[],
-          platformStatus: Object.fromEntries(DEFAULT_SOCIAL_PLATFORMS.map((platform) => [platform, "error" as const])) as Record<string, SocialProviderStatus>,
-          warnings: [error instanceof Error ? error.message : "social search failed"],
-        }))
-      : undefined;
+    // POI search, weather and social observation are mutually independent:
+    // running them concurrently instead of back-to-back trims seconds off
+    // every generation before the (unavoidably serial) LLM outline call.
+    const [providerCandidates, forecasts, social] = await Promise.all([
+      collectCandidates(provider, input.destination).catch((error) => {
+        throw normalizeProviderError(error, "NO_POI_RESULTS");
+      }),
+      provider.getWeather(input.destination).catch((error) => {
+        if (input.fallbackPolicy !== "estimated") throw normalizeProviderError(error, "WEATHER_UNAVAILABLE");
+        return [];
+      }),
+      includeSocial
+        ? collectSocialObservations(this.socialRouterFactory(), {
+            city: input.destination,
+            query: planningPrompt,
+            limit: 5,
+          }).catch((error) => ({
+            observations: [] as SocialObservation[],
+            platformStatus: Object.fromEntries(DEFAULT_SOCIAL_PLATFORMS.map((platform) => [platform, "error" as const])) as Record<string, SocialProviderStatus>,
+            warnings: [error instanceof Error ? error.message : "social search failed"],
+          }))
+        : undefined,
+    ]);
+    const candidates = alignedProfile
+      ? filterPlanningCandidates(providerCandidates, alignedProfile, daysBetween(input.startDate, finish))
+      : providerCandidates;
+    const constraintWarnings = planningConstraintWarnings(alignedProfile, providerCandidates, candidates);
+    if (!candidates.length) {
+      throw new SkillError("NO_POI_RESULTS", "旅行画像过滤后没有可用的 provider 候选", { warnings: constraintWarnings });
+    }
     const socialBuilt = social
       ? buildSocialEvidence({ city: input.destination, observations: social.observations, places: candidates })
       : { evidence: [], signals: [] };

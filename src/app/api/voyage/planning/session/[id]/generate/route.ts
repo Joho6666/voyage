@@ -232,8 +232,11 @@ export async function POST(request: NextRequest, context: Context) {
   if (stored.revision !== parsed.data.expectedRevision) {
     return planningError(workspace, "REVISION_CONFLICT", "规划会话已更新，请刷新后再生成", 409, { revision: stored.revision });
   }
-  if (stored.status === "generating" || stored.status === "completed") {
-    return planningError(workspace, "PLANNING_SESSION_LOCKED", "当前规划会话已经在生成或已完成", 409);
+  if (stored.status === "completed") {
+    return planningError(workspace, "PLANNING_SESSION_COMPLETED", "这次规划已经完成，行程在「我的旅行」里", 409);
+  }
+  if (stored.status === "generating") {
+    return planningError(workspace, "PLANNING_SESSION_LOCKED", "这次规划正在后台生成中，完成后行程会出现在「我的旅行」", 409);
   }
 
   let input: ReturnType<typeof generationInput>;

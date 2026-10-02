@@ -57,7 +57,11 @@ const MISSING_FIELD_LABELS: Record<string, string> = {
 
 const GENERATION_STAGES = ["读取已确认的旅行偏好", "整理候选地点与外部数据", "编排每天的行程节奏", "计算交通并保存路线"];
 const GENERATION_POLL_INTERVAL_MS = 3000;
-const GENERATION_POLL_TIMEOUT_MS = 8 * 60 * 1000;const LINK_URL_PATTERN = /https?:\/\/[^\s，。；！？、"'<>）)】\]]+/i;
+// 11 minutes: past the server's 10-minute stale-generation self-heal, so a
+// crashed worker unblocks the session (GET flips it to failed) before the
+// client gives up — the old 8-minute cap left a 2-minute dead zone where
+// every retry bounced off a LOCKED 409.
+const GENERATION_POLL_TIMEOUT_MS = 11 * 60 * 1000;const LINK_URL_PATTERN = /https?:\/\/[^\s，。；！？、"'<>）)】\]]+/i;
 const SUPPORTED_LINK_HOST = /(?:xiaohongshu\.com|xhslink\.com|douyin\.com|iesdouyin\.com)/i;
 
 interface LinkImportData {
@@ -441,7 +445,8 @@ const PROVIDER_ERROR_COPY: Array<{ test: RegExp; message: string }> = [
   { test: /ROUTE_PROVIDER_UNAVAILABLE/, message: "高德路线服务暂时不可用；可重试，行程中的路线会明确标记为估算。" },
   { test: /REVISION_CONFLICT/, message: "这条规划刚刚在其他页面更新了。已同步最新版本，可以再点一次生成。" },
   { test: /CONFIRMATION_REQUIRED/, message: "生成路线图需要你在页面上明确确认一次，请重新点击按钮。" },
-  { test: /PLANNING_SESSION_LOCKED/, message: "这次规划已经在生成中或已完成，请回到行程页继续调整。" },
+  { test: /PLANNING_SESSION_LOCKED/, message: "这次规划正在后台生成中，完成后行程会出现在「我的旅行」，稍等片刻即可。" },
+  { test: /PLANNING_SESSION_COMPLETED/, message: "这次规划已经完成，直接去「我的旅行」查看行程。" },
   { test: /PLANNING_SESSION_NOT_FOUND/, message: "这次规划会话已失效，请重新开始对话。" },
   { test: /INVALID_INPUT/, message: "规划信息不完整，请补充目的地、出发日期与返程信息。" },
 ];
