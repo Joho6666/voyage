@@ -62,7 +62,7 @@ export default function TodayPage() {
   const [lastReply, setLastReply] = useState<AgentMessage | null>(null);
   const [activeDiff, setActiveDiff] = useState<TripChangeSet | null>(null);
   const [diffOpen, setDiffOpen] = useState(false);
-  const [activeRemote, setActiveRemote] = useState<{ tripId: string; proposalId: string; baseRevision: number } | null>(null);
+  const [activeRemote, setActiveRemote] = useState<{ tripId: string; proposalId: string; baseRevision: number; proposalToken: string } | null>(null);
 
   // Determine current day (matches system date if within range, else default to Day 2 or Day 1)
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -153,6 +153,47 @@ export default function TodayPage() {
       if (!response.ok || !envelope.ok || !envelope.data?.trip) { toast.error(envelope.error?.message ?? "方案已过期，请重新生成"); return; }
       pushHistory(trip); setTrip(envelope.data.trip, envelope.data.revision); toast.success(`已应用：${changeSet.summary}`);
     })().catch(() => toast.error("应用修改失败，请重试"));
+  };
+
+  // Direct one-click reschedule: no LLM round-trip, so it works in rule mode
+  // too. The result is still a proposal — the same Diff confirmation the
+  // assistant proposals go through, never a silent write.
+  const runOptimizeItinerary = () => {
+    if (busy) return;
+    void (async () => {
+      setBusy(true);
+      try {
+        const response = await fetch("/api/voyage/command", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            command: "optimize-itinerary",
+            input: { tripId: trip.id, expectedTripRevision: useTripStore.getState().revision, fallbackPolicy: "estimated" },
+          }),
+        });
+        const envelope = await response.json() as { ok?: boolean; data?: { proposalId?: string; proposalToken?: string; baseRevision?: number; changes?: TripChangeSet; changed?: boolean; message?: string }; error?: { code?: string; message?: string } };
+        if (!envelope.ok || !envelope.data) throw new TripCommandError(envelope.error?.message ?? "优化失败，请重试", envelope.error?.code);
+        if (envelope.data.changed === false) {
+          toast.message(envelope.data.message ?? "当前安排已是优化器的最优解");
+          return;
+        }
+        if (!envelope.data.changes || !envelope.data.proposalId || !envelope.data.proposalToken) {
+          throw new TripCommandError("优化服务没有返回可确认的提案，请重试");
+        }
+        setActiveDiff(envelope.data.changes);
+        setActiveRemote({ tripId: trip.id, proposalId: envelope.data.proposalId, baseRevision: envelope.data.baseRevision!, proposalToken: envelope.data.proposalToken });
+        setDiffOpen(true);
+      } catch (cause) {
+        if (cause instanceof TripCommandError && cause.code === "REVISION_CONFLICT") {
+          toast.error("行程已在别处更新，已同步最新版本，请重试");
+          void resyncTrip(trip.id);
+          return;
+        }
+        toast.error(cause instanceof TripCommandError ? cause.message : "优化请求失败，请重试");
+      } finally {
+        setBusy(false);
+      }
+    })();
   };
 
   const openNavigation = () => {
@@ -453,6 +494,13 @@ export default function TodayPage() {
         <details className="rounded-[14px] border border-border bg-surface/60">
           <summary className="cursor-pointer px-3 py-2.5 text-[12px] font-medium text-muted-foreground">需要帮忙？（临时调整今天的安排）</summary>
           <div className="grid grid-cols-2 gap-2 p-3 pt-1 sm:grid-cols-4">
+            <ActionButton
+              icon={WandSparkles}
+              label="一键优化行程"
+              sub="按位置聚类重排全部天"
+              disabled={busy}
+              onClick={runOptimizeItinerary}
+            />
             <ActionButton
               icon={BedDouble}
               label="我累了"

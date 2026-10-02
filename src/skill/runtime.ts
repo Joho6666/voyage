@@ -47,6 +47,7 @@ import {
   addPlaceItemInputSchema,
   setItemStatusInputSchema,
   removeItemInputSchema,
+  removeDayInputSchema,
   importRouteInputSchema,
   setTaskStatusInputSchema,
   addPlaceInputSchema,
@@ -1263,6 +1264,34 @@ export class VoyageSkillRuntime {
     return successEnvelope({ tripId: input.tripId, trip: saved.trip, revision: saved.revision, tripHash: saved.hash });
   }
 
+  /**
+   * Removing an entire day. The day's items, tasks and cross-item segments go
+   * with it, remaining days are re-indexed (Day N stays contiguous), and a
+   * full recompute keeps timing and segments consistent afterwards. Places
+   * survive the deletion — a place may be a map bookmark or referenced
+   * elsewhere, and remove-item never deletes places either.
+   */
+  async removeDay(raw: unknown) {
+    const input = removeDayInputSchema.parse(raw);
+    const stored = await this.repository.getTrip(input.tripId);
+    if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+    if (stored.revision !== input.expectedTripRevision) throw new SkillError("REVISION_CONFLICT", "Trip revision does not match expectedTripRevision");
+    const day = stored.trip.days.find((candidate) => candidate.id === input.dayId);
+    if (!day) throw new SkillError("INVALID_INPUT", "行程天不存在");
+    if (stored.trip.days.length <= 1) throw new SkillError("INVALID_INPUT", "至少要保留一天行程");
+    const dayItemIds = new Set(stored.trip.items.filter((item) => item.dayId === input.dayId).map((item) => item.id));
+    let trip: Trip = {
+      ...stored.trip,
+      days: stored.trip.days.filter((candidate) => candidate.id !== input.dayId).map((candidate, index) => ({ ...candidate, index })),
+      items: stored.trip.items.filter((item) => item.dayId !== input.dayId),
+      tasks: stored.trip.tasks.filter((task) => task.dayId !== input.dayId),
+      segments: stored.trip.segments.filter((segment) => segment.dayId !== input.dayId && !dayItemIds.has(segment.fromItemId) && !dayItemIds.has(segment.toItemId)),
+    };
+    trip = recomputeTrip(trip);
+    const saved = await this.repository.updateTrip({ tripId: input.tripId, expectedRevision: stored.revision, trip });
+    return successEnvelope({ tripId: input.tripId, trip: saved.trip, revision: saved.revision, tripHash: saved.hash });
+  }
+
   async proposeChange(raw: unknown) {
     const input = proposeChangeInputSchema.parse(raw);
     const stored = await this.repository.getTrip(input.tripId);
@@ -1551,6 +1580,7 @@ export class VoyageSkillRuntime {
       case "add-place-item": return this.addPlaceItem(input);
       case "set-item-status": return this.setItemStatus(input);
       case "remove-item": return this.removeItem(input);
+      case "remove-day": return this.removeDay(input);
       case "add-place": return this.addPlace(input);
       case "restore-trip": return this.restoreTrip(input);
       case "import-route": return this.importRoute(input);
