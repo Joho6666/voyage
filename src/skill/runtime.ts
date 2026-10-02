@@ -292,17 +292,26 @@ async function collectCandidates(provider: TravelDataProvider, destination: stri
   const groups: Array<[string, Place["category"]]> = [
     ["景点", "attraction"], ["美食", "food"], ["咖啡", "cafe"], ["酒店", "hotel"], ["购物", "shopping"], ["展览 室内", "activity"],
   ];
-  // AMap Web Service keys commonly have a low per-second quota: fire the six
-  // category searches in two concurrent batches of three with a short pause
-  // between batches — roughly twice as fast as strictly serial (which also
-  // paid a fixed 500ms per category) while staying inside the QPS ceiling.
-  const batchSize = provider.kind === "amap" ? 3 : groups.length;
+  // AMap Web Service keys commonly have a ~3 QPS quota, and this call runs
+  // concurrently with the weather request — so POI searches go in batches of
+  // two with a short pause, plus exactly one spaced retry for transient QPS
+  // rejections. Faster than the old strictly-serial + fixed-500ms loop,
+  // without breaching the ceiling.
+  const searchOne = async (query: string, category: Place["category"]): Promise<Place[]> => {
+    const attempt = () => provider.searchPlaces({ destination, query, category, limit: 12 });
+    try {
+      return await attempt();
+    } catch (error) {
+      if (provider.kind !== "amap") throw error;
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      return attempt();
+    }
+  };
+  const batchSize = provider.kind === "amap" ? 2 : groups.length;
   const results: Place[][] = [];
   for (let index = 0; index < groups.length; index += batchSize) {
-    if (provider.kind === "amap" && index > 0) await new Promise((resolve) => setTimeout(resolve, 350));
-    results.push(...await Promise.all(groups.slice(index, index + batchSize).map(([query, category]) =>
-      provider.searchPlaces({ destination, query, category, limit: 12 }),
-    )));
+    if (provider.kind === "amap" && index > 0) await new Promise((resolve) => setTimeout(resolve, 400));
+    results.push(...await Promise.all(groups.slice(index, index + batchSize).map(([query, category]) => searchOne(query, category))));
   }
   const candidates = uniquePlaces(results.flat());
   if (candidates.length < 4) throw new SkillError("NO_POI_RESULTS", `Only ${candidates.length} valid POIs were returned`);
