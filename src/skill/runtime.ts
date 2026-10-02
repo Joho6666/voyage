@@ -46,6 +46,7 @@ import {
   reorderDayInputSchema,
   addPlaceItemInputSchema,
   setItemStatusInputSchema,
+  removeItemInputSchema,
   importRouteInputSchema,
   setTaskStatusInputSchema,
   addPlaceInputSchema,
@@ -1236,6 +1237,32 @@ export class VoyageSkillRuntime {
     return successEnvelope({ tripId: input.tripId, trip: saved.trip, revision: saved.revision, tripHash: saved.hash });
   }
 
+  /**
+   * Removing a stop from its day. The check-in task attached to the stop goes
+   * with it (same linkage rule as setItemStatus, applied symmetrically) and
+   * the day is recomputed so timings and segments stay consistent.
+   */
+  async removeItem(raw: unknown) {
+    const input = removeItemInputSchema.parse(raw);
+    const stored = await this.repository.getTrip(input.tripId);
+    if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+    if (stored.revision !== input.expectedTripRevision) throw new SkillError("REVISION_CONFLICT", "Trip revision does not match expectedTripRevision");
+    const item = stored.trip.items.find((candidate) => candidate.id === input.itemId);
+    if (!item) throw new SkillError("INVALID_INPUT", "行程条目不存在");
+    let trip: Trip = {
+      ...stored.trip,
+      items: stored.trip.items.filter((candidate) => candidate.id !== input.itemId),
+      tasks: stored.trip.tasks.filter((task) => {
+        const linked = task.linkedItemId === item.id
+          || (Boolean(task.checkin) && task.dayId === item.dayId && task.placeId === item.placeId);
+        return !linked;
+      }),
+    };
+    trip = recomputeDay(trip, item.dayId);
+    const saved = await this.repository.updateTrip({ tripId: input.tripId, expectedRevision: stored.revision, trip });
+    return successEnvelope({ tripId: input.tripId, trip: saved.trip, revision: saved.revision, tripHash: saved.hash });
+  }
+
   async proposeChange(raw: unknown) {
     const input = proposeChangeInputSchema.parse(raw);
     const stored = await this.repository.getTrip(input.tripId);
@@ -1523,6 +1550,7 @@ export class VoyageSkillRuntime {
       case "reorder-day": return this.reorderDay(input);
       case "add-place-item": return this.addPlaceItem(input);
       case "set-item-status": return this.setItemStatus(input);
+      case "remove-item": return this.removeItem(input);
       case "add-place": return this.addPlace(input);
       case "restore-trip": return this.restoreTrip(input);
       case "import-route": return this.importRoute(input);

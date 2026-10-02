@@ -24,7 +24,7 @@ import type { AgentMessage, AgentTurn } from "@/services/ai/types";
 import { suggestTodayActions } from "@/features/today/suggestions";
 import { setItemStatus, restoreTrip, TripCommandError } from "@/services/trip-commands";
 import { useHistoryStore } from "@/store/history-store";
-import { useTripStore } from "@/store/trip-store";
+import { useTripStore, resyncTrip } from "@/store/trip-store";
 import { useUiStore } from "@/store/ui-store";
 import { useDayFocus } from "@/components/itinerary/useDayFocus";
 import { dayStats } from "@/services/routing";
@@ -173,6 +173,13 @@ export default function TodayPage() {
       .then(({ trip: saved, revision: savedRevision }) => setTrip(saved, savedRevision))
       .catch((cause) => {
         setTrip(snapshot, snapshotRevision);
+        if (cause instanceof TripCommandError && cause.code === "REVISION_CONFLICT") {
+          // Keep the optimistic rollback but re-sync: staying on the stale
+          // revision would fail every later write until a manual reload.
+          toast.error("行程已在别处更新，已同步最新版本，请重试");
+          void resyncTrip(trip.id);
+          return;
+        }
         toast.error(cause instanceof TripCommandError ? cause.message : "状态保存失败，请重试");
       });
   };
@@ -224,7 +231,14 @@ export default function TodayPage() {
             // a local restore would diverge from the server immediately.
             void restoreTrip({ tripId: trip.id, trip: previous, expectedTripRevision: useTripStore.getState().revision })
               .then(({ trip: saved, revision: savedRevision }) => { setTrip(saved, savedRevision); toast.success("已恢复上一步行程"); })
-              .catch((error) => toast.error(error instanceof TripCommandError ? error.message : "撤销失败，请重试"));
+              .catch((error) => {
+                if (error instanceof TripCommandError && error.code === "REVISION_CONFLICT") {
+                  toast.error("行程已在别处更新，已同步最新版本，请重试");
+                  void resyncTrip(trip.id);
+                  return;
+                }
+                toast.error(error instanceof TripCommandError ? error.message : "撤销失败，请重试");
+              });
           }}
         >
           <Undo2 className="size-3.5" />

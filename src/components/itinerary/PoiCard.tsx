@@ -4,13 +4,15 @@ import { useEffect, useRef } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, MoreHorizontal, Star } from "lucide-react";
+import { toast } from "sonner";
 import { TravelImage } from "@/components/travel/TravelImage";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { PLACE_CATEGORY_LABEL, type ItineraryItem, type Place } from "@/types/travel";
 import { DAY_COLORS } from "@/types/travel";
 import { cn } from "@/lib/utils";
-import { travelAgent } from "@/services/ai";
-import { useTripStore } from "@/store/trip-store";
+import { removeItemFromTrip, TripCommandError } from "@/services/trip-commands";
+import { useHistoryStore } from "@/store/history-store";
+import { resyncTrip, useTripStore } from "@/store/trip-store";
 import { useUiStore } from "@/store/ui-store";
 
 export function PoiCard({
@@ -30,6 +32,8 @@ export function PoiCard({
   const isHovered = useUiStore((s) => s.hoverPlaceId === place.id);
   const hoverPlace = useUiStore((s) => s.hoverPlace);
   const patch = useTripStore((s) => s.patchTrip);
+  const setTrip = useTripStore((s) => s.setTrip);
+  const pushHistory = useHistoryStore((s) => s.push);
   const color = DAY_COLORS[dayIndex % DAY_COLORS.length];
   const cardRef = useRef<HTMLElement | null>(null);
 
@@ -38,6 +42,30 @@ export function PoiCard({
       cardRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   }, [selected]);
+
+  // Server-backed removal (the old local-only patch vanished on rehydrate):
+  // snapshot for undo, optimistic hide, revision-locked write, rollback or
+  // resync on failure.
+  const removeFromTrip = () => {
+    const snapshot = useTripStore.getState().trip;
+    const snapshotRevision = useTripStore.getState().revision;
+    pushHistory(snapshot);
+    patch((t) => ({ ...t, items: t.items.filter((candidate) => candidate.id !== item.id) }));
+    void removeItemFromTrip({ tripId: snapshot.id, itemId: item.id, expectedTripRevision: snapshotRevision })
+      .then(({ trip: saved, revision: savedRevision }) => {
+        setTrip(saved, savedRevision);
+        toast.success(`已从行程移除「${place.name}」`);
+      })
+      .catch((cause) => {
+        setTrip(snapshot, snapshotRevision);
+        if (cause instanceof TripCommandError && cause.code === "REVISION_CONFLICT") {
+          toast.error("行程已在别处更新，已同步最新版本，请重试");
+          void resyncTrip(snapshot.id);
+          return;
+        }
+        toast.error(cause instanceof TripCommandError ? cause.message : "移除失败，请重试");
+      });
+  };
 
   const setCombinedRef = (node: HTMLElement | null) => {
     setNodeRef(node);
@@ -90,7 +118,7 @@ export function PoiCard({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent>
-                <DropdownMenuItem onSelect={() => patch((t) => travelAgent.removeItem(t, item.id))}>
+                <DropdownMenuItem onSelect={removeFromTrip}>
                   从行程移除
                 </DropdownMenuItem>
               </DropdownMenuContent>

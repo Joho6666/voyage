@@ -172,6 +172,17 @@ export const setItemStatusInputSchema = z.object({
 });
 
 /**
+ * Removing a stop from its day (the PoiCard overflow menu). A direct user
+ * mutation like reorder-day, so it goes through the runtime under a revision
+ * lock — the old local-only patch vanished on the next server rehydrate.
+ */
+export const removeItemInputSchema = z.object({
+  tripId: z.string().min(1),
+  itemId: z.string().min(1),
+  expectedTripRevision: z.number().int().min(1),
+});
+
+/**
  * One-click import of a guide route (小红书/抖音/微信 text): ordered places are
  * spread across trip days in one transaction, each getting a check-in task so
  * the traveller can tick them off as they go. Total places are capped — this
@@ -321,6 +332,7 @@ export const commandSchemas = {
   "reorder-day": reorderDayInputSchema,
   "add-place-item": addPlaceItemInputSchema,
   "set-item-status": setItemStatusInputSchema,
+  "remove-item": removeItemInputSchema,
   "add-place": addPlaceInputSchema,
   "import-route": importRouteInputSchema,
   "set-task-status": setTaskStatusInputSchema,
@@ -379,6 +391,7 @@ export const outputSchemas = {
   "reorder-day": tripDataSchema,
   "add-place-item": tripDataSchema,
   "set-item-status": tripDataSchema,
+  "remove-item": tripDataSchema,
   "add-place": tripDataSchema,
   "import-route": tripDataSchema,
   "set-task-status": tripDataSchema,
