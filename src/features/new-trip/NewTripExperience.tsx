@@ -31,6 +31,8 @@ function nextSaturdayIso(): string {
   return `${date.getFullYear()}-${month}-${day}`;
 }
 
+const DEFAULT_PROMPT = `${nextSaturdayIso()} 从上海出发去成都玩 3 天，喜欢美食和夜景，节奏轻松一点。`;
+
 const QUICK_PROMPTS = [
   `${nextSaturdayIso()} 从桂林出发，去南京玩 3 天，喜欢美食，不想走太多路`,
   `${nextSaturdayIso()} 去重庆，想看夜景、吃火锅，节奏轻松一点`,
@@ -505,7 +507,11 @@ function GenerationProgress({ destination }: { destination: string }) {
 export function NewTripExperience() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [prompt, setPrompt] = useState(() => `${nextSaturdayIso()} 从上海出发去成都玩 3 天，喜欢美食和夜景，节奏轻松一点。`);
+  const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
+  // The prefilled example is a shortcut, not an instruction: when the
+  // traveller never touched the composer, its example city/date must not
+  // override the profile fields they filled by hand (direct generate).
+  const [promptTouched, setPromptTouched] = useState(false);
   const [profile, setProfile] = useState<PlanningProfileDraft>(() => createDefaultProfile());
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
@@ -544,7 +550,7 @@ export function NewTripExperience() {
 
   useEffect(() => {
     const query = searchParams.get("q");
-    if (query) setPrompt(query);
+    if (query) { setPrompt(query); setPromptTouched(true); }
   }, [searchParams]);
 
   const isBusy = busy !== "idle";
@@ -593,14 +599,14 @@ export function NewTripExperience() {
     return parsed.revision === undefined ? { ...parsed, revision: 1 } : parsed;
   };
 
-  const createSession = async () => {
-    const parsed = await requestSession(prompt);
+  const createSession = async (promptText: string | undefined, includeProfile = false) => {
+    const parsed = await requestSession(promptText, includeProfile ? profileRef.current : undefined);
     setSessionId(parsed.sessionId ?? null);
     usePlanningStore.getState().setSession({ sessionId: parsed.sessionId ?? "", destination: parsed.profile.destination });
     adoptPayload(parsed, profileRef.current);
     const initialMessages = parsed.messages.some((message) => message.role === "assistant")
       ? parsed.messages
-      : [...parsed.messages, welcomeMessage(prompt, parsed.profile)];
+      : [...parsed.messages, welcomeMessage(promptText ?? "", parsed.profile)];
     replaceMessages(initialMessages);
     if (!parsed.messages.length) setStreamingMessageId(null);
     return parsed;
@@ -611,7 +617,9 @@ export function NewTripExperience() {
     setBusy("starting");
     setError("");
     try {
-      await createSession();
+      // Clicking 开始对话 is an explicit choice, so the prefilled example
+      // counts as intent here even when untouched.
+      await createSession(prompt);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "规划会话创建失败，请重试。");
     } finally {
@@ -811,17 +819,11 @@ export function NewTripExperience() {
     try {
       if (!currentSessionId) {
         // Direct generate: the profile panel already holds every required
-        // constraint, so the session is created transparently. Travellers who
-        // do not want to chat can fill three fields and get a route.
-        const created = await requestSession(prompt, profileRef.current);
+        // constraint, so the session is created transparently. The composer
+        // text joins only when the traveller actually typed something — the
+        // untouched example's city/date must not override the form fields.
+        const created = await createSession(promptTouched ? prompt : undefined, true);
         if (!created.sessionId) throw new Error("规划服务没有返回会话 ID，请重试。浏览器没有发送或读取任何服务凭据。");
-        setSessionId(created.sessionId);
-        usePlanningStore.getState().setSession({ sessionId: created.sessionId, destination: created.profile.destination });
-        adoptPayload(created, profileRef.current);
-        const initialMessages = created.messages.some((message) => message.role === "assistant")
-          ? created.messages
-          : [...created.messages, welcomeMessage(prompt, created.profile)];
-        replaceMessages(initialMessages);
         currentSessionId = created.sessionId;
         currentRevision = created.revision ?? 1;
         setRevision(currentRevision);
@@ -952,9 +954,9 @@ export function NewTripExperience() {
                   ) : null}
                   <div className="rounded-[24px] border border-border bg-surface p-4 shadow-[0_22px_70px_rgba(28,25,23,0.08)] sm:p-5">
                     <div className="flex items-start justify-between gap-3"><div><p className="text-[11px] font-medium uppercase tracking-[0.16em] text-primary">Start here</p><h2 className="mt-2 text-xl font-semibold tracking-tight">先说说这趟旅行</h2></div><Sparkles className="mt-1 size-5 text-primary" /></div>
-                    <Textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") void startConversation(); }} className="mt-5 min-h-32 resize-none border-border/80 bg-background/60 px-3.5 py-3 text-[14px] leading-6 shadow-none focus-visible:ring-primary/20" placeholder="告诉我你想去哪里、玩几天、和谁一起……也可以直接粘贴小红书/抖音攻略链接" aria-label="旅行初始想法" />
+                    <Textarea value={prompt} onChange={(event) => { setPromptTouched(true); setPrompt(event.target.value); }} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") void startConversation(); }} className="mt-5 min-h-32 resize-none border-border/80 bg-background/60 px-3.5 py-3 text-[14px] leading-6 shadow-none focus-visible:ring-primary/20" placeholder="告诉我你想去哪里、玩几天、和谁一起……也可以直接粘贴小红书/抖音攻略链接" aria-label="旅行初始想法" />
                     {searchParams.get("q") ? <p className="mt-2 text-[11px] text-primary">已带入首页的旅行描述，可以继续修改。</p> : null}
-                    <div className="mt-4"><p className="mb-2 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">灵感提示</p><div className="flex flex-wrap gap-1.5">{QUICK_PROMPTS.map((item) => <button key={item} type="button" onClick={() => setPrompt(item)} className="rounded-full border border-border bg-background px-2.5 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:border-primary/30 hover:bg-accent hover:text-accent-foreground">{item}</button>)}</div></div>
+                    <div className="mt-4"><p className="mb-2 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">灵感提示</p><div className="flex flex-wrap gap-1.5">{QUICK_PROMPTS.map((item) => <button key={item} type="button" onClick={() => { setPromptTouched(true); setPrompt(item); }} className="rounded-full border border-border bg-background px-2.5 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:border-primary/30 hover:bg-accent hover:text-accent-foreground">{item}</button>)}</div></div>
                     <div className="mt-5 flex flex-col-reverse gap-2 border-t border-border/80 pt-4 sm:flex-row sm:items-center sm:justify-between"><p className="text-[10px] leading-4 text-muted-foreground">Enter 不会直接生成<br />你可以在对话里慢慢补充</p><Button size="lg" onClick={() => void startConversation()} disabled={isBusy}>{busy === "starting" ? <LoaderCircle className="animate-spin" /> : <ArrowRight />}开始对话</Button></div>
                   </div>
                   {error ? <div role="alert" className="mt-3 flex items-start gap-2 rounded-[14px] border border-rose-500/25 bg-rose-500/[0.06] px-3 py-2.5 text-xs text-rose-800"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{error}</span>{error.includes("设置页") ? <Link href="/settings" className="ml-auto shrink-0 self-center font-medium text-primary underline underline-offset-2">前往设置</Link> : null}</div> : null}
