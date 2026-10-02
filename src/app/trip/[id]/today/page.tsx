@@ -22,7 +22,8 @@ import { TravelImage } from "@/components/travel/TravelImage";
 import { travelAgent } from "@/services/ai";
 import type { AgentMessage, AgentTurn } from "@/services/ai/types";
 import { suggestTodayActions } from "@/features/today/suggestions";
-import { setItemStatus, restoreTrip, TripCommandError } from "@/services/trip-commands";
+import { toggleItemDone } from "@/services/check-in";
+import { restoreTrip, TripCommandError } from "@/services/trip-commands";
 import { useHistoryStore } from "@/store/history-store";
 import { useTripStore, resyncTrip } from "@/store/trip-store";
 import { useUiStore } from "@/store/ui-store";
@@ -33,7 +34,6 @@ import { buildWeatherContext } from "@/services/weather/context";
 import { TripDiffModal } from "@/components/ai/TripDiffModal";
 import { weatherDisplay } from "@/lib/weather-display";
 import type { TripChangeSet } from "@/types/diff";
-import type { ItemStatus } from "@/types/travel";
 import { formatCny, formatKm } from "@/lib/utils";
 
 /** Category labels for the budget breakdown (absorbed from the /budget page). */
@@ -153,35 +153,6 @@ export default function TodayPage() {
       if (!response.ok || !envelope.ok || !envelope.data?.trip) { toast.error(envelope.error?.message ?? "方案已过期，请重新生成"); return; }
       pushHistory(trip); setTrip(envelope.data.trip, envelope.data.revision); toast.success(`已应用：${changeSet.summary}`);
     })().catch(() => toast.error("应用修改失败，请重试"));
-  };
-
-  const toggleItemDone = (itemId: string) => {
-    const snapshot = trip;
-    const snapshotRevision = revision;
-    const nextStatus: ItemStatus = trip.items.find((i) => i.id === itemId)?.status === "done" ? "planned" : "done";
-    patch((currentTrip) => {
-      return {
-        ...currentTrip,
-        items: currentTrip.items.map((i) =>
-          i.id === itemId ? { ...i, status: nextStatus } : i,
-        ),
-      };
-    });
-    // The optimistic toggle must survive a reload, which only the runtime
-    // write guarantees — localStorage alone is wiped by the server rehydrate.
-    void setItemStatus({ tripId: trip.id, itemId, status: nextStatus, expectedTripRevision: snapshotRevision })
-      .then(({ trip: saved, revision: savedRevision }) => setTrip(saved, savedRevision))
-      .catch((cause) => {
-        setTrip(snapshot, snapshotRevision);
-        if (cause instanceof TripCommandError && cause.code === "REVISION_CONFLICT") {
-          // Keep the optimistic rollback but re-sync: staying on the stale
-          // revision would fail every later write until a manual reload.
-          toast.error("行程已在别处更新，已同步最新版本，请重试");
-          void resyncTrip(trip.id);
-          return;
-        }
-        toast.error(cause instanceof TripCommandError ? cause.message : "状态保存失败，请重试");
-      });
   };
 
   const openNavigation = () => {
@@ -563,7 +534,7 @@ export default function TodayPage() {
             今日节点清单 ({doneCount}/{items.length})
           </span>
           <span className="text-[11px] text-muted-foreground">
-            点击圆圈切换打卡状态
+            点击整行打卡 · 再点一次取消
           </span>
         </div>
 

@@ -16,6 +16,7 @@ import { NextStopBanner } from "./NextStopBanner";
 import { JourneyOverview } from "./JourneyOverview";
 import { JourneyScrubber } from "./JourneyScrubber";
 import { useUiStore } from "@/store/ui-store";
+import { toggleItemDone } from "@/services/check-in";
 import { useUserLocation } from "../hooks/useUserLocation";
 import { useOfflineJourney } from "../hooks/useOfflineJourney";
 
@@ -159,6 +160,8 @@ export function JourneyMockMap({
           segment={nextSegment}
           locationError={locationError}
           onRequestLocation={requestLocation}
+          userLocation={userLocation}
+          onCheckIn={nextItem ? () => toggleItemDone(nextItem.id) : undefined}
           onFocusNext={() => {
             if (nextPlace) selectPlace(nextPlace.id);
           }}

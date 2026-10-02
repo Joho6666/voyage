@@ -5,10 +5,11 @@ import { Button } from "@/components/ui/button";
 import { TravelImage } from "@/components/travel/TravelImage";
 import { PLACE_CATEGORY_LABEL, type Place, type RouteSegment, type Trip } from "@/types/travel";
 import { addPlaceItemToDay, TripCommandError } from "@/services/trip-commands";
+import { toggleItemDone } from "@/services/check-in";
 import { useTripStore } from "@/store/trip-store";
 import { useUiStore } from "@/store/ui-store";
 import { toast } from "sonner";
-import { Navigation, Clock, Star, X, ChevronUp, ChevronDown } from "lucide-react";
+import { Navigation, Clock, Star, X, ChevronUp, ChevronDown, CircleCheck } from "lucide-react";
 import { getModeIcon } from "../controllers/route-controller";
 import { formatKm } from "@/lib/utils";
 import { VerticalTransitGuide } from "./VerticalTransitGuide";
@@ -195,7 +196,19 @@ export function MapPopover({
               <Navigation className="size-3 text-primary" />
               导航
             </Button>
-            {!itineraryItem ? (
+            {itineraryItem ? (
+              // Check-in straight from the map: the highest-frequency on-site
+              // action should not require walking back to the today list.
+              <Button
+                size="sm"
+                variant={itineraryItem.status === "done" ? "outline" : "default"}
+                className="flex-1 text-[11px] h-7.5 px-2 gap-1"
+                onClick={() => toggleItemDone(itineraryItem.id)}
+              >
+                <CircleCheck className="size-3" />
+                {itineraryItem.status === "done" ? "取消打卡" : "打卡"}
+              </Button>
+            ) : (
               <Button
                 size="sm"
                 className="flex-1 text-[11px] h-7.5 px-2"
@@ -204,7 +217,7 @@ export function MapPopover({
               >
                 加入
               </Button>
-            ) : null}
+            )}
           </div>
         </div>
       </div>
@@ -256,7 +269,17 @@ export function MapPopover({
                 <Navigation className="size-3.5 text-primary" />
                 高德导航
               </Button>
-              {!itineraryItem ? (
+              {itineraryItem ? (
+                <Button
+                  size="sm"
+                  variant={itineraryItem.status === "done" ? "outline" : "default"}
+                  className="flex-1 text-[12px] h-8 gap-1"
+                  onClick={() => toggleItemDone(itineraryItem.id)}
+                >
+                  <CircleCheck className="size-3.5" />
+                  {itineraryItem.status === "done" ? "取消打卡" : "打卡"}
+                </Button>
+              ) : (
                 <Button
                   size="sm"
                   className="flex-1 text-[12px] h-8"
@@ -265,7 +288,7 @@ export function MapPopover({
                 >
                   加入今日
                 </Button>
-              ) : null}
+              )}
             </div>
           </div>
         ) : null}

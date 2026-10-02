@@ -20,6 +20,7 @@ import { JourneyOverview } from "./JourneyOverview";
 import { JourneyScrubber } from "./JourneyScrubber";
 import { JourneyMockMap } from "./JourneyMockMap";
 import { useUiStore } from "@/store/ui-store";
+import { toggleItemDone } from "@/services/check-in";
 import { useUserLocation } from "../hooks/useUserLocation";
 import { useOfflineJourney } from "../hooks/useOfflineJourney";
 
@@ -324,6 +325,8 @@ export function JourneyAMapCanvas({
           segment={nextSegment}
           locationError={locationError}
           onRequestLocation={requestLocation}
+          userLocation={userLocation}
+          onCheckIn={nextItem ? () => toggleItemDone(nextItem.id) : undefined}
           onFocusNext={() => {
             if (nextPlace) {
               selectPlace(nextPlace.id);
