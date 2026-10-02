@@ -46,6 +46,18 @@ describe("remove-day runtime command", () => {
     expect(stored?.revision).toBe(2);
   });
 
+  it("recomputes the date span when the last day is removed", async () => {
+    const envelope = await runtime.removeDay({
+      tripId: chongqingTrip.id,
+      dayId: "day-3",
+      expectedTripRevision: 1,
+    }) as { data: { trip: typeof chongqingTrip } };
+
+    expect(envelope.data.trip.days.map((day) => day.id)).toEqual(["day-1", "day-2"]);
+    expect(envelope.data.trip.startDate).toBe("2026-09-20");
+    expect(envelope.data.trip.endDate).toBe("2026-09-21");
+  });
+
   it("refuses the last remaining day, unknown days, and revision conflicts without writing", async () => {
     await runtime.removeDay({ tripId: chongqingTrip.id, dayId: "day-2", expectedTripRevision: 1 });
     await runtime.removeDay({ tripId: chongqingTrip.id, dayId: "day-3", expectedTripRevision: 2 });

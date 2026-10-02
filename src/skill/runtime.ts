@@ -1287,6 +1287,13 @@ export class VoyageSkillRuntime {
       tasks: stored.trip.tasks.filter((task) => task.dayId !== input.dayId),
       segments: stored.trip.segments.filter((segment) => segment.dayId !== input.dayId && !dayItemIds.has(segment.fromItemId) && !dayItemIds.has(segment.toItemId)),
     };
+    // The trips list and the trip header render the span from startDate and
+    // endDate — deleting the first or last day would otherwise leave a range
+    // that advertises days that no longer exist.
+    if (trip.days.length) {
+      const dates = trip.days.map((day) => day.date).sort();
+      trip = { ...trip, startDate: dates[0]!, endDate: dates[dates.length - 1]! };
+    }
     trip = recomputeTrip(trip);
     const saved = await this.repository.updateTrip({ tripId: input.tripId, expectedRevision: stored.revision, trip });
     return successEnvelope({ tripId: input.tripId, trip: saved.trip, revision: saved.revision, tripHash: saved.hash });

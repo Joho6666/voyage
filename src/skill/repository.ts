@@ -244,8 +244,24 @@ export class JsonSkillRepository {
     let files: string[];
     try { files = await readdir(path.join(this.root, "trips")); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
-    const records = await Promise.all(files.filter((file) => file.endsWith(".json")).map((file) => this.readJson<StoredTrip>(path.join(this.root, "trips", file))));
-    return records.filter((record): record is StoredTrip => Boolean(record?.trip?.id));
+    // One corrupted file must not take the whole "my trips" list down: skip
+    // unreadable records (sweep/manual deletion remain the recovery paths)
+    // and keep every healthy trip visible.
+    const records = await Promise.allSettled(files.filter((file) => file.endsWith(".json")).map((file) => this.readJson<StoredTrip>(path.join(this.root, "trips", file))));
+    const stored: StoredTrip[] = [];
+    let unreadable = 0;
+    for (const result of records) {
+      if (result.status === "fulfilled") {
+        if (result.value?.trip?.id) stored.push(result.value);
+      } else {
+        unreadable += 1;
+      }
+    }
+    if (unreadable) {
+      const { logger } = await import("@/lib/logger");
+      logger.warn("trips.list_skipped_unreadable", { count: unreadable, root: this.root });
+    }
+    return stored;
   }
 
   async deleteTrip(id: string) {

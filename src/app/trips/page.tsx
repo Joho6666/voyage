@@ -26,21 +26,6 @@ const STATUS_LABELS: Record<TripStatus, { label: string; color: string }> = {
   done: { label: "已完成", color: "bg-secondary text-muted-foreground border-border" },
 };
 
-function toSummary(t: Trip): TripSummary {
-  return {
-    id: t.id,
-    title: t.title,
-    destination: t.destination,
-    startDate: t.startDate,
-    endDate: t.endDate,
-    travelers: t.travelers,
-    budget: t.budget,
-    coverImage: t.coverImage,
-    status: t.status ?? "ready",
-    createdAt: t.createdAt,
-  };
-}
-
 export default function TripsPage() {
   const [trips, setTrips] = useState<TripSummary[]>([]);
   const [category, setCategory] = useState<TripCategory>("all");
@@ -49,7 +34,7 @@ export default function TripsPage() {
   useEffect(() => {
     void fetch("/api/voyage/trips", { cache: "no-store" })
       .then((response) => response.json())
-      .then((result: { trips?: Trip[] }) => setTrips((result.trips ?? []).map(toSummary)))
+      .then((result: { trips?: TripSummary[] }) => setTrips(result.trips ?? []))
       .catch(() => setTrips([]))
       .finally(() => setLoading(false));
   }, []);
