@@ -82,8 +82,12 @@ export default function TodayPage() {
   );
 
   const currentIndex = items.findIndex((i) => i.status !== "done");
-  const current = items[currentIndex >= 0 ? currentIndex : 0];
-  const next = items[currentIndex >= 0 ? currentIndex + 1 : 1] ?? current;
+  // All stops checked off: there is no "next" — showing a done place as the
+  // next target (the old behaviour) also made the arrival nudge able to
+  // flip completed stops back to planned.
+  const allDone = currentIndex < 0;
+  const current = items[allDone ? items.length - 1 : currentIndex];
+  const next = allDone ? undefined : items[currentIndex + 1];
   const currentPlace = trip.places.find((p) => p.id === current?.placeId);
   const nextPlace = trip.places.find((p) => p.id === next?.placeId);
   const segment = trip.segments.find((s) => s.fromItemId === current?.id);
@@ -385,30 +389,38 @@ export default function TodayPage() {
               下一站目标
             </span>
             <h2 className="mt-1 text-lg font-semibold text-foreground">
-              {nextPlace?.name ?? currentPlace?.name ?? "今日行程已完成"}
+              {allDone ? "今日行程已完成 🎉" : nextPlace?.name ?? currentPlace?.name ?? "今日行程已完成"}
             </h2>
             <p className="text-[12px] text-muted-foreground mt-0.5">
-              建议出发：<span className="font-medium text-foreground">{current?.endTime || current?.startTime || "09:30"}</span> · 预计到达：<span className="font-medium text-foreground">{next?.startTime || "10:00"}</span>
+              {allDone ? (
+                "今天的节点都已打卡完成，好好休息。"
+              ) : (
+                <>建议出发：<span className="font-medium text-foreground">{current?.endTime || current?.startTime || "09:30"}</span> · 预计到达：<span className="font-medium text-foreground">{next?.startTime || "10:00"}</span></>
+              )}
             </p>
           </div>
-          <div className="text-right">
-            <span className="text-[12px] font-medium text-foreground block">
-              {segment?.mode === "metro" ? "地铁" : segment?.mode === "taxi" ? "出租" : "步行"}
-            </span>
-            <span className="text-[11px] text-muted-foreground">
-              约 {segment?.durationMinutes || segment?.minutes || 15} 分钟
-            </span>
-          </div>
+          {!allDone ? (
+            <div className="text-right">
+              <span className="text-[12px] font-medium text-foreground block">
+                {segment?.mode === "metro" ? "地铁" : segment?.mode === "taxi" ? "出租" : "步行"}
+              </span>
+              <span className="text-[11px] text-muted-foreground">
+                约 {segment?.durationMinutes || segment?.minutes || 15} 分钟
+              </span>
+            </div>
+          ) : null}
         </div>
 
         {/* Navigation Button */}
-        <Button
-          className="mt-4 w-full h-11 text-[13px] font-medium shadow-sm gap-2"
-          onClick={openNavigation}
-        >
-          <Navigation className="size-4" />
-          开始导航（高德地图）
-        </Button>
+        {!allDone ? (
+          <Button
+            className="mt-4 w-full h-11 text-[13px] font-medium shadow-sm gap-2"
+            onClick={openNavigation}
+          >
+            <Navigation className="size-4" />
+            开始导航（高德地图）
+          </Button>
+        ) : null}
 
         {/* Today execution console (Today Mode v2): remaining budget for the
             day, computed by the same shared pure function the runtime's

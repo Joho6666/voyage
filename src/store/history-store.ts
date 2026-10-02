@@ -29,6 +29,14 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
     const { past, future } = get();
     if (!past.length) return null;
     const previous = past[past.length - 1];
+    if (previous.id !== current.id) {
+      // The stack survived a trip switch. restore-trip pins the server record
+      // to the *current* trip id, so restoring a foreign snapshot would
+      // overwrite this trip's whole plan with another trip's content. Drop
+      // the stale stack instead.
+      set({ past: [], future: [], lastSnapshot: null });
+      return null;
+    }
     set({
       past: past.slice(0, -1),
       future: [structuredClone(current), ...future].slice(0, MAX_HISTORY),
@@ -39,6 +47,10 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
     const { past, future } = get();
     if (!future.length) return null;
     const next = future[0];
+    if (next.id !== current.id) {
+      set({ past: [], future: [], lastSnapshot: null });
+      return null;
+    }
     set({
       past: [...past, structuredClone(current)].slice(-MAX_HISTORY),
       future: future.slice(1),

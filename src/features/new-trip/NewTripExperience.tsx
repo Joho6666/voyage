@@ -517,6 +517,19 @@ export function NewTripExperience() {
   const [linkImport, setLinkImport] = useState<LinkImportData | null>(null);
   const messagesRef = useRef<PlanningMessage[]>([]);
   const profileRef = useRef(profile);
+  // Generation epoch: every reset()/unmount invalidates in-flight background
+  // polling, so an abandoned generate can never clear a NEWER session pointer
+  // or yank the user to a trip page they already walked away from.
+  const generationEpochRef = useRef(0);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      generationEpochRef.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     profileRef.current = profile;
@@ -790,7 +803,9 @@ export function NewTripExperience() {
       const resumedSession = isRecord(resumedData.session) ? resumedData.session : {};
       if (resumedSession.status === "generating") {
         setBusy("generating");
-        const outcome = await followGeneration(parsed.sessionId);
+        const epoch = ++generationEpochRef.current;
+        const outcome = await followGeneration(parsed.sessionId, epoch);
+        if (outcome.status === "cancelled") return;
         if (outcome.status === "completed" && outcome.tripId) return;
         if (outcome.status === "timeout") return;
         setError(outcome.reason ?? "上次生成未完成，可以修改后重新生成。");
@@ -807,10 +822,13 @@ export function NewTripExperience() {
    * Server-side generation runs detached (closing the tab never cancels it);
    * the session record is the handoff, so poll it until it settles.
    */
-  const pollGenerationOutcome = async (pollSessionId: string): Promise<{ status: string; tripId?: string; reason?: string }> => {
+  const pollGenerationOutcome = async (pollSessionId: string, epoch: number): Promise<{ status: string; tripId?: string; reason?: string }> => {
     const startedAt = Date.now();
     while (Date.now() - startedAt < GENERATION_POLL_TIMEOUT_MS) {
       await new Promise((resolve) => window.setTimeout(resolve, GENERATION_POLL_INTERVAL_MS));
+      // reset() or unmount invalidates the epoch: stop polling and leave every
+      // piece of state the user is now building alone.
+      if (epoch !== generationEpochRef.current || !mountedRef.current) return { status: "cancelled" };
       let payload: unknown;
       try {
         const response = await fetch(`/api/voyage/planning/session/${encodeURIComponent(pollSessionId)}`, { headers: { accept: "application/json" }, cache: "no-store" });
@@ -833,8 +851,9 @@ export function NewTripExperience() {
 
   /** Shared tail of both generate paths: follow the background generation to
    * the trip page. Returns the outcome so each caller can phrase its error. */
-  const followGeneration = async (pollSessionId: string): Promise<{ status: string; tripId?: string; reason?: string }> => {
-    const outcome = await pollGenerationOutcome(pollSessionId);
+  const followGeneration = async (pollSessionId: string, epoch: number): Promise<{ status: string; tripId?: string; reason?: string }> => {
+    const outcome = await pollGenerationOutcome(pollSessionId, epoch);
+    if (outcome.status === "cancelled") return outcome;
     if (outcome.status === "completed" && outcome.tripId) {
       // The session has served its purpose once the trip exists; keeping the
       // pointer would only offer a stale, already-generated conversation.
@@ -856,6 +875,7 @@ export function NewTripExperience() {
     setBusy("generating");
     setError("");
     setWarnings([]);
+    const epoch = ++generationEpochRef.current;
     let payload: unknown;
     let currentSessionId = sessionOverride?.sessionId ?? sessionId;
     let currentRevision = sessionOverride?.revision ?? revision;
@@ -881,7 +901,8 @@ export function NewTripExperience() {
       payload = await readPayload(response);
       if (!response.ok || (isRecord(payload) && payload.ok === false)) throw new Error(friendlyError(payload, response.status, "路线生成失败，请检查信息后重试。"));
 
-      const outcome = await followGeneration(currentSessionId);
+      const outcome = await followGeneration(currentSessionId, epoch);
+      if (outcome.status === "cancelled") return;
       if (outcome.status === "timeout") {
         setBusy("idle");
         setWarnings(["生成仍在后台进行，行程完成后会自动出现在「我的旅行」；留在本页也可以继续等待。"]);
@@ -932,6 +953,9 @@ export function NewTripExperience() {
   };
 
   const reset = () => {
+    // Invalidate any in-flight generation polling before touching state, so
+    // the abandoned poll can never clobber the fresh session below.
+    generationEpochRef.current += 1;
     const fresh = createDefaultProfile();
     setSessionId(null);
     setLinkImport(null);

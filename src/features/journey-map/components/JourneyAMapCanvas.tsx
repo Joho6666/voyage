@@ -243,14 +243,16 @@ export function JourneyAMapCanvas({
   const selectedPlace = trip.places.find((p) => p.id === selectedPlaceId) ?? null;
   const selectedSegment = trip.segments.find((s) => s.id === selectedRouteId) ?? null;
 
-  // Next stop calculation for Today mode
+  // Next stop calculation for Today mode. nextItem must exclude done items —
+  // an already-completed "next stop" would let the arrival nudge flip it back
+  // to planned (and when the whole day is done there is simply no next stop).
   const currentDayId = activeDayId ?? trip.days[0]?.id;
   const dayItems = trip.items.filter((i) => i.dayId === currentDayId).sort((a, b) => a.order - b.order);
   const currentIndex = dayItems.findIndex((i) => i.status !== "done");
   const currentItem = dayItems[currentIndex >= 0 ? currentIndex : 0];
-  const nextItem = dayItems[currentIndex >= 0 ? currentIndex + 1 : 1];
+  const nextItem = currentIndex >= 0 ? dayItems[currentIndex + 1] : undefined;
   const currentPlace = trip.places.find((p) => p.id === currentItem?.placeId);
-  const nextPlace = trip.places.find((p) => p.id === nextItem?.placeId) ?? currentPlace;
+  const nextPlace = (currentIndex >= 0 ? trip.places.find((p) => p.id === nextItem?.placeId) : undefined) ?? currentPlace;
   const nextSegment = trip.segments.find((s) => s.fromItemId === currentItem?.id);
 
   const activeDay = trip.days.find((d) => d.id === activeDayId);

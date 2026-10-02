@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { chongqingTrip } from "@/data/demo/chongqing";
 import { tripRepository } from "@/services/trips/repository";
 import { recomputeDay, recomputeTrip } from "@/services/routing";
+import { useHistoryStore } from "@/store/history-store";
 import type { Trip } from "@/types/travel";
 
 interface TripState {
@@ -70,6 +71,9 @@ export const useTripStore = create<TripState>((set, get) => ({
 }));
 
 export function hydrateTrip(trip: Trip, revision = 1) {
+  // Undo snapshots belong to one trip: switching trips without dropping the
+  // stack would let a stale snapshot overwrite the new trip server-side.
+  if (useTripStore.getState().trip.id !== trip.id) useHistoryStore.getState().reset();
   useTripStore.setState({ trip: recomputeTrip(trip), revision });
 }
 
