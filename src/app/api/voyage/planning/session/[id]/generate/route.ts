@@ -105,6 +105,114 @@ async function markFailed(repository: JsonSkillRepository, session: StoredPlanni
   }
 }
 
+/** How long a "generating" session may sit untouched before GET treats the
+ * worker as dead (crashed process, killed server) and fails the session. */
+export const GENERATION_STALE_MS = 10 * 60 * 1000;
+
+/** Fails a session stuck in "generating" — the self-heal for a crashed or
+ * restarted process, where no detached worker is left to write an outcome. */
+export async function failIfGenerationStale(repository: JsonSkillRepository, session: StoredPlanningSession) {
+  if (session.status !== "generating") return session;
+  const age = Date.now() - new Date(session.updatedAt).getTime();
+  if (age < GENERATION_STALE_MS) return session;
+  return await markFailed(repository, session, "生成超时（服务可能中断过），请重试") ?? session;
+}
+
+async function runGeneration(
+  workspaceRoot: string,
+  repository: JsonSkillRepository,
+  generating: StoredPlanningSession,
+  input: ReturnType<typeof generationInput>,
+  id: string,
+) {
+  try {
+    const runtime = createRuntime(workspaceRoot);
+    const result = await runtime.createTrip(input);
+    let data = runtimeData(result);
+    const tripId = data && typeof data.tripId === "string"
+      ? data.tripId
+      : data && isRecord(data.trip) && typeof data.trip.id === "string"
+        ? data.trip.id
+        : undefined;
+    if (!tripId) throw new SkillError("INTERNAL_ERROR", "路线 Runtime 没有返回行程 ID");
+
+    // A guide link pasted during planning: re-resolve its place names against a
+    // real provider here (names from the client are never trusted as
+    // locations) and seed them into the new trip through the itinerary
+    // optimizer, which clusters geographically and respects time windows and
+    // the user's profile. The guide's original order stays a signal. Failure
+    // never blocks generation.
+    const extraWarnings: string[] = [];
+    const importedNames = generating.importedPlaces ?? [];
+    if (importedNames.length && data) {
+      try {
+        const provider = await providerFromEnvironment();
+        const candidates = await resolveGuideCandidates(provider, generating.profile.destination ?? "", importedNames);
+        const resolvedPlaces = candidates.filter((candidate) => candidate.resolved && candidate.place).map((candidate) => candidate.place as Place);
+        const tripDays = isRecord(data.trip) && Array.isArray(data.trip.days)
+          ? (data.trip.days as Array<{ id?: unknown; date?: unknown; weather?: { condition?: string; icon?: string } }>)
+              .filter((day): day is { id: string; date?: string; weather?: { condition?: string; icon?: string } } => typeof day?.id === "string")
+          : [];
+        if (resolvedPlaces.length && tripDays.length) {
+          const optimization = optimizeGuideDayAssignment({
+            places: resolvedPlaces,
+            days: tripDays.map((day) => ({ dayId: day.id, date: day.date, weather: day.weather })),
+            profile: generating.profile ?? null,
+            hotel: isRecord(data.trip) && Array.isArray(data.trip.hotels) ? (data.trip.hotels as Place[])[0] ?? null : null,
+          });
+          const assignments = optimization.assignments
+            .map((assignment) => ({ dayId: assignment.dayId, places: assignment.places }))
+            .filter((assignment) => assignment.places.length > 0);
+          if (optimization.decisions.length) {
+            extraWarnings.push(`智能排程：${optimization.decisions.slice(0, 2).map((decision) => decision.reason).join("；")}`);
+          }
+          if (optimization.unresolvedConstraints.length) {
+            extraWarnings.push(optimization.unresolvedConstraints[0]);
+          }
+          const imported = await runtime.importRoute({
+            tripId,
+            assignments,
+            createTasks: true,
+            expectedTripRevision: typeof data.revision === "number" ? data.revision : 1,
+          });
+          const importedData = runtimeData(imported);
+          if (isRecord(importedData?.trip)) {
+            // Carry the post-import revision: the client hydrates its store from
+            // this, and every later write is revision-locked.
+            data = { ...data, trip: importedData.trip, revision: importedData.revision ?? data.revision, importedCount: importedData.importedCount ?? resolvedPlaces.length };
+          }
+        }
+        const unresolved = candidates.filter((candidate) => !candidate.resolved).map((candidate) => candidate.name);
+        if (unresolved.length) {
+          extraWarnings.push(`链接里有 ${unresolved.length} 个地点没有在高德找到、未编造：${unresolved.slice(0, 3).join("、")}`);
+        }
+      } catch (error) {
+        logger.warn("planning-generate.imported-places-failed", { error });
+        extraWarnings.push(`攻略链接里的地点导入未完成：${planningFailureMessage(error, "导入失败")}`);
+      }
+    }
+
+    await repository.updatePlanningSession({
+      sessionId: id,
+      expectedRevision: generating.revision,
+      session: {
+        ...planningSessionValue(generating),
+        status: "completed",
+        tripId,
+        missingFields: [],
+        lastQuestion: null,
+        fallbackReason: undefined,
+        updatedAt: now(),
+      },
+    });
+    logger.info("planning-generate.completed", { sessionId: id, tripId, warnings: extraWarnings.length });
+  } catch (error) {
+    const reason = planningFailureMessage(error, "路线生成失败");
+    await markFailed(repository, generating, reason);
+    logger.warn("planning-generate.failed", { sessionId: id, reason });
+  }
+}
+
 export async function POST(request: NextRequest, context: Context) {
   // Paid providers behind this route share one budget per caller.
   const limited = enforceRateLimit(request, "planning");
@@ -152,108 +260,22 @@ export async function POST(request: NextRequest, context: Context) {
     return planningError(workspace, "PLANNING_GENERATE_FAILED", "无法锁定规划会话", 409);
   }
 
-  try {
-    const runtime = createRuntime(workspace.root);
-    const result = await runtime.createTrip(input);
-    let data = runtimeData(result);
-    const tripId = data && typeof data.tripId === "string"
-      ? data.tripId
-      : data && isRecord(data.trip) && typeof data.trip.id === "string"
-        ? data.trip.id
-        : undefined;
-    if (!tripId) throw new SkillError("INTERNAL_ERROR", "路线 Runtime 没有返回行程 ID");
+  // Fire-and-forget: the heavy LLM/provider pipeline runs after the response
+  // has been sent, so closing the tab no longer cancels a generation — the
+  // session record (status + tripId) is the handoff, and the client polls the
+  // GET endpoint for the outcome. This app targets a self-hosted Node
+  // process, which keeps the detached work alive; a serverless target would
+  // need a real queue instead.
+  void runGeneration(workspace.root, repository, generating, input, id);
 
-    // A guide link pasted during planning: re-resolve its place names against a
-    // real provider here (names from the client are never trusted as
-    // locations) and seed them into the new trip through the itinerary
-    // optimizer, which clusters geographically and respects time windows and
-    // the user's profile. The guide's original order stays a signal. Failure
-    // never blocks generation.
-    const extraWarnings: string[] = [];
-    const importedNames = stored.importedPlaces ?? [];
-    if (importedNames.length && data) {
-      try {
-        const provider = await providerFromEnvironment();
-        const candidates = await resolveGuideCandidates(provider, stored.profile.destination ?? "", importedNames);
-        const resolvedPlaces = candidates.filter((candidate) => candidate.resolved && candidate.place).map((candidate) => candidate.place as Place);
-        const tripDays = isRecord(data.trip) && Array.isArray(data.trip.days)
-          ? (data.trip.days as Array<{ id?: unknown; date?: unknown; weather?: { condition?: string; icon?: string } }>)
-              .filter((day): day is { id: string; date?: string; weather?: { condition?: string; icon?: string } } => typeof day?.id === "string")
-          : [];
-        if (resolvedPlaces.length && tripDays.length) {
-          const optimization = optimizeGuideDayAssignment({
-            places: resolvedPlaces,
-            days: tripDays.map((day) => ({ dayId: day.id, date: day.date, weather: day.weather })),
-            profile: stored.profile ?? null,
-            hotel: isRecord(data.trip) && Array.isArray(data.trip.hotels) ? (data.trip.hotels as Place[])[0] ?? null : null,
-          });
-          const assignments = optimization.assignments
-            .map((assignment) => ({ dayId: assignment.dayId, places: assignment.places }))
-            .filter((assignment) => assignment.places.length > 0);
-          if (optimization.decisions.length) {
-            extraWarnings.push(`智能排程：${optimization.decisions.slice(0, 2).map((decision) => decision.reason).join("；")}`);
-          }
-          if (optimization.unresolvedConstraints.length) {
-            extraWarnings.push(optimization.unresolvedConstraints[0]);
-          }
-          const imported = await runtime.importRoute({
-            tripId,
-            assignments,
-            createTasks: true,
-            expectedTripRevision: typeof data.revision === "number" ? data.revision : 1,
-          });
-          const importedData = runtimeData(imported);
-          if (isRecord(importedData?.trip)) {
-            // Carry the post-import revision: the client hydrates its store from
-            // this, and every later write is revision-locked.
-            data = { ...data, trip: importedData.trip, revision: importedData.revision ?? data.revision, importedCount: importedData.importedCount ?? resolvedPlaces.length };
-          }
-        }
-        const unresolved = candidates.filter((candidate) => !candidate.resolved).map((candidate) => candidate.name);
-        if (unresolved.length) {
-          extraWarnings.push(`链接里有 ${unresolved.length} 个地点没有在高德找到、未编造：${unresolved.slice(0, 3).join("、")}`);
-        }
-      } catch (error) {
-        logger.warn("planning-generate.imported-places-failed", { error });
-        extraWarnings.push(`攻略链接里的地点导入未完成：${planningFailureMessage(error, "导入失败")}`);
-      }
-    }
-
-    const completed = await repository.updatePlanningSession({
+  return planningReply(workspace, {
+    ok: true,
+    data: {
+      status: "generating",
       sessionId: id,
-      expectedRevision: generating.revision,
-      session: {
-        ...planningSessionValue(generating),
-        status: "completed",
-        tripId,
-        missingFields: [],
-        lastQuestion: null,
-        fallbackReason: undefined,
-        updatedAt: now(),
-      },
-    });
-
-    if (!isRecord(result)) throw new SkillError("INTERNAL_ERROR", "路线 Runtime 返回格式无效");
-    return planningReply(workspace, {
-      ...result,
-      ...(extraWarnings.length
-        ? { warnings: [...(Array.isArray((result as { warnings?: unknown }).warnings) ? (result as { warnings: string[] }).warnings : []), ...extraWarnings] }
-        : {}),
-      data: {
-        ...(data ?? {}),
-        sessionId: id,
-        planningSessionId: id,
-        planningRevision: completed.revision,
-        session: completed,
-      },
-    });
-  } catch (error) {
-    const reason = planningFailureMessage(error, "路线生成失败");
-    await markFailed(repository, generating, reason);
-    if (error instanceof SkillError) {
-      const status = error.code === "CONFIRMATION_REQUIRED" ? 409 : 422;
-      return planningError(workspace, error.code, error.message, status, error.details);
-    }
-    return planningError(workspace, "PLANNING_GENERATE_FAILED", reason, 422);
-  }
+      planningSessionId: id,
+      planningRevision: generating.revision,
+      revision: generating.revision,
+    },
+  });
 }

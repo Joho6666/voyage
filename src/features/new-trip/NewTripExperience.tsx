@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { brand } from "@/lib/brand";
 import { toast } from "sonner";
-import { hydrateTrip } from "@/store/trip-store";
 import { usePlanningStore } from "@/store/planning-store";
 import type { Trip } from "@/types/travel";
 import { PlanningChat } from "@/components/planning/PlanningChat";
@@ -56,7 +55,9 @@ const MISSING_FIELD_LABELS: Record<string, string> = {
   socialOptIn: "社区攻略授权",
 };
 
-const GENERATION_STAGES = ["读取已确认的旅行偏好", "整理候选地点与外部数据", "编排每天的行程节奏", "计算交通并保存路线"];const LINK_URL_PATTERN = /https?:\/\/[^\s，。；！？、"'<>）)】\]]+/i;
+const GENERATION_STAGES = ["读取已确认的旅行偏好", "整理候选地点与外部数据", "编排每天的行程节奏", "计算交通并保存路线"];
+const GENERATION_POLL_INTERVAL_MS = 3000;
+const GENERATION_POLL_TIMEOUT_MS = 8 * 60 * 1000;const LINK_URL_PATTERN = /https?:\/\/[^\s，。；！？、"'<>）)】\]]+/i;
 const SUPPORTED_LINK_HOST = /(?:xiaohongshu\.com|xhslink\.com|douyin\.com|iesdouyin\.com)/i;
 
 interface LinkImportData {
@@ -397,20 +398,6 @@ function parsePlanningPayload(payload: unknown, baseProfile: PlanningProfileDraf
   return parsed;
 }
 
-function parseGenerationPayload(payload: unknown, baseProfile: PlanningProfileDraft): ParsedPlanningPayload {
-  const parsed = parsePlanningPayload(payload, baseProfile);
-  const nodes = responseNodes(payload);
-  const rawTrip = firstRecord(nodes, ["trip", "generatedTrip", "createdTrip"]);
-  const trip = rawTrip && typeof rawTrip.id === "string" && Array.isArray(rawTrip.days) && Array.isArray(rawTrip.items) ? rawTrip as unknown as Trip : undefined;
-  const tripId = asString(firstValue(nodes, ["tripId", "createdTripId"])) ?? (trip ? trip.id : undefined);
-  // The planning-session revision and the stored trip revision are different
-  // numbers. Only the Runtime trip envelope carries the trip's own revision, so
-  // read it from the node that actually holds the trip payload.
-  const tripNode = nodes.find((node) => node.trip === rawTrip || (typeof node.tripHash === "string" && node.tripId !== undefined));
-  const rawTripRevision = asNumber(tripNode?.revision) ?? asNumber((trip as unknown as UnknownRecord | undefined)?.revision);
-  const tripRevision = rawTripRevision !== undefined && rawTripRevision >= 1 ? Math.floor(rawTripRevision) : undefined;
-  return { ...parsed, trip, tripRevision, tripId };
-}
 
 /**
  * Mirrors the generate endpoint's preconditions: a destination, a real
@@ -487,7 +474,7 @@ function GenerationProgress({ destination }: { destination: string }) {
         <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground"><LoaderCircle className="size-4 animate-spin" /></span>
         <div>
           <h2 className="text-sm font-semibold">正在生成{destination ? ` · ${destination}` : "路线图"}</h2>
-          <p className="mt-1 text-[11px] leading-5 text-muted-foreground">这是一次真实的生成请求，完成后会进入行程工作区。我们不会把静态动画当成 provider 已完成的证明。</p>
+          <p className="mt-1 text-[11px] leading-5 text-muted-foreground">这是一次真实的生成请求，生成在服务端后台进行——关闭页面也不会中断，回来时会自动接上。</p>
         </div>
       </div>
       <div className="mt-4 grid gap-2 sm:grid-cols-4">
@@ -796,11 +783,67 @@ export function NewTripExperience() {
       setSessionId(parsed.sessionId);
       setRevision(parsed.revision ?? 1);
       adoptPayload(parsed, profileRef.current);
+      // A generation left running from a previous visit keeps going server-side;
+      // adopt the session and follow it to the trip page instead of offering a
+      // conversation that is about to be replaced.
+      const resumedData = isRecord(payload) && isRecord(payload.data) ? payload.data : {};
+      const resumedSession = isRecord(resumedData.session) ? resumedData.session : {};
+      if (resumedSession.status === "generating") {
+        setBusy("generating");
+        const outcome = await followGeneration(parsed.sessionId);
+        if (outcome.status === "completed" && outcome.tripId) return;
+        if (outcome.status === "timeout") return;
+        setError(outcome.reason ?? "上次生成未完成，可以修改后重新生成。");
+        return;
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "会话恢复失败，请重试。");
     } finally {
       setBusy("idle");
     }
+  };
+
+  /**
+   * Server-side generation runs detached (closing the tab never cancels it);
+   * the session record is the handoff, so poll it until it settles.
+   */
+  const pollGenerationOutcome = async (pollSessionId: string): Promise<{ status: string; tripId?: string; reason?: string }> => {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < GENERATION_POLL_TIMEOUT_MS) {
+      await new Promise((resolve) => window.setTimeout(resolve, GENERATION_POLL_INTERVAL_MS));
+      let payload: unknown;
+      try {
+        const response = await fetch(`/api/voyage/planning/session/${encodeURIComponent(pollSessionId)}`, { headers: { accept: "application/json" }, cache: "no-store" });
+        payload = await readPayload(response);
+      } catch {
+        continue; // transient network hiccup — the server-side work continues
+      }
+      if (!isRecord(payload) || !isRecord(payload.data) || !isRecord(payload.data.session)) continue;
+      const session = payload.data.session;
+      const status = typeof session.status === "string" ? session.status : "";
+      if (status === "completed" || status === "ready") {
+        return { status: "completed", tripId: typeof session.tripId === "string" ? session.tripId : undefined };
+      }
+      if (status === "failed") {
+        return { status: "failed", reason: typeof session.fallbackReason === "string" ? session.fallbackReason : undefined };
+      }
+    }
+    return { status: "timeout" };
+  };
+
+  /** Shared tail of both generate paths: follow the background generation to
+   * the trip page. Returns the outcome so each caller can phrase its error. */
+  const followGeneration = async (pollSessionId: string): Promise<{ status: string; tripId?: string; reason?: string }> => {
+    const outcome = await pollGenerationOutcome(pollSessionId);
+    if (outcome.status === "completed" && outcome.tripId) {
+      // The session has served its purpose once the trip exists; keeping the
+      // pointer would only offer a stale, already-generated conversation.
+      usePlanningStore.getState().clearSession();
+      setResumable(null);
+      await new Promise((resolve) => window.setTimeout(resolve, 220));
+      router.push(`/trip/${encodeURIComponent(outcome.tripId)}`);
+    }
+    return outcome;
   };
 
   const generateRoute = async (sessionOverride?: ParsedPlanningPayload) => {
@@ -837,16 +880,21 @@ export function NewTripExperience() {
       });
       payload = await readPayload(response);
       if (!response.ok || (isRecord(payload) && payload.ok === false)) throw new Error(friendlyError(payload, response.status, "路线生成失败，请检查信息后重试。"));
-      const parsed = parseGenerationPayload(payload, profileRef.current);
-      const tripId = parsed.trip?.id ?? parsed.tripId;
-      if (!tripId) throw new Error("路线服务没有返回行程 ID，请稍后重试。");
-      // The session has served its purpose once the trip exists; keeping the
-      // pointer would only offer a stale, already-generated conversation.
-      usePlanningStore.getState().clearSession();
-      setResumable(null);
-      if (parsed.trip) hydrateTrip(parsed.trip, parsed.tripRevision ?? 1);
-      await new Promise((resolve) => window.setTimeout(resolve, 220));
-      router.push(`/trip/${encodeURIComponent(tripId)}`);
+
+      const outcome = await followGeneration(currentSessionId);
+      if (outcome.status === "timeout") {
+        setBusy("idle");
+        setWarnings(["生成仍在后台进行，行程完成后会自动出现在「我的旅行」；留在本页也可以继续等待。"]);
+        return;
+      }
+      if (outcome.status === "failed" || !outcome.tripId) {
+        setBusy("idle");
+        setError(outcome.reason ?? "生成失败，会话与偏好都已保留，修改后可直接再点一次「生成路线图」。");
+        const details = errorDetails(payload);
+        const resynced = await resyncRevision(currentSessionId, details.revision);
+        if (resynced !== undefined) setWarnings(["可以在修改信息后直接再点一次「生成路线图」，这次会话和偏好都不会丢失。"]);
+        return;
+      }
       return;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "路线生成失败，请稍后重试。");

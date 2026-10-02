@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { POST as createPlanningSession } from "@/app/api/voyage/planning/session/route";
 import { GET as readPlanningSession } from "@/app/api/voyage/planning/session/[id]/route";
 import { POST as generatePlanningSession } from "@/app/api/voyage/planning/session/[id]/generate/route";
+import { failIfGenerationStale } from "@/app/api/voyage/planning/session/[id]/generate/route";
 import { filterPlanningCandidates } from "@/services/planning/profile";
 import { JsonSkillRepository } from "@/skill/repository";
 import type { Place } from "@/types/travel";
@@ -90,18 +91,30 @@ describe.sequential("conversational planning", () => {
     expect(generatedResponse.status).toBe(200);
     const generated = await generatedResponse.json() as {
       ok: boolean;
-      data: { tripId: string; trip: { id: string; planningMetadata?: { planningSessionId?: string; planningProfile?: Record<string, unknown> } }; session: { status: string; tripId?: string }; planningRevision: number };
-      providerStatus?: { places: string; routes: string };
+      data: { status: string; sessionId: string; revision: number };
     };
+    // Detached generation: the POST only acknowledges and hands off to the
+    // session record; the outcome arrives by polling (here the fixture
+    // provider settles in milliseconds).
     expect(generated.ok).toBe(true);
-    expect(generated.data.tripId).toBeTruthy();
-    expect(generated.data.trip.id).toBe(generated.data.tripId);
-    expect(generated.data.trip.planningMetadata?.planningSessionId).toBe(created.data.sessionId);
-    expect(generated.data.trip.planningMetadata?.planningProfile?.walkingTolerance).toBe("low");
-    expect(generated.data.session.status).toBe("completed");
-    expect(generated.data.session.tripId).toBe(generated.data.tripId);
-    expect(generated.providerStatus?.places).toBe("MOCK");
+    expect(generated.data.status).toBe("generating");
+    expect(generated.data.sessionId).toBe(created.data.sessionId);
+
+    let completed: { status: string; tripId?: string } | null = null;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const stored = await repository.getPlanningSession(created.data.sessionId);
+      if (stored && (stored.status === "completed" || stored.status === "failed")) {
+        completed = { status: stored.status, tripId: stored.tripId };
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(completed?.status).toBe("completed");
+    expect(completed?.tripId).toBeTruthy();
     expect(await repository.listTrips()).toHaveLength(1);
+    const trip = await repository.getTrip(completed!.tripId!);
+    expect(trip?.trip.planningMetadata?.planningSessionId).toBe(created.data.sessionId);
+    expect(trip?.trip.planningMetadata?.planningProfile?.walkingTolerance).toBe("low");
   });
 
   it("does not expose a planning session to another guest workspace", async () => {
@@ -131,6 +144,30 @@ describe.sequential("conversational planning", () => {
     expect(foreign.status).toBe(404);
     expect((await foreign.json()).error.code).toBe("PLANNING_SESSION_NOT_FOUND");
     expect(await new JsonSkillRepository(path.join(dataDir, "guests", "44444444-4444-4444-8444-444444444444")).listTrips()).toHaveLength(0);
+  });
+
+  it("fails a session stuck in generating past the stale window (crashed worker self-heal)", async () => {
+    const createdResponse = await createPlanningSession(request("http://local/api/voyage/planning/session", {
+      body: { prompt: "想去重庆玩三天" },
+    }));
+    const created = await createdResponse.json() as { data: { sessionId: string } };
+
+    const repository = new JsonSkillRepository(path.join(dataDir, "guests", workspaceId));
+    const session = await repository.getPlanningSession(created.data.sessionId);
+    expect(session).toBeTruthy();
+
+    // A fresh "generating" session is left alone — the worker may legitimately
+    // still be running.
+    const fresh = { ...session!, status: "generating" as const, updatedAt: new Date().toISOString() };
+    expect((await failIfGenerationStale(repository, fresh)).status).toBe("generating");
+
+    // Past the stale window there is no live worker (the process would have
+    // written an outcome), so GET must fail the session to unblock retries.
+    const stale = { ...session!, status: "generating" as const, updatedAt: new Date(Date.now() - 11 * 60 * 1000).toISOString() };
+    const healed = await failIfGenerationStale(repository, stale);
+    expect(healed.status).toBe("failed");
+    const stored = await repository.getPlanningSession(created.data.sessionId);
+    expect(stored?.status).toBe("failed");
   });
 
   it("filters avoid and walking-intensive candidates without inventing places", () => {
