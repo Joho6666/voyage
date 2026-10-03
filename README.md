@@ -1,3 +1,5 @@
+[English](README.en.md) | 中文
+
 # Voyage · Travel OS
 
 > **Voyage is an AI-native Travel OS.**  
@@ -159,3 +161,11 @@ npm run test:e2e     # Playwright 端到端验证 (25 条，含移动端导航�
 <img src="docs/assets/wechat-joho.jpg" alt="作者微信二维码" width="280" />
 
 > 也可以在 GitHub Issues 里留言。微信个人二维码会定期更换，若扫码失效请先提 Issue。
+
+---
+
+## 开源协议
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+本项目基于 [MIT License](LICENSE) 开源。
