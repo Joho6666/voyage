@@ -78,9 +78,18 @@ export function PoiCard({
       data-place-id={place.id}
       data-selected={selected ? "true" : "false"}
       ref={setCombinedRef}
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          selectPlace(place.id);
+        }
+      }}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        "group flex gap-3 rounded-[12px] border border-transparent px-3 py-2 hover:bg-secondary/70 transition-all cursor-pointer",
+        "group flex gap-3 rounded-[12px] border border-transparent px-3 py-2 hover:bg-secondary/70 transition-all cursor-pointer focus-visible:outline-2 focus-visible:outline-ring",
         selected && "border-primary/40 bg-accent ring-1 ring-primary/20",
         isHovered && !selected && "bg-secondary/80 border-border/70",
         isDragging && "z-10 bg-surface shadow-[var(--shadow-float)]",
@@ -110,7 +119,7 @@ export function PoiCard({
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="rounded-[8px] p-1 text-muted-foreground opacity-0 hover:bg-secondary group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100"
+                  className="rounded-[8px] p-1 text-muted-foreground opacity-0 hover:bg-secondary group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:opacity-100"
                   aria-label="更多"
                   onClick={(e) => e.stopPropagation()}
                 >
@@ -138,7 +147,7 @@ export function PoiCard({
         </div>
         <button
           type="button"
-          className="self-center text-muted-foreground opacity-0 group-hover:opacity-100 touch-none [@media(pointer:coarse)]:opacity-100"
+          className="self-center text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 touch-none [@media(pointer:coarse)]:opacity-100"
           aria-label="拖动排序"
           {...attributes}
           {...listeners}

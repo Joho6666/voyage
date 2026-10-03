@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { usePathname } from "next/navigation";
-import { motion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import { MapCanvas } from "@/components/map/MapCanvas";
 import { ItineraryPanel } from "./ItineraryPanel";
 import { useUiStore } from "@/store/ui-store";
@@ -14,6 +14,7 @@ export function MobileTripSheet() {
   const snap = useUiStore((s) => s.sheetSnap);
   const setSnap = useUiStore((s) => s.setSheetSnap);
   const pathname = usePathname();
+  const reduceMotion = useReducedMotion();
 
   const mapMode: MapMode = useMemo(() => {
     if (pathname.includes("/today")) return "TODAY";
@@ -29,7 +30,7 @@ export function MobileTripSheet() {
       <motion.div
         className="absolute inset-x-0 bottom-0 z-20 overflow-hidden rounded-t-[14px] border-t border-border bg-surface pb-14 shadow-[var(--shadow-float)]"
         animate={{ height: HEIGHT[snap] }}
-        transition={{ type: "spring", stiffness: 280, damping: 32 }}
+        transition={reduceMotion ? { duration: 0 } : { type: "spring", stiffness: 280, damping: 32 }}
       >
         <button
           type="button"

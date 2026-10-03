@@ -428,7 +428,7 @@ export default function TodayPage() {
         {todayConsole ? (
           <div className="mt-3 rounded-[10px] border border-border/70 px-3 py-2">
             {todayConsole.lateMinutes !== null && todayConsole.lateMinutes > 30 ? (
-              <p className="mb-1.5 text-[11px] font-medium text-amber-600">
+              <p className="mb-1.5 text-[11px] font-medium text-amber-700">
                 比计划晚了约 {todayConsole.lateMinutes} 分钟
               </p>
             ) : null}
@@ -602,7 +602,9 @@ export default function TodayPage() {
       {/* Day Timeline Execution List */}
       <section className="mt-6">
         <div className="flex items-center justify-between px-1 mb-2.5">
-          <span className="text-[13px] font-medium text-foreground">
+          {/* Live region: check-ins previously gave screen readers no feedback
+              beyond the focused control's own label change. */}
+          <span className="text-[13px] font-medium text-foreground" aria-live="polite">
             今日节点清单 ({doneCount}/{items.length})
           </span>
           <span className="text-[11px] text-muted-foreground">
@@ -619,8 +621,17 @@ export default function TodayPage() {
             return (
               <div
                 key={item.id}
+                role="checkbox"
+                aria-checked={isDone}
+                tabIndex={0}
                 onClick={() => toggleItemDone(item.id)}
-                className={`flex items-center gap-3 rounded-[12px] border p-3 cursor-pointer transition-all ${
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    toggleItemDone(item.id);
+                  }
+                }}
+                className={`flex items-center gap-3 rounded-[12px] border p-3 cursor-pointer transition-all focus-visible:outline-2 focus-visible:outline-ring ${
                   isCurrent
                     ? "border-primary/40 bg-accent/40 shadow-xs"
                     : isDone
@@ -628,8 +639,7 @@ export default function TodayPage() {
                       : "border-border bg-surface hover:bg-secondary/40"
                 }`}
               >
-                <button
-                  type="button"
+                <span
                   className={`grid size-5.5 place-items-center rounded-full border text-[11px] font-medium shrink-0 transition-colors ${
                     isDone
                       ? "border-primary bg-primary text-white"
@@ -637,10 +647,10 @@ export default function TodayPage() {
                         ? "border-primary text-primary"
                         : "border-muted-foreground/40 text-muted-foreground"
                   }`}
-                  aria-label={isDone ? "已打卡" : "未打卡"}
+                  aria-hidden
                 >
                   {isDone ? "✓" : index + 1}
-                </button>
+                </span>
 
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">

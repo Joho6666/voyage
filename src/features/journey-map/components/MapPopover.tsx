@@ -85,7 +85,7 @@ export function MapPopover({
           <span>·</span>
           <span>{formatKm(meters)}</span>
           <span>·</span>
-          <span className={isReal ? "text-emerald-600 font-medium" : "text-amber-600"}>
+          <span className={isReal ? "text-emerald-600 font-medium" : "text-amber-700"}>
             {isReal ? "高德实时路线" : "直线预估"}
           </span>
         </div>
@@ -243,6 +243,8 @@ export function MapPopover({
             <button
               type="button"
               onClick={() => setMobileExpanded(!mobileExpanded)}
+              aria-expanded={mobileExpanded}
+              aria-label={mobileExpanded ? "收起详情" : "展开详情"}
               className="p-1 text-muted-foreground hover:text-foreground"
             >
               {mobileExpanded ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}

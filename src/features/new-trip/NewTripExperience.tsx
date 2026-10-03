@@ -862,6 +862,9 @@ export function NewTripExperience() {
     if (outcome.status === "completed" && outcome.tripId) {
       // The session has served its purpose once the trip exists; keeping the
       // pointer would only offer a stale, already-generated conversation.
+      // The toast is also the audible announcement for screen readers —
+      // client-side navigation itself is silent.
+      toast.success("生成完成，正在打开行程…");
       usePlanningStore.getState().clearSession();
       setResumable(null);
       await new Promise((resolve) => window.setTimeout(resolve, 220));

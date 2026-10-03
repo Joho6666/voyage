@@ -143,3 +143,16 @@ body {
   background-image: radial-gradient(rgba(28, 25, 23, 0.06) 1px, transparent 1px);
   background-size: 18px 18px;
 }
+
+/* Respect the OS reduce-motion setting: kill looping ping pulses and the
+ * entry/zoom animations; large spring-driven sheets also check the flag
+ * in JS (MobileTripSheet). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
