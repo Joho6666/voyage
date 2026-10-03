@@ -1,4 +1,3 @@
-const CACHE_NAME = "voyage-journey-offline-v1";
 const TILE_CACHE_NAME = "voyage-map-tiles-v1";
 
 self.addEventListener("install", () => {
@@ -35,15 +34,26 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Handle offline-trip requests
+  // Handle offline-trip requests (served from cache-first)
   if (url.pathname.startsWith("/offline-trip-")) {
     event.respondWith(
-      caches.open(CACHE_NAME).then((cache) => {
-        return cache.match(event.request).then((cached) => {
-          return cached || fetch(event.request);
+      caches.match(event.request).then((cached) => {
+        return cached ?? fetch(event.request).catch(() => {
+          // Last resort: the cache opened but the item might have been cleared.
+          return new Response(JSON.stringify({ error: "not cached" }), {
+            status: 504,
+            headers: { "Content-Type": "application/json" },
+          });
         });
       }),
     );
     return;
   }
+
+  // All other requests: network first with stale fallback (good UX for manifests, etc.)
+  event.respondWith(
+    fetch(event.request).catch(() => {
+      return caches.match(event.request);
+    }),
+  );
 });
