@@ -12,16 +12,16 @@ test.describe("remove-day command", () => {
     const menuBtn = page.locator('button[aria-label="这一天更多操作"]').first();
     await expect(menuBtn).toBeVisible();
     await menuBtn.click();
-
-    // First click arms the confirmation
     await page.getByText("删除这一天").first().click();
+
+    // DropdownMenu closes on select; re-open to see the armed state
+    await page.waitForTimeout(400);
+    await menuBtn.click();
     const confirmItem = page.getByText("再点一次确认删除");
     await expect(confirmItem).toBeVisible();
-
-    // Second click actually deletes
     await confirmItem.click();
-    await page.waitForTimeout(2000);
 
+    await page.waitForTimeout(2500);
     const body = await page.locator("body").innerText();
     expect(body).toContain("已删除 Day");
   });
