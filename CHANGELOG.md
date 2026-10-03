@@ -2,6 +2,17 @@
 
 本文件记录面向使用者的显著变更。日期为合并到 main 的日期。
 
+## 2026-10-03 · 安全加固与无障碍提升
+
+- **限流桶不再信任客户端 IP**：X-Forwarded-For 完全由客户端控制，直接部署时每个请求可以伪造新 IP 绕过限流；现在只用会话 cookie 作为桶 key，反向代理场景可自行加回可信 IP。
+- **写命令补齐限流**：remove-item / remove-day / set-item-status / reorder-day / restore-trip / apply-change / optimize-itinerary 等 14 个改写型命令进入 `write` scope（60 次/分钟），optimize-itinerary 并入 `llm` scope；此前这些命令可无限调用。
+- **后台生成并发闸**：detached 生成 worker 上限 2 个（此前只靠会话状态锁，多会话并发仍可无限消耗 LLM 配额）；超出时返回 429。
+- **外链 schema 强化**：社交证据 schema 新增 `socialHttpsUrlSchema`，仅接受 `https://` URL（zod 的 `.url()` 默认接受 `javascript:`）。
+- **键盘可达性**：Today 打卡行改为 `role="checkbox"` + `aria-checked`，支持 Enter/Space 键切换；PoiCard 卡片和地图标记均补齐键盘可达；hover-only 的拖拽手柄和更多菜单在键盘聚焦时可见。
+- **CommandPalette / 移动端更多面板**：Esc 键关闭（此前显示 Esc 提示但实际无效）；对话框补 `aria-label`；全局启用 `prefers-reduced-motion`，地图 ping 脉冲和弹出动画在减少动画模式下禁用。
+- **离线模式可回退**：行程布局在网络请求失败时尝试读取已缓存的离线行程包（`getCachedTrip` 此前零调用），渲染行程并在顶部显示离线提示；Service Worker 改为 network-first + 缓存回退，为未缓存的离线行程返回 504 而非静默失败。
+- **测试覆盖**：新增离线回退 E2E、删除日命令 E2E（两段式确认）；更新 README 测试数量（301 单元测试，39 条 E2E）。
+
 ## 2026-10-01 · 开源开箱即用（README + Auth 弱化）
 
 - **README 第一屏重写**：标题改为 "Open-source AI-native Travel OS"，一屏列出核心承诺（No account required / Local-first / BYO API keys / Real POI·route·weather / 攻略导入 / AI 排程 / Today 执行模式 / Skill+MCP），并新增 **Provider 分级表**：Level 0 Demo（零配置可完整体验）→ Level 1 AMap → Level 2 LLM → Level 3 Social/Offers，明确"不配任何 Key 也能用"。

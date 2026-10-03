@@ -139,7 +139,7 @@ npm run dev
 ```bash
 npm run lint         # ESLint 代码规范检查 (0 errors, 0 warnings)
 npm run typecheck    # TypeScript 严格类型检查 (0 errors)
-npm test             # Vitest 单元与集成测试 (221 tests passed)
+npm test             # Vitest 单元与集成测试 (301 tests passed)
 npm run build        # 生产环境 Turbopack 打包编译
 npm run test:e2e     # Playwright 端到端验证 (25 条，含移动端导航与会话恢复)
 ```

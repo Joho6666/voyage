@@ -62,6 +62,10 @@ export async function saveLocalCredential(key: string, value: string) {
   await saveLocalCredentials({ [key]: value });
 }
 
+export async function removeLocalCredential(key: string) {
+  await saveLocalCredentials({ [key]: "" });
+}
+
 export async function saveLocalCredentials(values: Record<string, string>) {
   for (const [key, value] of Object.entries(values)) {
     if (!allowed.has(key)) throw new Error("Unknown configuration field");

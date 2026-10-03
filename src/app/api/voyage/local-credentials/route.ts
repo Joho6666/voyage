@@ -1,6 +1,6 @@
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
-import { configurationPresence, saveLocalCredential, saveLocalCredentials } from "@/services/config/local-credentials";
+import { configurationPresence, removeLocalCredential, saveLocalCredential, saveLocalCredentials } from "@/services/config/local-credentials";
 import { logger } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
@@ -39,5 +39,20 @@ export async function POST(request: NextRequest) {
     // Deliberately no field values here — this endpoint handles credentials.
     logger.warn("local-credentials.update_rejected", { error });
     return NextResponse.json({ error: "Invalid field or value" }, { status: 400 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  if (!localRequest(request) || request.headers.get("origin") !== request.nextUrl.origin) {
+    return NextResponse.json({ error: "Local same-origin access only" }, { status: 403 });
+  }
+  const key = request.nextUrl.searchParams.get("key");
+  if (!key) return NextResponse.json({ error: "Missing key" }, { status: 400 });
+  try {
+    await removeLocalCredential(key);
+    return NextResponse.json({ ok: true, configured: await configurationPresence() }, { headers: { "cache-control": "no-store" } });
+  } catch (error) {
+    logger.warn("local-credentials.delete_rejected", { error });
+    return NextResponse.json({ error: "Cannot remove" }, { status: 400 });
   }
 }
