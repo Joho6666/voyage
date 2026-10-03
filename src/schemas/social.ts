@@ -1,5 +1,14 @@
 import { z } from "zod";
 
+/**
+ * zod's .url() only checks parsability and happily accepts `javascript:` —
+ * externally supplied links that end up rendered as hrefs must be https.
+ */
+export const socialHttpsUrlSchema = z
+  .string()
+  .url()
+  .refine((value) => value.startsWith("https://"), "Only https links are accepted");
+
 export const socialPlatformSchema = z.enum([
   "tiktok",
   "instagram",
@@ -28,7 +37,7 @@ export const socialSourceSchema = z.object({
   provider: socialProviderNameSchema,
   platform: socialPlatformSchema,
   sourceId: z.string().min(1),
-  sourceUrl: z.string().url().optional(),
+  sourceUrl: socialHttpsUrlSchema.optional(),
   publishedAt: z.string().datetime().optional(),
 });
 
@@ -58,7 +67,7 @@ export const socialEvidenceSchema = z.object({
   provider: socialProviderNameSchema.optional(),
   platform: socialPlatformSchema,
   sourceId: z.string().min(1),
-  sourceUrl: z.string().url().optional(),
+  sourceUrl: socialHttpsUrlSchema.optional(),
   sourceUrlKind: z.enum(["upstream", "derived"]).optional(),
   title: z.string().optional(),
   summary: z.string().min(1),

@@ -109,6 +109,15 @@ async function markFailed(repository: JsonSkillRepository, session: StoredPlanni
  * worker as dead (crashed process, killed server) and fails the session. */
 export const GENERATION_STALE_MS = 10 * 60 * 1000;
 
+/**
+ * Global cap on detached generation workers. The session status lock limits
+ * one session to one worker, but nothing stopped an attacker from creating N
+ * sessions and POSTing generate on each — every worker is a paid LLM+AMap
+ * pipeline. Two concurrent workers serve any honest multi-tab usage.
+ */
+const MAX_CONCURRENT_GENERATIONS = 2;
+let inFlightGenerations = 0;
+
 /** Fails a session stuck in "generating" — the self-heal for a crashed or
  * restarted process, where no detached worker is left to write an outcome. */
 export async function failIfGenerationStale(repository: JsonSkillRepository, session: StoredPlanningSession) {
@@ -263,13 +272,21 @@ export async function POST(request: NextRequest, context: Context) {
     return planningError(workspace, "PLANNING_GENERATE_FAILED", "无法锁定规划会话", 409);
   }
 
+  if (inFlightGenerations >= MAX_CONCURRENT_GENERATIONS) {
+    await markFailed(repository, generating, "服务正忙（已有其他行程在生成），请稍后重试");
+    return planningError(workspace, "PLANNING_GENERATE_BUSY", "服务正在生成其他行程，请稍后再试", 429);
+  }
+
   // Fire-and-forget: the heavy LLM/provider pipeline runs after the response
   // has been sent, so closing the tab no longer cancels a generation — the
   // session record (status + tripId) is the handoff, and the client polls the
   // GET endpoint for the outcome. This app targets a self-hosted Node
   // process, which keeps the detached work alive; a serverless target would
   // need a real queue instead.
-  void runGeneration(workspace.root, repository, generating, input, id);
+  inFlightGenerations += 1;
+  void runGeneration(workspace.root, repository, generating, input, id).finally(() => {
+    inFlightGenerations -= 1;
+  });
 
   return planningReply(workspace, {
     ok: true,

@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { JsonSkillRepository, type StoredTrip } from "@/skill/repository";
 import { guestWorkspace, setGuestCookie } from "../workspace";
 import { resolveCityCoverImage } from "@/services/media/city-cover";
+import { enforceRateLimit } from "@/lib/api-guards";
 import { logger } from "@/lib/logger";
 import type { TripStatus } from "@/types/travel";
 
@@ -42,6 +43,11 @@ function backfillCoversDetached(repository: JsonSkillRepository, records: Stored
 }
 
 export async function GET(request: NextRequest) {
+  // The list is read-cheap now, but a detached cover backfill (outbound
+  // Wikipedia request + disk write per cover-less trip) still rides along, so
+  // a tight loop on this endpoint must not be free.
+  const limited = enforceRateLimit(request, "read");
+  if (limited) return setGuestCookie(limited, guestWorkspace(request));
   const workspace = guestWorkspace(request);
   const repository = new JsonSkillRepository(workspace.root);
   const records = await repository.listTrips();

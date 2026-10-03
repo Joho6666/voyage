@@ -15,15 +15,18 @@ export const dynamic = "force-dynamic";
 
 /**
  * This single endpoint can drive every paid backend, so the budget follows the
- * command instead of the route: local reads/writes stay unlimited, provider
- * commands share the same windows their dedicated routes use. Without this the
- * per-route limits are trivially bypassed.
+ * command instead of the route: provider commands share the same windows their
+ * dedicated routes use, and trip mutations get a generous `write` window — a
+ * command that atomically rewrites the whole trip JSON must not be fireable at
+ * network speed just because it does not touch a paid provider. Only pure
+ * reads (get-trip, get-today-context) stay unlimited.
  */
 const COMMAND_RATE_SCOPES: Partial<Record<SkillCommand, keyof typeof RATE_LIMITS>> = {
   "create-trip": "planning",
   "replan-trip": "planning",
   "propose-change": "llm",
   "retrieve-travel-knowledge": "llm",
+  "optimize-itinerary": "llm",
   "search-places": "amap",
   "get-place": "amap",
   "plan-route": "amap",
@@ -36,6 +39,17 @@ const COMMAND_RATE_SCOPES: Partial<Record<SkillCommand, keyof typeof RATE_LIMITS
   "search-social": "social",
   "get-social-trending": "social",
   "get-social-evidence": "social",
+  "update-trip": "write",
+  "add-place": "write",
+  "add-place-item": "write",
+  "reorder-day": "write",
+  "set-item-status": "write",
+  "remove-item": "write",
+  "remove-day": "write",
+  "import-route": "write",
+  "set-task-status": "write",
+  "restore-trip": "write",
+  "apply-change": "write",
 };
 
 export async function POST(request: NextRequest) {
