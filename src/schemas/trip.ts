@@ -3,6 +3,7 @@ import { offerProviderStatusSchema, offerSchema } from "./offers";
 import { socialEvidenceSchema, socialPlatformStatusSchema, socialSignalSchema } from "./social";
 import { planningProfileSchema } from "./planning";
 import { brainMetadataSchema } from "./brain";
+import { reservationSchema } from "./reservation";
 
 export const placeCategorySchema = z.enum([
   "attraction",
@@ -218,6 +219,7 @@ export const tripSchema = z
     socialEvidence: z.array(socialEvidenceSchema).optional(),
     socialSignals: z.array(socialSignalSchema).optional(),
     socialWarnings: z.array(z.string()).optional(),
+    reservations: z.array(reservationSchema).optional(),
     planningMetadata: z.object({
       source: z.enum(["llm", "rules"]),
       llm: z.enum(["used", "unavailable", "failed", "skipped"]),

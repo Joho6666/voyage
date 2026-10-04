@@ -3,6 +3,7 @@ import { offerKindSchema } from "@/schemas/offers";
 import { socialEvidenceSchema, socialPlatformStatusSchema, socialSignalSchema } from "@/schemas/social";
 import { placeSchema, tripSchema } from "@/schemas/trip";
 import { planningProfileSchema } from "@/schemas/planning";
+import { reservationImportItemSchema, reservationInputSchema, reservationStatusSchema, reservationTypeSchema } from "@/schemas/reservation";
 import { MAX_TRIP_DAYS } from "@/lib/trip-limits";
 
 export const SCHEMA_VERSION = "voyage.skill.v1" as const;
@@ -305,6 +306,46 @@ export const updateTripInputSchema = z.object({
   }).refine((patch) => Object.keys(patch).length > 0, { message: "patch must not be empty" }),
 });
 
+/**
+ * Reservation domain (Phase 6.1): real-world commitments the itinerary must
+ * respect. Writes are revision-locked like every other trip mutation; the
+ * runtime owns id/tripId/provenance so callers can never forge them.
+ */
+const reservationPatchSchema = reservationInputSchema.partial()
+  .refine((patch) => Object.keys(patch).length > 0, { message: "patch must not be empty" });
+
+export const addReservationInputSchema = z.object({
+  tripId: z.string().min(1),
+  expectedTripRevision: z.number().int().min(1),
+  reservation: reservationInputSchema,
+});
+
+export const updateReservationInputSchema = z.object({
+  tripId: z.string().min(1),
+  expectedTripRevision: z.number().int().min(1),
+  reservationId: z.string().min(1),
+  patch: reservationPatchSchema,
+});
+
+export const removeReservationInputSchema = z.object({
+  tripId: z.string().min(1),
+  expectedTripRevision: z.number().int().min(1),
+  reservationId: z.string().min(1),
+});
+
+export const getReservationsInputSchema = z.object({
+  tripId: z.string().min(1),
+  status: reservationStatusSchema.optional(),
+  type: reservationTypeSchema.optional(),
+});
+
+export const importReservationsInputSchema = z.object({
+  tripId: z.string().min(1),
+  expectedTripRevision: z.number().int().min(1),
+  vendor: z.string().max(40).optional(),
+  reservations: z.array(reservationImportItemSchema).min(1).max(20),
+});
+
 export const searchSocialInputSchema = z.object({
   city: z.string().min(1).max(80),
   query: z.string().max(120).optional(),
@@ -358,6 +399,11 @@ export const commandSchemas = {
   "search-social": searchSocialInputSchema,
   "get-social-trending": getSocialTrendingInputSchema,
   "get-social-evidence": getSocialEvidenceInputSchema,
+  "add-reservation": addReservationInputSchema,
+  "update-reservation": updateReservationInputSchema,
+  "remove-reservation": removeReservationInputSchema,
+  "get-reservations": getReservationsInputSchema,
+  "import-reservations": importReservationsInputSchema,
 } as const;
 
 export type SkillCommand = keyof typeof commandSchemas;

@@ -211,6 +211,54 @@ export const voyageTools: Record<string, VoyageToolDefinition> = {
     },
     "get-today-context",
   ),
+  voyage_get_reservations: tool(
+    "List the trip's reservations (flights, trains, hotels, restaurants, tickets) with status and provenance. Read-only.",
+    {
+      tripId: z.string(), status: z.enum(["tentative", "confirmed", "cancelled", "completed"]).optional(),
+      type: z.enum(["flight", "train", "hotel", "restaurant", "attraction", "activity", "car", "transfer", "other"]).optional(),
+    },
+    "get-reservations",
+  ),
+  voyage_add_reservation: tool(
+    "Record a real-world reservation on the trip (confirmation code, time window, price). Confirmed reservations become hard constraints for replanning. Direct write, revision-locked.",
+    {
+      tripId: z.string(), expectedTripRevision: z.number(),
+      reservation: z.object({
+        type: z.enum(["flight", "train", "hotel", "restaurant", "attraction", "activity", "car", "transfer", "other"]),
+        title: z.string(),
+        startAt: z.string(),
+        endAt: z.string().optional(),
+        origin: z.string().optional(), destination: z.string().optional(), location: z.string().optional(),
+        provider: z.string().optional(), confirmationCode: z.string().optional(),
+        price: z.number().optional(), currency: z.string().optional(),
+        cancellationPolicy: z.string().optional(),
+        flexibility: z.enum(["fixed", "semiFlexible", "flexible"]).optional(),
+        status: z.enum(["tentative", "confirmed", "cancelled", "completed"]).optional(),
+        linkedItemId: z.string().optional(), notes: z.string().optional(),
+      }),
+    },
+    "add-reservation",
+    { annotations: WRITE },
+  ),
+  voyage_import_reservations: tool(
+    "Bulk-import pasted reservations (up to 20) onto the trip; duplicates are detected by confirmation code or type+start time. Direct write, revision-locked.",
+    {
+      tripId: z.string(), expectedTripRevision: z.number(), vendor: z.string().optional(),
+      reservations: z.array(z.object({
+        type: z.enum(["flight", "train", "hotel", "restaurant", "attraction", "activity", "car", "transfer", "other"]),
+        title: z.string(), startAt: z.string(), endAt: z.string().optional(),
+        origin: z.string().optional(), destination: z.string().optional(), location: z.string().optional(),
+        provider: z.string().optional(), confirmationCode: z.string().optional(),
+        price: z.number().optional(), currency: z.string().optional(),
+        cancellationPolicy: z.string().optional(),
+        flexibility: z.enum(["fixed", "semiFlexible", "flexible"]).optional(),
+        status: z.enum(["tentative", "confirmed", "cancelled", "completed"]).optional(),
+        linkedItemId: z.string().optional(), notes: z.string().optional(),
+      })),
+    },
+    "import-reservations",
+    { annotations: WRITE },
+  ),
 };
 
 export function normalizeToolError(error: unknown) {
