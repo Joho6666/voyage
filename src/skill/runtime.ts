@@ -1839,7 +1839,7 @@ export class VoyageSkillRuntime {
     const stored = await this.repository.getTrip(input.tripId);
     if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
     const asOfMs = Date.parse(input.asOf ?? new Date().toISOString());
-    // Same window predicate the TripState engine uses — one definition only.
+    // One shared predicate with the TripState engine — defined once.
     const active = collectActiveEvents(stored.trip.travelEvents ?? [], asOfMs, input.includeAcknowledged);
     return successEnvelope(
       { tripId: input.tripId, asOf: input.asOf ?? new Date().toISOString(), events: active, total: active.length },
