@@ -13,6 +13,7 @@ import { weatherDisplay } from "@/lib/weather-display";
 import type { Trip } from "@/types/travel";
 import type { PlanningProfile } from "@/schemas/planning";
 import { enforceRateLimit } from "@/lib/api-guards";
+import { PreferenceMemoryStore } from "@/services/memory/preferences";
 
 export const dynamic = "force-dynamic";
 
@@ -362,6 +363,16 @@ export async function POST(request: NextRequest) {
   }
   const fullTrip = (tripEnvelope.data as { trip?: Trip } | undefined)?.trip;
   const todayIso = new Date().toISOString().slice(0, 10);
+  // Phase 6.9 disclosure: when preference memory is used, the traveller must
+  // see it — the line below is prefixed 「根据你的旅行偏好」 and carries each
+  // entry's provenance; the prompt tells the agent to mention it explicitly.
+  let memoryLine = "";
+  try {
+    memoryLine = (await new PreferenceMemoryStore(workspace.root).summaryLine()) ?? "";
+    if (memoryLine) memoryLine = `${memoryLine}（向用户提及这条偏好依据，用户可随时要求修改或清除）`;
+  } catch {
+    memoryLine = "";
+  }
   const systemPrompt = [
     "你是 Voyage 旅行助手。用中文回答。",
     "核心规则：不要编造价格、库存、天气或地点；回答事实性问题前先用工具取真实数据。",
@@ -375,6 +386,7 @@ export async function POST(request: NextRequest) {
     fullTrip ? weatherLine(fullTrip) : "",
     confirmedPreferenceLine(fullTrip?.planningMetadata?.planningProfile),
     fullTrip ? tripStateLine(fullTrip) : "",
+    memoryLine.length ? memoryLine : "",
   ].filter(Boolean).join("\n");
   const messages: ChatMessage[] = [
     { role: "system", content: systemPrompt },

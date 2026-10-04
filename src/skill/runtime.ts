@@ -14,6 +14,7 @@ import { getTripState, collectActiveEvents } from "@/services/trip-state/engine"
 import { analyzeEventImpact } from "@/services/impact-engine";
 import { actionsFromImpact, type ReplanStrategy } from "@/services/replan/event-replan";
 import { MockTravelEventProvider } from "@/skill/event-providers";
+import { PreferenceMemoryStore } from "@/services/memory/preferences";
 import { haversineMeters, estimateTransit, uid } from "@/lib/utils";
 import { createTripId } from "@/services/planning/rule-planner";
 import { planOutline } from "@/services/planning/outline-planner";
@@ -85,6 +86,10 @@ import {
   analyzeEventImpactInputSchema,
   proposeEventReplanInputSchema,
   simulateTravelEventInputSchema,
+  getTravelerMemoryInputSchema,
+  updateTravelerMemoryInputSchema,
+  deleteTravelerMemoryInputSchema,
+  disableTravelerMemoryInputSchema,
   successEnvelope,
   type ProviderLevel,
   type ProviderStatus,
@@ -2051,6 +2056,59 @@ export class VoyageSkillRuntime {
     );
   }
 
+  // ---------------------------------------------------------------------
+  // Traveler memory (Phase 6.9): conservative, explicit-first preference
+  // records. Workspace-scoped; every consumer must disclose usage.
+  // ---------------------------------------------------------------------
+
+  private memoryStore(): PreferenceMemoryStore {
+    return new PreferenceMemoryStore(this.repository.dataRoot);
+  }
+
+  async getTravelerMemory(raw: unknown) {
+    getTravelerMemoryInputSchema.parse(raw);
+    const store = this.memoryStore();
+    const memory = await store.read();
+    const disclosure = await store.summaryLine();
+    return successEnvelope(
+      { memory, disclosure },
+      status("UNKNOWN", "UNKNOWN", "UNKNOWN"),
+    );
+  }
+
+  async updateTravelerMemory(raw: unknown) {
+    const input = updateTravelerMemoryInputSchema.parse(raw);
+    const store = this.memoryStore();
+    for (const entry of input.entries) {
+      await store.setExplicit(entry.key, entry.value, entry.source);
+    }
+    const memory = await store.read();
+    return successEnvelope(
+      { memory, disclosure: await store.summaryLine() },
+      status("UNKNOWN", "UNKNOWN", "UNKNOWN"),
+    );
+  }
+
+  async deleteTravelerMemory(raw: unknown) {
+    const input = deleteTravelerMemoryInputSchema.parse(raw);
+    const store = this.memoryStore();
+    const memory = await store.remove(input.key);
+    return successEnvelope(
+      { memory, disclosure: await store.summaryLine(), deletedKey: input.key },
+      status("UNKNOWN", "UNKNOWN", "UNKNOWN"),
+    );
+  }
+
+  async disableTravelerMemory(raw: unknown) {
+    const input = disableTravelerMemoryInputSchema.parse(raw);
+    const store = this.memoryStore();
+    const memory = await store.setDisabled(input.disabled);
+    return successEnvelope(
+      { memory, disclosure: await store.summaryLine(), disabled: Boolean(memory.disabledAt) },
+      status("UNKNOWN", "UNKNOWN", "UNKNOWN"),
+    );
+  }
+
   async importReservations(raw: unknown) {
     const input = importReservationsInputSchema.parse(raw);
     const stored = await this.loadTripForWrite(input.tripId, input.expectedTripRevision);
@@ -2196,6 +2254,10 @@ export class VoyageSkillRuntime {
       case "analyze-event-impact": return this.analyzeEventImpactView(input);
       case "propose-event-replan": return this.proposeEventReplan(input);
       case "simulate-travel-event": return this.simulateTravelEvent(input);
+      case "get-traveler-memory": return this.getTravelerMemory(input);
+      case "update-traveler-memory": return this.updateTravelerMemory(input);
+      case "delete-traveler-memory": return this.deleteTravelerMemory(input);
+      case "disable-traveler-memory": return this.disableTravelerMemory(input);
       case "import-reservations": return this.importReservations(input);
       case "search-social": return this.searchSocial(input);
       case "get-social-trending": return this.getSocialTrending(input);

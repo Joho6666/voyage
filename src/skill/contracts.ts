@@ -5,6 +5,7 @@ import { placeSchema, tripSchema } from "@/schemas/trip";
 import { planningProfileSchema } from "@/schemas/planning";
 import { reservationImportItemSchema, reservationInputSchema, reservationStatusSchema, reservationTypeSchema } from "@/schemas/reservation";
 import { travelEventInputSchema } from "@/schemas/travel-event";
+import { preferenceKeySchema } from "@/services/memory/preferences";
 import { MAX_TRIP_DAYS } from "@/lib/trip-limits";
 
 export const SCHEMA_VERSION = "voyage.skill.v1" as const;
@@ -430,6 +431,28 @@ export const simulateTravelEventInputSchema = z.object({
   minutes: z.number().int().min(5).max(720).optional(),
 });
 
+/**
+ * Phase 6.9: conservative traveler preference memory. Workspace-scoped, not
+ * trip-scoped; the tripId here only routes the command to a workspace.
+ */
+export const getTravelerMemoryInputSchema = z.object({}).strict();
+
+export const updateTravelerMemoryInputSchema = z.object({
+  entries: z.array(z.object({
+    key: preferenceKeySchema,
+    value: z.string().trim().min(1).max(60),
+    source: z.string().trim().min(1).max(80).default("user"),
+  })).min(1).max(8),
+});
+
+export const deleteTravelerMemoryInputSchema = z.object({
+  key: preferenceKeySchema,
+});
+
+export const disableTravelerMemoryInputSchema = z.object({
+  disabled: z.boolean(),
+});
+
 export const searchSocialInputSchema = z.object({
   city: z.string().min(1).max(80),
   query: z.string().max(120).optional(),
@@ -495,6 +518,10 @@ export const commandSchemas = {
   "analyze-event-impact": analyzeEventImpactInputSchema,
   "propose-event-replan": proposeEventReplanInputSchema,
   "simulate-travel-event": simulateTravelEventInputSchema,
+  "get-traveler-memory": getTravelerMemoryInputSchema,
+  "update-traveler-memory": updateTravelerMemoryInputSchema,
+  "delete-traveler-memory": deleteTravelerMemoryInputSchema,
+  "disable-traveler-memory": disableTravelerMemoryInputSchema,
 } as const;
 
 export type SkillCommand = keyof typeof commandSchemas;

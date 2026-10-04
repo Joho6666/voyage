@@ -86,6 +86,11 @@ export class JsonSkillRepository {
     private readonly options: RepositoryOptions = {},
   ) {}
 
+  /** Workspace data directory (read-only consumers like the memory store). */
+  get dataRoot(): string {
+    return this.root;
+  }
+
   /**
    * Serializes read-modify-write cycles per record file. The revision check
    * alone is check-then-act: two concurrent writers holding the same
