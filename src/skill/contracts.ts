@@ -411,6 +411,25 @@ export const proposeEventReplanInputSchema = z.object({
   message: "provide exactly one of eventId or event",
 });
 
+/**
+ * Phase 6.8: inject a simulated event (demo/dev only). The recorded event is
+ * always labeled source="simulation" — it can never pass as provider data.
+ * The incidentId ties a simulation to the reservation/place/segment it acts on.
+ */
+export const simulateTravelEventInputSchema = z.object({
+  tripId: z.string().min(1),
+  expectedTripRevision: z.number().int().min(1),
+  incident: z.enum(["flight_delay", "heavy_rain", "poi_closed", "user_late", "road_congested"]),
+  /** Incident parameters. */
+  delayMinutes: z.number().int().min(5).max(720).optional(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  placeId: z.string().optional(),
+  segmentId: z.string().optional(),
+  reservationId: z.string().optional(),
+  flightNo: z.string().max(10).optional(),
+  minutes: z.number().int().min(5).max(720).optional(),
+});
+
 export const searchSocialInputSchema = z.object({
   city: z.string().min(1).max(80),
   query: z.string().max(120).optional(),
@@ -475,6 +494,7 @@ export const commandSchemas = {
   "get-trip-state": getTripStateInputSchema,
   "analyze-event-impact": analyzeEventImpactInputSchema,
   "propose-event-replan": proposeEventReplanInputSchema,
+  "simulate-travel-event": simulateTravelEventInputSchema,
 } as const;
 
 export type SkillCommand = keyof typeof commandSchemas;

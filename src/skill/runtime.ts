@@ -13,6 +13,7 @@ import { buildTodayContext } from "@/services/today/context";
 import { getTripState, collectActiveEvents } from "@/services/trip-state/engine";
 import { analyzeEventImpact } from "@/services/impact-engine";
 import { actionsFromImpact, type ReplanStrategy } from "@/services/replan/event-replan";
+import { MockTravelEventProvider } from "@/skill/event-providers";
 import { haversineMeters, estimateTransit, uid } from "@/lib/utils";
 import { createTripId } from "@/services/planning/rule-planner";
 import { planOutline } from "@/services/planning/outline-planner";
@@ -83,6 +84,7 @@ import {
   getTripStateInputSchema,
   analyzeEventImpactInputSchema,
   proposeEventReplanInputSchema,
+  simulateTravelEventInputSchema,
   successEnvelope,
   type ProviderLevel,
   type ProviderStatus,
@@ -1997,6 +1999,58 @@ export class VoyageSkillRuntime {
     );
   }
 
+  /**
+   * Phase 6.8: inject a scripted incident (demo/dev only). The recorded event
+   * is stamped source="simulation" by the MockTravelEventProvider — it can
+   * never pass as real provider data. Gated to demo mode.
+   */
+  async simulateTravelEvent(raw: unknown) {
+    if (process.env.VOYAGE_DEMO_MODE !== "true") {
+      throw new SkillError("INVALID_INPUT", "simulate-travel-event 仅在 VOYAGE_DEMO_MODE=true 下可用");
+    }
+    const input = simulateTravelEventInputSchema.parse(raw);
+    const stored = await this.loadTripForWrite(input.tripId, input.expectedTripRevision);
+    const mock = new MockTravelEventProvider();
+    const date = input.date ?? stored.trip.startDate;
+    // Built lazily per incident: scenarios that require ids must not throw
+    // when a different incident is requested.
+    let event;
+    switch (input.incident) {
+      case "flight_delay":
+        event = mock.flightDelay(input.flightNo ?? "CA1468", input.delayMinutes ?? 90, input.reservationId);
+        break;
+      case "heavy_rain":
+        event = mock.heavyRain(date);
+        break;
+      case "poi_closed":
+        if (!input.placeId) throw new SkillError("INVALID_INPUT", "poi_closed 需要 placeId");
+        event = mock.poiClosed(input.placeId, date);
+        break;
+      case "user_late":
+        event = mock.userLate(input.minutes ?? 45, date);
+        break;
+      case "road_congested":
+        if (!input.segmentId) throw new SkillError("INVALID_INPUT", "road_congested 需要 segmentId");
+        event = mock.roadCongested(input.segmentId, date);
+        break;
+    }
+    const recorded = await this.recordTravelEvent({
+      tripId: input.tripId, expectedTripRevision: stored.revision, event,
+    }) as { data: { event: TravelEvent; revision: number } };
+    return this.simulationEnvelope(input, recorded);
+  }
+
+  private simulationEnvelope(
+    input: { tripId: string; incident: string },
+    recorded: { data: { event: TravelEvent; revision: number } },
+  ) {
+    return successEnvelope(
+      { tripId: input.tripId, incident: input.incident, event: recorded.data.event, revision: recorded.data.revision, note: "模拟事件已记录（source=simulation），可用 analyze-event-impact / propose-event-replan 处理" },
+      status("UNKNOWN", "UNKNOWN", "UNKNOWN"),
+      ["这是模拟事件，不是真实供应商数据"],
+    );
+  }
+
   async importReservations(raw: unknown) {
     const input = importReservationsInputSchema.parse(raw);
     const stored = await this.loadTripForWrite(input.tripId, input.expectedTripRevision);
@@ -2141,6 +2195,7 @@ export class VoyageSkillRuntime {
       case "get-trip-state": return this.getTripStateView(input);
       case "analyze-event-impact": return this.analyzeEventImpactView(input);
       case "propose-event-replan": return this.proposeEventReplan(input);
+      case "simulate-travel-event": return this.simulateTravelEvent(input);
       case "import-reservations": return this.importReservations(input);
       case "search-social": return this.searchSocial(input);
       case "get-social-trending": return this.getSocialTrending(input);
