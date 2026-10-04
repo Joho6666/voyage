@@ -4,13 +4,15 @@ import { useEffect, useRef } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, MoreHorizontal, Star } from "lucide-react";
+import { toast } from "sonner";
 import { TravelImage } from "@/components/travel/TravelImage";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { PLACE_CATEGORY_LABEL, type ItineraryItem, type Place } from "@/types/travel";
 import { DAY_COLORS } from "@/types/travel";
 import { cn } from "@/lib/utils";
-import { travelAgent } from "@/services/ai";
-import { useTripStore } from "@/store/trip-store";
+import { removeItemFromTrip, TripCommandError } from "@/services/trip-commands";
+import { useHistoryStore } from "@/store/history-store";
+import { resyncTrip, useTripStore } from "@/store/trip-store";
 import { useUiStore } from "@/store/ui-store";
 
 export function PoiCard({
@@ -30,6 +32,8 @@ export function PoiCard({
   const isHovered = useUiStore((s) => s.hoverPlaceId === place.id);
   const hoverPlace = useUiStore((s) => s.hoverPlace);
   const patch = useTripStore((s) => s.patchTrip);
+  const setTrip = useTripStore((s) => s.setTrip);
+  const pushHistory = useHistoryStore((s) => s.push);
   const color = DAY_COLORS[dayIndex % DAY_COLORS.length];
   const cardRef = useRef<HTMLElement | null>(null);
 
@@ -38,6 +42,30 @@ export function PoiCard({
       cardRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   }, [selected]);
+
+  // Server-backed removal (the old local-only patch vanished on rehydrate):
+  // snapshot for undo, optimistic hide, revision-locked write, rollback or
+  // resync on failure.
+  const removeFromTrip = () => {
+    const snapshot = useTripStore.getState().trip;
+    const snapshotRevision = useTripStore.getState().revision;
+    pushHistory(snapshot);
+    patch((t) => ({ ...t, items: t.items.filter((candidate) => candidate.id !== item.id) }));
+    void removeItemFromTrip({ tripId: snapshot.id, itemId: item.id, expectedTripRevision: snapshotRevision })
+      .then(({ trip: saved, revision: savedRevision }) => {
+        setTrip(saved, savedRevision);
+        toast.success(`已从行程移除「${place.name}」`);
+      })
+      .catch((cause) => {
+        setTrip(snapshot, snapshotRevision);
+        if (cause instanceof TripCommandError && cause.code === "REVISION_CONFLICT") {
+          toast.error("行程已在别处更新，已同步最新版本，请重试");
+          void resyncTrip(snapshot.id);
+          return;
+        }
+        toast.error(cause instanceof TripCommandError ? cause.message : "移除失败，请重试");
+      });
+  };
 
   const setCombinedRef = (node: HTMLElement | null) => {
     setNodeRef(node);
@@ -50,9 +78,18 @@ export function PoiCard({
       data-place-id={place.id}
       data-selected={selected ? "true" : "false"}
       ref={setCombinedRef}
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          selectPlace(place.id);
+        }
+      }}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        "group flex gap-3 rounded-[12px] border border-transparent px-3 py-2 hover:bg-secondary/70 transition-all cursor-pointer",
+        "group flex gap-3 rounded-[12px] border border-transparent px-3 py-2 hover:bg-secondary/70 transition-all cursor-pointer focus-visible:outline-2 focus-visible:outline-ring",
         selected && "border-primary/40 bg-accent ring-1 ring-primary/20",
         isHovered && !selected && "bg-secondary/80 border-border/70",
         isDragging && "z-10 bg-surface shadow-[var(--shadow-float)]",
@@ -82,7 +119,7 @@ export function PoiCard({
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="rounded-[8px] p-1 text-muted-foreground opacity-0 hover:bg-secondary group-hover:opacity-100"
+                  className="rounded-[8px] p-1 text-muted-foreground opacity-0 hover:bg-secondary group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:opacity-100"
                   aria-label="更多"
                   onClick={(e) => e.stopPropagation()}
                 >
@@ -90,7 +127,7 @@ export function PoiCard({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent>
-                <DropdownMenuItem onSelect={() => patch((t) => travelAgent.removeItem(t, item.id))}>
+                <DropdownMenuItem onSelect={removeFromTrip}>
                   从行程移除
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -110,7 +147,7 @@ export function PoiCard({
         </div>
         <button
           type="button"
-          className="self-center text-muted-foreground opacity-0 group-hover:opacity-100"
+          className="self-center text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 touch-none [@media(pointer:coarse)]:opacity-100"
           aria-label="拖动排序"
           {...attributes}
           {...listeners}

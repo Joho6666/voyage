@@ -16,6 +16,7 @@ import { NextStopBanner } from "./NextStopBanner";
 import { JourneyOverview } from "./JourneyOverview";
 import { JourneyScrubber } from "./JourneyScrubber";
 import { useUiStore } from "@/store/ui-store";
+import { toggleItemDone } from "@/services/check-in";
 import { useUserLocation } from "../hooks/useUserLocation";
 import { useOfflineJourney } from "../hooks/useOfflineJourney";
 
@@ -85,14 +86,15 @@ export function JourneyMockMap({
   const selectedPlace = trip.places.find((p) => p.id === selectedPlaceId) ?? null;
   const selectedSegment = trip.segments.find((s) => s.id === selectedRouteId) ?? null;
 
-  // Next stop for Today mode
+  // Next stop for Today mode. nextItem excludes done items — see the AMap
+  // canvas: a completed "next stop" let the arrival nudge un-check stops.
   const currentDayId = activeDayId ?? trip.days[0]?.id;
   const dayItems = trip.items.filter((i) => i.dayId === currentDayId).sort((a, b) => a.order - b.order);
   const currentIndex = dayItems.findIndex((i) => i.status !== "done");
   const currentItem = dayItems[currentIndex >= 0 ? currentIndex : 0];
-  const nextItem = dayItems[currentIndex >= 0 ? currentIndex + 1 : 1];
+  const nextItem = currentIndex >= 0 ? dayItems[currentIndex + 1] : undefined;
   const currentPlace = trip.places.find((p) => p.id === currentItem?.placeId);
-  const nextPlace = trip.places.find((p) => p.id === nextItem?.placeId) ?? currentPlace;
+  const nextPlace = (currentIndex >= 0 ? trip.places.find((p) => p.id === nextItem?.placeId) : undefined) ?? currentPlace;
   const nextSegment = trip.segments.find((s) => s.fromItemId === currentItem?.id);
 
   const activeDay = trip.days.find((d) => d.id === activeDayId);
@@ -159,6 +161,8 @@ export function JourneyMockMap({
           segment={nextSegment}
           locationError={locationError}
           onRequestLocation={requestLocation}
+          userLocation={userLocation}
+          onCheckIn={nextItem ? () => toggleItemDone(nextItem.id) : undefined}
           onFocusNext={() => {
             if (nextPlace) selectPlace(nextPlace.id);
           }}

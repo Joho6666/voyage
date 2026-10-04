@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   CloudRain,
   Footprints,
@@ -22,17 +23,18 @@ import { TravelImage } from "@/components/travel/TravelImage";
 import { travelAgent } from "@/services/ai";
 import type { AgentMessage, AgentTurn } from "@/services/ai/types";
 import { suggestTodayActions } from "@/features/today/suggestions";
-import { setItemStatus, restoreTrip, TripCommandError } from "@/services/trip-commands";
+import { toggleItemDone } from "@/services/check-in";
+import { restoreTrip, TripCommandError } from "@/services/trip-commands";
 import { useHistoryStore } from "@/store/history-store";
-import { useTripStore } from "@/store/trip-store";
+import { useTripStore, resyncTrip } from "@/store/trip-store";
 import { useUiStore } from "@/store/ui-store";
 import { useDayFocus } from "@/components/itinerary/useDayFocus";
 import { dayStats } from "@/services/routing";
+import { buildTodayContext } from "@/services/today/context";
 import { buildWeatherContext } from "@/services/weather/context";
 import { TripDiffModal } from "@/components/ai/TripDiffModal";
 import { weatherDisplay } from "@/lib/weather-display";
 import type { TripChangeSet } from "@/types/diff";
-import type { ItemStatus } from "@/types/travel";
 import { formatCny, formatKm } from "@/lib/utils";
 
 /** Category labels for the budget breakdown (absorbed from the /budget page). */
@@ -48,7 +50,6 @@ import { toast } from "sonner";
 
 export default function TodayPage() {
   const trip = useTripStore((s) => s.trip);
-  const revision = useTripStore((s) => s.revision);
   const patch = useTripStore((s) => s.patchTrip);
   const setTrip = useTripStore((s) => s.setTrip);
   const persist = useTripStore((s) => s.persist);
@@ -61,7 +62,7 @@ export default function TodayPage() {
   const [lastReply, setLastReply] = useState<AgentMessage | null>(null);
   const [activeDiff, setActiveDiff] = useState<TripChangeSet | null>(null);
   const [diffOpen, setDiffOpen] = useState(false);
-  const [activeRemote, setActiveRemote] = useState<{ tripId: string; proposalId: string; baseRevision: number } | null>(null);
+  const [activeRemote, setActiveRemote] = useState<{ tripId: string; proposalId: string; baseRevision: number; proposalToken: string } | null>(null);
 
   // Determine current day (matches system date if within range, else default to Day 2 or Day 1)
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -81,14 +82,29 @@ export default function TodayPage() {
   );
 
   const currentIndex = items.findIndex((i) => i.status !== "done");
-  const current = items[currentIndex >= 0 ? currentIndex : 0];
-  const next = items[currentIndex >= 0 ? currentIndex + 1 : 1] ?? current;
+  // All stops checked off: there is no "next" — showing a done place as the
+  // next target (the old behaviour) also made the arrival nudge able to
+  // flip completed stops back to planned.
+  const allDone = currentIndex < 0;
+  const current = items[allDone ? items.length - 1 : currentIndex];
+  const next = allDone ? undefined : items[currentIndex + 1];
   const currentPlace = trip.places.find((p) => p.id === current?.placeId);
   const nextPlace = trip.places.find((p) => p.id === next?.placeId);
   const segment = trip.segments.find((s) => s.fromItemId === current?.id);
   const doneCount = items.filter((i) => i.status === "done").length;
 
   const stats = useMemo(() => (day ? dayStats(trip, day.id) : null), [trip, day]);
+  // Today console facts (remaining places/walking/end time, lateness) come from
+  // the same shared pure function the runtime serves to agents, so the page
+  // and the agent never disagree on the numbers.
+  const todayConsole = useMemo(() => {
+    if (!day) return null;
+    try {
+      return buildTodayContext(trip, { dayId: day.id });
+    } catch {
+      return null;
+    }
+  }, [trip, day]);
   // Proactive pulls: computed from trip facts each time the trip (or focus) changes.
   const suggestions = useMemo(
     () => suggestTodayActions(trip, selectedDayId ?? null, todayIso),
@@ -143,26 +159,45 @@ export default function TodayPage() {
     })().catch(() => toast.error("应用修改失败，请重试"));
   };
 
-  const toggleItemDone = (itemId: string) => {
-    const snapshot = trip;
-    const snapshotRevision = revision;
-    const nextStatus: ItemStatus = trip.items.find((i) => i.id === itemId)?.status === "done" ? "planned" : "done";
-    patch((currentTrip) => {
-      return {
-        ...currentTrip,
-        items: currentTrip.items.map((i) =>
-          i.id === itemId ? { ...i, status: nextStatus } : i,
-        ),
-      };
-    });
-    // The optimistic toggle must survive a reload, which only the runtime
-    // write guarantees — localStorage alone is wiped by the server rehydrate.
-    void setItemStatus({ tripId: trip.id, itemId, status: nextStatus, expectedTripRevision: snapshotRevision })
-      .then(({ trip: saved, revision: savedRevision }) => setTrip(saved, savedRevision))
-      .catch((cause) => {
-        setTrip(snapshot, snapshotRevision);
-        toast.error(cause instanceof TripCommandError ? cause.message : "状态保存失败，请重试");
-      });
+  // Direct one-click reschedule: no LLM round-trip, so it works in rule mode
+  // too. The result is still a proposal — the same Diff confirmation the
+  // assistant proposals go through, never a silent write.
+  const runOptimizeItinerary = () => {
+    if (busy) return;
+    void (async () => {
+      setBusy(true);
+      try {
+        const response = await fetch("/api/voyage/command", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            command: "optimize-itinerary",
+            input: { tripId: trip.id, expectedTripRevision: useTripStore.getState().revision, fallbackPolicy: "estimated" },
+          }),
+        });
+        const envelope = await response.json() as { ok?: boolean; data?: { proposalId?: string; proposalToken?: string; baseRevision?: number; changes?: TripChangeSet; changed?: boolean; message?: string }; error?: { code?: string; message?: string } };
+        if (!envelope.ok || !envelope.data) throw new TripCommandError(envelope.error?.message ?? "优化失败，请重试", envelope.error?.code);
+        if (envelope.data.changed === false) {
+          toast.message(envelope.data.message ?? "当前安排已是优化器的最优解");
+          return;
+        }
+        if (!envelope.data.changes || !envelope.data.proposalId || !envelope.data.proposalToken) {
+          throw new TripCommandError("优化服务没有返回可确认的提案，请重试");
+        }
+        setActiveDiff(envelope.data.changes);
+        setActiveRemote({ tripId: trip.id, proposalId: envelope.data.proposalId, baseRevision: envelope.data.baseRevision!, proposalToken: envelope.data.proposalToken });
+        setDiffOpen(true);
+      } catch (cause) {
+        if (cause instanceof TripCommandError && cause.code === "REVISION_CONFLICT") {
+          toast.error("行程已在别处更新，已同步最新版本，请重试");
+          void resyncTrip(trip.id);
+          return;
+        }
+        toast.error(cause instanceof TripCommandError ? cause.message : "优化请求失败，请重试");
+      } finally {
+        setBusy(false);
+      }
+    })();
   };
 
   const openNavigation = () => {
@@ -177,9 +212,21 @@ export default function TodayPage() {
   };
 
   if (!day) {
+    // A bare sentence here used to be a dead end — the traveller had no way
+    // forward except the browser back button.
     return (
-      <div className="grid h-full place-items-center p-6 text-sm text-muted-foreground">
-        还没有行程。先去创建一次旅行。
+      <div className="grid h-full place-items-center p-6 text-center">
+        <div>
+          <p className="text-sm text-muted-foreground">还没有行程。</p>
+          <div className="mt-3 flex items-center justify-center gap-2">
+            <Button asChild size="sm">
+              <Link href="/new-trip">创建一次旅行</Link>
+            </Button>
+            <Button asChild size="sm" variant="outline">
+              <Link href="/trips">返回列表</Link>
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -212,7 +259,14 @@ export default function TodayPage() {
             // a local restore would diverge from the server immediately.
             void restoreTrip({ tripId: trip.id, trip: previous, expectedTripRevision: useTripStore.getState().revision })
               .then(({ trip: saved, revision: savedRevision }) => { setTrip(saved, savedRevision); toast.success("已恢复上一步行程"); })
-              .catch((error) => toast.error(error instanceof TripCommandError ? error.message : "撤销失败，请重试"));
+              .catch((error) => {
+                if (error instanceof TripCommandError && error.code === "REVISION_CONFLICT") {
+                  toast.error("行程已在别处更新，已同步最新版本，请重试");
+                  void resyncTrip(trip.id);
+                  return;
+                }
+                toast.error(error instanceof TripCommandError ? error.message : "撤销失败，请重试");
+              });
           }}
         >
           <Undo2 className="size-3.5" />
@@ -335,30 +389,62 @@ export default function TodayPage() {
               下一站目标
             </span>
             <h2 className="mt-1 text-lg font-semibold text-foreground">
-              {nextPlace?.name ?? currentPlace?.name ?? "今日行程已完成"}
+              {allDone ? "今日行程已完成 🎉" : nextPlace?.name ?? currentPlace?.name ?? "今日行程已完成"}
             </h2>
             <p className="text-[12px] text-muted-foreground mt-0.5">
-              建议出发：<span className="font-medium text-foreground">{current?.endTime || current?.startTime || "09:30"}</span> · 预计到达：<span className="font-medium text-foreground">{next?.startTime || "10:00"}</span>
+              {allDone ? (
+                "今天的节点都已打卡完成，好好休息。"
+              ) : (
+                <>建议出发：<span className="font-medium text-foreground">{current?.endTime || current?.startTime || "09:30"}</span> · 预计到达：<span className="font-medium text-foreground">{next?.startTime || "10:00"}</span></>
+              )}
             </p>
           </div>
-          <div className="text-right">
-            <span className="text-[12px] font-medium text-foreground block">
-              {segment?.mode === "metro" ? "地铁" : segment?.mode === "taxi" ? "出租" : "步行"}
-            </span>
-            <span className="text-[11px] text-muted-foreground">
-              约 {segment?.durationMinutes || segment?.minutes || 15} 分钟
-            </span>
-          </div>
+          {!allDone ? (
+            <div className="text-right">
+              <span className="text-[12px] font-medium text-foreground block">
+                {segment?.mode === "metro" ? "地铁" : segment?.mode === "taxi" ? "出租" : "步行"}
+              </span>
+              <span className="text-[11px] text-muted-foreground">
+                约 {segment?.durationMinutes || segment?.minutes || 15} 分钟
+              </span>
+            </div>
+          ) : null}
         </div>
 
         {/* Navigation Button */}
-        <Button
-          className="mt-4 w-full h-11 text-[13px] font-medium shadow-sm gap-2"
-          onClick={openNavigation}
-        >
-          <Navigation className="size-4" />
-          开始导航（高德地图）
-        </Button>
+        {!allDone ? (
+          <Button
+            className="mt-4 w-full h-11 text-[13px] font-medium shadow-sm gap-2"
+            onClick={openNavigation}
+          >
+            <Navigation className="size-4" />
+            开始导航（高德地图）
+          </Button>
+        ) : null}
+
+        {/* Today execution console (Today Mode v2): remaining budget for the
+            day, computed by the same shared pure function the runtime's
+            get-today-context command serves to agents. */}
+        {todayConsole ? (
+          <div className="mt-3 rounded-[10px] border border-border/70 px-3 py-2">
+            {todayConsole.lateMinutes !== null && todayConsole.lateMinutes > 30 ? (
+              <p className="mb-1.5 text-[11px] font-medium text-amber-700">
+                比计划晚了约 {todayConsole.lateMinutes} 分钟
+              </p>
+            ) : null}
+            <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+              <span>
+                今天剩余：<span className="font-medium text-foreground">{todayConsole.remaining.places}</span> 个地点
+              </span>
+              <span>
+                剩余步行 <span className="font-medium text-foreground tabular-nums">{todayConsole.remaining.walkMeters >= 1000 ? `${(todayConsole.remaining.walkMeters / 1000).toFixed(1)} km` : `${todayConsole.remaining.walkMeters} m`}</span>
+              </span>
+              <span>
+                预计结束 <span className="font-medium text-foreground tabular-nums">{todayConsole.remaining.estimatedEndTime ?? "—"}</span>
+              </span>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       {/* Hero Destination Image if available */}
@@ -420,6 +506,13 @@ export default function TodayPage() {
         <details className="rounded-[14px] border border-border bg-surface/60">
           <summary className="cursor-pointer px-3 py-2.5 text-[12px] font-medium text-muted-foreground">需要帮忙？（临时调整今天的安排）</summary>
           <div className="grid grid-cols-2 gap-2 p-3 pt-1 sm:grid-cols-4">
+            <ActionButton
+              icon={WandSparkles}
+              label="一键优化行程"
+              sub="按位置聚类重排全部天"
+              disabled={busy}
+              onClick={runOptimizeItinerary}
+            />
             <ActionButton
               icon={BedDouble}
               label="我累了"
@@ -509,11 +602,13 @@ export default function TodayPage() {
       {/* Day Timeline Execution List */}
       <section className="mt-6">
         <div className="flex items-center justify-between px-1 mb-2.5">
-          <span className="text-[13px] font-medium text-foreground">
+          {/* Live region: check-ins previously gave screen readers no feedback
+              beyond the focused control's own label change. */}
+          <span className="text-[13px] font-medium text-foreground" aria-live="polite">
             今日节点清单 ({doneCount}/{items.length})
           </span>
           <span className="text-[11px] text-muted-foreground">
-            点击圆圈切换打卡状态
+            点击整行打卡 · 再点一次取消
           </span>
         </div>
 
@@ -526,8 +621,17 @@ export default function TodayPage() {
             return (
               <div
                 key={item.id}
+                role="checkbox"
+                aria-checked={isDone}
+                tabIndex={0}
                 onClick={() => toggleItemDone(item.id)}
-                className={`flex items-center gap-3 rounded-[12px] border p-3 cursor-pointer transition-all ${
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    toggleItemDone(item.id);
+                  }
+                }}
+                className={`flex items-center gap-3 rounded-[12px] border p-3 cursor-pointer transition-all focus-visible:outline-2 focus-visible:outline-ring ${
                   isCurrent
                     ? "border-primary/40 bg-accent/40 shadow-xs"
                     : isDone
@@ -535,8 +639,7 @@ export default function TodayPage() {
                       : "border-border bg-surface hover:bg-secondary/40"
                 }`}
               >
-                <button
-                  type="button"
+                <span
                   className={`grid size-5.5 place-items-center rounded-full border text-[11px] font-medium shrink-0 transition-colors ${
                     isDone
                       ? "border-primary bg-primary text-white"
@@ -544,10 +647,10 @@ export default function TodayPage() {
                         ? "border-primary text-primary"
                         : "border-muted-foreground/40 text-muted-foreground"
                   }`}
-                  aria-label={isDone ? "已打卡" : "未打卡"}
+                  aria-hidden
                 >
                   {isDone ? "✓" : index + 1}
-                </button>
+                </span>
 
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">

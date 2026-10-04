@@ -89,7 +89,7 @@ export function TripDiffModal({
                     省 ¥{Math.abs(metrics.costDiff)}
                   </span>
                 ) : isCostIncreased ? (
-                  <span className="text-[10px] font-medium text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded-full inline-flex items-center gap-0.5">
+                  <span className="text-[10px] font-medium text-amber-700 bg-amber-500/10 px-1.5 py-0.5 rounded-full inline-flex items-center gap-0.5">
                     <TrendingUp className="size-2.5" />
                     +¥{metrics.costDiff}
                   </span>

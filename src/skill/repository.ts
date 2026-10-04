@@ -87,6 +87,33 @@ export class JsonSkillRepository {
   ) {}
 
   /**
+   * Serializes read-modify-write cycles per record file. The revision check
+   * alone is check-then-act: two concurrent writers holding the same
+   * expectedRevision would both pass it and the later rename would silently
+   * drop the first update. Holding the re-read inside the critical section
+   * makes the second writer see the bumped revision and fail loudly with
+   * REVISION_CONFLICT instead.
+   */
+  private writeLocks = new Map<string, Promise<void>>();
+
+  private async withWriteLock<T>(file: string, fn: () => Promise<T>): Promise<T> {
+    const prior = (this.writeLocks.get(file) ?? Promise.resolve()).catch(() => undefined);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const chain = prior.then(() => gate);
+    this.writeLocks.set(file, chain);
+    // Wait for the previous holder's release — never on our own gate, which
+    // only resolves in the finally below.
+    await prior;
+    try {
+      return await fn();
+    } finally {
+      release();
+      if (this.writeLocks.get(file) === chain) this.writeLocks.delete(file);
+    }
+  }
+
+  /**
    * Joins a record name under the workspace root and proves the result stays
    * inside it. Ids are encodeURIComponent-escaped (so `../` cannot survive),
    * and the resolved-path check makes the boundary a locally verifiable
@@ -168,25 +195,27 @@ export class JsonSkillRepository {
     expectedRevision: number;
     session: PlanningSession;
   }): Promise<StoredPlanningSession> {
-    const current = await this.getPlanningSession(input.sessionId);
-    if (!current) throw new SkillError("INVALID_INPUT", "Planning session not found");
-    if (current.revision !== input.expectedRevision) {
-      throw new SkillError("REVISION_CONFLICT", "Planning session revision does not match expectedRevision");
-    }
-    if (input.session.id !== input.sessionId) {
-      throw new SkillError("INVALID_INPUT", "Planning session id does not match sessionId");
-    }
-    const parsed = planningSessionSchema.safeParse({
-      ...input.session,
-      revision: current.revision + 1,
+    return this.withWriteLock(this.planningSessionPath(input.sessionId), async () => {
+      const current = await this.getPlanningSession(input.sessionId);
+      if (!current) throw new SkillError("INVALID_INPUT", "Planning session not found");
+      if (current.revision !== input.expectedRevision) {
+        throw new SkillError("REVISION_CONFLICT", "Planning session revision does not match expectedRevision");
+      }
+      if (input.session.id !== input.sessionId) {
+        throw new SkillError("INVALID_INPUT", "Planning session id does not match sessionId");
+      }
+      const parsed = planningSessionSchema.safeParse({
+        ...input.session,
+        revision: current.revision + 1,
+      });
+      if (!parsed.success) {
+        throw new SkillError("INVALID_INPUT", "Planning session failed schema validation", parsed.error.flatten());
+      }
+      const normalized = parsed.data as PlanningSession;
+      const record: StoredPlanningSession = { ...normalized, hash: digest(normalized) };
+      await this.atomicWrite(this.planningSessionPath(input.sessionId), record);
+      return record;
     });
-    if (!parsed.success) {
-      throw new SkillError("INVALID_INPUT", "Planning session failed schema validation", parsed.error.flatten());
-    }
-    const normalized = parsed.data as PlanningSession;
-    const record: StoredPlanningSession = { ...normalized, hash: digest(normalized) };
-    await this.atomicWrite(this.planningSessionPath(input.sessionId), record);
-    return record;
   }
 
   /** Compatibility alias for callers that treat a session write as a save. */
@@ -215,25 +244,43 @@ export class JsonSkillRepository {
     let files: string[];
     try { files = await readdir(path.join(this.root, "trips")); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
-    const records = await Promise.all(files.filter((file) => file.endsWith(".json")).map((file) => this.readJson<StoredTrip>(path.join(this.root, "trips", file))));
-    return records.filter((record): record is StoredTrip => Boolean(record?.trip?.id));
+    // One corrupted file must not take the whole "my trips" list down: skip
+    // unreadable records (sweep/manual deletion remain the recovery paths)
+    // and keep every healthy trip visible.
+    const records = await Promise.allSettled(files.filter((file) => file.endsWith(".json")).map((file) => this.readJson<StoredTrip>(path.join(this.root, "trips", file))));
+    const stored: StoredTrip[] = [];
+    let unreadable = 0;
+    for (const result of records) {
+      if (result.status === "fulfilled") {
+        if (result.value?.trip?.id) stored.push(result.value);
+      } else {
+        unreadable += 1;
+      }
+    }
+    if (unreadable) {
+      const { logger } = await import("@/lib/logger");
+      logger.warn("trips.list_skipped_unreadable", { count: unreadable, root: this.root });
+    }
+    return stored;
   }
 
   async deleteTrip(id: string) {
-    const current = await this.getTrip(id);
-    if (!current) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
-    await unlink(this.tripPath(id));
-    // Cascade: proposals of a deleted trip embed the whole proposed trip and
-    // would otherwise outlive it as orphans. Names come from readdir (plain
-    // basenames) and are re-validated before any unlink.
-    const proposalDir = path.resolve(this.root, "proposals");
-    for (const file of await readdir(proposalDir).catch(() => [] as string[])) {
-      if (!/^[A-Za-z0-9_-]+\.json$/.test(file)) continue;
-      const full = path.resolve(proposalDir, file);
-      if (!full.startsWith(proposalDir + path.sep)) continue;
-      const record = await readFile(full, "utf8").then((text) => JSON.parse(text) as { tripId?: string }).catch(() => null);
-      if (record?.tripId === id) await unlink(full).catch(() => undefined);
-    }
+    return this.withWriteLock(this.tripPath(id), async () => {
+      const current = await this.getTrip(id);
+      if (!current) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+      await unlink(this.tripPath(id));
+      // Cascade: proposals of a deleted trip embed the whole proposed trip and
+      // would otherwise outlive it as orphans. Names come from readdir (plain
+      // basenames) and are re-validated before any unlink.
+      const proposalDir = path.resolve(this.root, "proposals");
+      for (const file of await readdir(proposalDir).catch(() => [] as string[])) {
+        if (!/^[A-Za-z0-9_-]+\.json$/.test(file)) continue;
+        const full = path.resolve(proposalDir, file);
+        if (!full.startsWith(proposalDir + path.sep)) continue;
+        const record = await readFile(full, "utf8").then((text) => JSON.parse(text) as { tripId?: string }).catch(() => null);
+        if (record?.tripId === id) await unlink(full).catch(() => undefined);
+      }
+    });
   }
 
   async createTrip(trip: Trip): Promise<StoredTrip> {
@@ -246,28 +293,32 @@ export class JsonSkillRepository {
   }
 
   async replaceOffers(input: { tripId: string; expectedRevision: number; offers: TravelOffer[]; status: OfferProviderStatus; weatherByDate?: Record<string, Trip["days"][number]["weather"]> }): Promise<StoredTrip> {
-    const current = await this.getTrip(input.tripId);
-    if (!current) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
-    if (current.revision !== input.expectedRevision) throw new SkillError("REVISION_CONFLICT", "Trip revision does not match expectedTripRevision");
-    const days = input.weatherByDate ? current.trip.days.map((day) => input.weatherByDate?.[day.date] ? { ...day, weather: input.weatherByDate[day.date] } : day) : current.trip.days;
-    const valid = validateTrip({ ...current.trip, days, offers: input.offers, offerProviderStatus: input.status, updatedAt: new Date().toISOString() });
-    if (!valid.success) throw new SkillError("INVALID_INPUT", "Trip failed schema validation", valid.error.flatten());
-    const trip = preservePlanningProfile(current.trip, valid.data as Trip);
-    const next: StoredTrip = { trip, revision: current.revision + 1, hash: digest(trip), updatedAt: new Date().toISOString() };
-    await this.atomicWrite(this.tripPath(input.tripId), next);
-    return next;
+    return this.withWriteLock(this.tripPath(input.tripId), async () => {
+      const current = await this.getTrip(input.tripId);
+      if (!current) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+      if (current.revision !== input.expectedRevision) throw new SkillError("REVISION_CONFLICT", "Trip revision does not match expectedTripRevision");
+      const days = input.weatherByDate ? current.trip.days.map((day) => input.weatherByDate?.[day.date] ? { ...day, weather: input.weatherByDate[day.date] } : day) : current.trip.days;
+      const valid = validateTrip({ ...current.trip, days, offers: input.offers, offerProviderStatus: input.status, updatedAt: new Date().toISOString() });
+      if (!valid.success) throw new SkillError("INVALID_INPUT", "Trip failed schema validation", valid.error.flatten());
+      const trip = preservePlanningProfile(current.trip, valid.data as Trip);
+      const next: StoredTrip = { trip, revision: current.revision + 1, hash: digest(trip), updatedAt: new Date().toISOString() };
+      await this.atomicWrite(this.tripPath(input.tripId), next);
+      return next;
+    });
   }
 
   async updateTrip(input: { tripId: string; expectedRevision: number; trip: Trip }): Promise<StoredTrip> {
-    const current = await this.getTrip(input.tripId);
-    if (!current) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
-    if (current.revision !== input.expectedRevision) throw new SkillError("REVISION_CONFLICT", "Trip revision does not match expectedTripRevision");
-    const valid = validateTrip(input.trip);
-    if (!valid.success) throw new SkillError("INVALID_INPUT", "Trip failed schema validation", valid.error.flatten());
-    const trip = preservePlanningProfile(input.trip, valid.data as Trip);
-    const next: StoredTrip = { trip, revision: current.revision + 1, hash: digest(trip), updatedAt: new Date().toISOString() };
-    await this.atomicWrite(this.tripPath(input.tripId), next);
-    return next;
+    return this.withWriteLock(this.tripPath(input.tripId), async () => {
+      const current = await this.getTrip(input.tripId);
+      if (!current) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+      if (current.revision !== input.expectedRevision) throw new SkillError("REVISION_CONFLICT", "Trip revision does not match expectedTripRevision");
+      const valid = validateTrip(input.trip);
+      if (!valid.success) throw new SkillError("INVALID_INPUT", "Trip failed schema validation", valid.error.flatten());
+      const trip = preservePlanningProfile(input.trip, valid.data as Trip);
+      const next: StoredTrip = { trip, revision: current.revision + 1, hash: digest(trip), updatedAt: new Date().toISOString() };
+      await this.atomicWrite(this.tripPath(input.tripId), next);
+      return next;
+    });
   }
 
   /**
@@ -296,44 +347,48 @@ export class JsonSkillRepository {
   }
 
   async applyProposal(input: { tripId: string; proposalId: string; expectedTripRevision: number; confirmed: boolean; proposalToken: string }) {
-    if (input.confirmed !== true) throw new SkillError("CONFIRMATION_REQUIRED", "Explicit confirmed=true is required");
-    const proposal = await this.getProposal(input.proposalId);
-    if (!proposal || proposal.tripId !== input.tripId) throw new SkillError("PROPOSAL_NOT_FOUND", "Proposal not found");
-    if (proposal.consumedAt) throw new SkillError("PROPOSAL_ALREADY_APPLIED", "Proposal has already been applied");
-    if (new Date(proposal.expiresAt).getTime() < Date.now()) {
-      throw new SkillError("PROPOSAL_EXPIRED", "Proposal token has expired — propose again");
-    }
-    if (!hashMatches(proposal.tokenHash, digestText(input.proposalToken))) {
-      throw new SkillError("PROPOSAL_TOKEN_INVALID", "proposalToken does not match this proposal");
-    }
-    if (!hashMatches(proposal.changeSetHash, digest(proposal.changeSet))) {
-      throw new SkillError("PROPOSAL_TAMPERED", "Stored changeSet no longer matches the hash minted at propose time");
-    }
-    const current = await this.getTrip(input.tripId);
-    if (!current) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
-    if (
-      current.revision !== input.expectedTripRevision ||
-      current.revision !== proposal.baseRevision ||
-      current.hash !== proposal.baseHash
-    ) {
-      throw new SkillError("PROPOSAL_STALE", "Trip changed after this proposal was created");
-    }
-    const valid = validateTrip(proposal.proposedTrip);
-    if (!valid.success) throw new SkillError("INVALID_INPUT", "Proposed Trip failed schema validation", valid.error.flatten());
-    const proposedTrip = preservePlanningProfile(proposal.proposedTrip, valid.data as Trip);
-    const next: StoredTrip = {
-      trip: { ...proposedTrip, updatedAt: new Date().toISOString() },
-      revision: current.revision + 1,
-      hash: "",
-      updatedAt: new Date().toISOString(),
-    };
-    next.hash = digest(next.trip);
-    await this.atomicWrite(this.tripPath(input.tripId), next);
-    // A consumed proposal embeds a full copy of the proposed trip. Keeping the
-    // file "forever" made proposals/ grow without bound, so the record is
-    // deleted once applied: a replay now fails closed with PROPOSAL_NOT_FOUND
-    // instead of quietly succeeding again.
-    await unlink(this.proposalPath(proposal.id)).catch(() => undefined);
-    return next;
+    // Lock on the trip record: apply reads the trip, compares revision+hash and
+    // rewrites it — two concurrent applies must serialize the same way.
+    return this.withWriteLock(this.tripPath(input.tripId), async () => {
+      if (input.confirmed !== true) throw new SkillError("CONFIRMATION_REQUIRED", "Explicit confirmed=true is required");
+      const proposal = await this.getProposal(input.proposalId);
+      if (!proposal || proposal.tripId !== input.tripId) throw new SkillError("PROPOSAL_NOT_FOUND", "Proposal not found");
+      if (proposal.consumedAt) throw new SkillError("PROPOSAL_ALREADY_APPLIED", "Proposal has already been applied");
+      if (new Date(proposal.expiresAt).getTime() < Date.now()) {
+        throw new SkillError("PROPOSAL_EXPIRED", "Proposal token has expired — propose again");
+      }
+      if (!hashMatches(proposal.tokenHash, digestText(input.proposalToken))) {
+        throw new SkillError("PROPOSAL_TOKEN_INVALID", "proposalToken does not match this proposal");
+      }
+      if (!hashMatches(proposal.changeSetHash, digest(proposal.changeSet))) {
+        throw new SkillError("PROPOSAL_TAMPERED", "Stored changeSet no longer matches the hash minted at propose time");
+      }
+      const current = await this.getTrip(input.tripId);
+      if (!current) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+      if (
+        current.revision !== input.expectedTripRevision ||
+        current.revision !== proposal.baseRevision ||
+        current.hash !== proposal.baseHash
+      ) {
+        throw new SkillError("PROPOSAL_STALE", "Trip changed after this proposal was created");
+      }
+      const valid = validateTrip(proposal.proposedTrip);
+      if (!valid.success) throw new SkillError("INVALID_INPUT", "Proposed Trip failed schema validation", valid.error.flatten());
+      const proposedTrip = preservePlanningProfile(proposal.proposedTrip, valid.data as Trip);
+      const next: StoredTrip = {
+        trip: { ...proposedTrip, updatedAt: new Date().toISOString() },
+        revision: current.revision + 1,
+        hash: "",
+        updatedAt: new Date().toISOString(),
+      };
+      next.hash = digest(next.trip);
+      await this.atomicWrite(this.tripPath(input.tripId), next);
+      // A consumed proposal embeds a full copy of the proposed trip. Keeping the
+      // file "forever" made proposals/ grow without bound, so the record is
+      // deleted once applied: a replay now fails closed with PROPOSAL_NOT_FOUND
+      // instead of quietly succeeding again.
+      await unlink(this.proposalPath(proposal.id)).catch(() => undefined);
+      return next;
+    });
   }
 }

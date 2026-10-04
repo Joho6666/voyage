@@ -2,11 +2,14 @@
 
 import React from "react";
 import type { Place, RouteSegment } from "@/types/travel";
-import { formatKm } from "@/lib/utils";
-import { Navigation } from "lucide-react";
+import { formatKm, haversineMeters } from "@/lib/utils";
+import { Navigation, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getModeIcon } from "../controllers/route-controller";
 import { VerticalTransitGuide } from "./VerticalTransitGuide";
+
+/** Close enough that "you have arrived" is a fair claim (haversine, no roads). */
+const ARRIVAL_RADIUS_METERS = 300;
 
 export function NextStopBanner({
   nextPlace,
@@ -15,6 +18,8 @@ export function NextStopBanner({
   locationError,
   onRequestLocation,
   onFocusNext,
+  userLocation,
+  onCheckIn,
 }: {
   nextPlace?: Place;
   currentPlace?: Place;
@@ -22,9 +27,18 @@ export function NextStopBanner({
   locationError?: string | null;
   onRequestLocation?: () => void;
   onFocusNext?: () => void;
+  userLocation?: { lat: number; lng: number } | null;
+  onCheckIn?: () => void;
 }) {
   const target = nextPlace ?? currentPlace;
   if (!target) return null;
+
+  // Arrival nudge: only for the next stop the user is walking towards, and
+  // only once they are genuinely close. This is a reminder with a one-tap
+  // check-in — the runtime never auto-ticks on the user's behalf.
+  const distanceMeters =
+    nextPlace && userLocation ? haversineMeters(userLocation, nextPlace) : null;
+  const arrived = distanceMeters !== null && distanceMeters <= ARRIVAL_RADIUS_METERS;
 
   const modeIcon = segment ? getModeIcon(segment.mode) : "🚶";
   const modeLabel =
@@ -78,6 +92,23 @@ export function NextStopBanner({
           导航
         </Button>
       </div>
+
+      {arrived && onCheckIn ? (
+        <div className="mt-2.5 flex items-center justify-between gap-2 rounded-[8px] bg-emerald-500/10 px-2.5 py-1.5">
+          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+            <MapPin className="size-3" />
+            已到达「{target.name}」附近
+          </span>
+          <Button
+            size="sm"
+            className="h-6 gap-1 rounded-full px-2.5 text-[11px]"
+            onClick={onCheckIn}
+          >
+            <MapPin className="size-3" />
+            打卡
+          </Button>
+        </div>
+      ) : null}
 
       {locationError ? (
         <div

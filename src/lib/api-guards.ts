@@ -20,6 +20,8 @@ export const RATE_LIMITS = {
   llm: { windowMs: 60_000, max: 15 },
   fliggy: { windowMs: 60_000, max: 15 },
   planning: { windowMs: 60_000, max: 10 },
+  write: { windowMs: 60_000, max: 60 },
+  read: { windowMs: 60_000, max: 120 },
 } as const satisfies Record<string, RateLimitRule>;
 
 const buckets = new Map<string, number[]>();
@@ -37,12 +39,14 @@ function cookieValue(request: Request | NextRequest, name: string) {
 
 function clientKey(request: Request | NextRequest) {
   // The guest cookie identifies a browser — but only if it is a real workspace
-  // id. Arbitrary cookie/XFF values must not become unbounded bucket keys, so
-  // everything malformed collapses into the shared anonymous bucket.
+  // id. Everything malformed collapses into the shared anonymous bucket.
+  // x-forwarded-for is deliberately NOT part of the key: on a self-hosted
+  // direct deployment the client fully controls that header, so including it
+  // let anyone mint fresh buckets per request and void every limit. A reverse
+  // proxy deployment can reintroduce a trusted IP component here.
   const rawGuest = cookieValue(request, "voyage_guest_workspace");
   const guest = rawGuest && GUEST_ID_PATTERN.test(rawGuest) ? rawGuest : "no-guest";
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "no-ip";
-  return `${guest}:${ip}`;
+  return guest;
 }
 
 export function rateLimit(request: Request | NextRequest, scope: string, rule: RateLimitRule): { ok: true } | { ok: false; retryAfterSeconds: number } {

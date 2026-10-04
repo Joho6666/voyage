@@ -10,6 +10,7 @@ export function CredentialEditor({ fields, configured }: { fields: readonly stri
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<Record<string, string>>({});
+  const [removing, setRemoving] = useState(false);
   const save = async (key: string, value: string) => {
     if (!value || busy) return;
     setBusy(key);
@@ -26,13 +27,28 @@ export function CredentialEditor({ fields, configured }: { fields: readonly stri
     } catch { setMessage((current) => ({ ...current, [key]: "保存失败，请检查本地服务" })); }
     finally { setBusy(null); }
   };
+  const remove = async (key: string) => {
+    if (busy || removing || !configured[key]) return;
+    setRemoving(true);
+    setMessage((current) => ({ ...current, [key]: "移除中…" }));
+    try {
+      const response = await fetch(`/api/voyage/local-credentials?key=${encodeURIComponent(key)}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("移除失败");
+      setMessage((current) => ({ ...current, [key]: "已移除" }));
+      router.refresh();
+    } catch { setMessage((current) => ({ ...current, [key]: "移除失败，请检查本地服务" })); }
+    finally { setRemoving(false); }
+  };
   return <div className="mt-4 space-y-3 border-t border-border pt-4">
-    <p className="text-xs text-muted-foreground">在此填入新值，离开输入框后自动保存；已保存的值不会回显。</p>
+    <p className="text-xs text-muted-foreground">在此填入新值，离开输入框后自动保存；已保存的值不会回显。点击「移除」可清除本机保存的凭据。</p>
     {fields.map((key) => <div key={key} className="grid gap-1 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
       <label className="min-w-0 text-[11px] font-medium"><span className="break-all">{key} {configured[key] ? "· 已配置" : "· 未配置"}</span>
         <Input type={/URL|MODEL|DISTRIBUTOR|AGENT_NAME/.test(key) ? "text" : "password"} autoComplete="off" value={values[key] ?? ""} onChange={(event) => setValues((current) => ({ ...current, [key]: event.target.value }))} onBlur={() => void save(key, values[key] ?? "")} placeholder={configured[key] ? "留空保持现有配置" : "粘贴新值"} className="mt-1" />
       </label>
-      <Button size="sm" variant="outline" disabled={!values[key] || busy !== null} onClick={() => void save(key, values[key] ?? "")}>{busy === key ? "保存中" : "保存"}</Button>
+      <div className="flex items-center gap-1.5">
+        <Button size="sm" variant="outline" disabled={!values[key] || busy !== null} onClick={() => void save(key, values[key] ?? "")}>{busy === key ? "保存中" : "保存"}</Button>
+        {configured[key] ? <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-rose-600" disabled={busy !== null || removing} onClick={() => void remove(key)}>{removing ? "…" : "移除"}</Button> : null}
+      </div>
       {message[key] ? <p role="status" className="text-[11px] text-muted-foreground sm:col-span-2">{message[key]}</p> : null}
     </div>)}
   </div>;

@@ -30,12 +30,14 @@ describe("paid-route rate limiting", () => {
     expect(rateLimit(requestWith("guest-b"), scope, rule).ok).toBe(true);
   });
 
-  it("keeps callers isolated by guest cookie and IP", () => {
+  it("isolates callers by guest cookie and ignores the spoofable XFF header", () => {
     const rule = { windowMs: 60_000, max: 1 };
     const scope = `test-iso-${Date.now()}`;
     expect(rateLimit(requestWith("11111111-1111-4111-8111-111111111111"), scope, rule).ok).toBe(true);
     expect(rateLimit(requestWith("22222222-2222-4222-8222-222222222222"), scope, rule).ok).toBe(true);
-    expect(rateLimit(requestWith("11111111-1111-4111-8111-111111111111", "198.51.100.7"), scope, rule).ok).toBe(true);
+    // A different x-forwarded-for must NOT mint a fresh bucket: on a direct
+    // deployment the client owns that header, so IP-keying voided every limit.
+    expect(rateLimit(requestWith("11111111-1111-4111-8111-111111111111", "198.51.100.7"), scope, rule).ok).toBe(false);
     expect(rateLimit(requestWith("11111111-1111-4111-8111-111111111111"), scope, rule).ok).toBe(false);
   });
 

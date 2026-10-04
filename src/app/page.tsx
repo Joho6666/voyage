@@ -8,16 +8,27 @@ import { Textarea } from "@/components/ui/textarea";
 import { brand } from "@/lib/brand";
 import { ArrowRight, Compass, Sparkles, Navigation, Calendar, Shuffle } from "lucide-react";
 
+/** First upcoming Saturday as an absolute date — the planning profile
+ * extractor only reads explicit dates (20XX-M-D), so 周末-style prompts
+ * would leave the traveller stuck on the departure-date blocker. */
+function nextSaturdayIso(): string {
+  const date = new Date();
+  date.setDate(date.getDate() + (((6 - date.getDay()) % 7 + 7) % 7 || 7));
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
 const SUGGESTIONS = [
-  "从桂林去重庆玩3天，2个人，预算2500，喜欢美食和夜景，不想每天走太多路。",
-  "成都出发自驾川西4天，2人，摄影风景，避开高反。",
-  "杭州周末2日慢游，独行，咖啡馆、独立书店与西湖徒步。",
+  `${nextSaturdayIso()} 从桂林去重庆玩3天，2个人，预算2500，喜欢美食和夜景，不想每天走太多路。`,
+  `${nextSaturdayIso()} 成都出发自驾川西4天，2人，摄影风景，避开高反。`,
+  `${nextSaturdayIso()} 杭州2日慢游，独行，咖啡馆、独立书店与西湖徒步。`,
 ];
 
 export default function LandingPage() {
   const router = useRouter();
   const [prompt, setPrompt] = useState(
-    "从桂林去重庆玩3天，2个人，预算2500，喜欢美食和夜景，不想每天走太多路。",
+    () => `${nextSaturdayIso()} 从桂林去重庆玩3天，2个人，预算2500，喜欢美食和夜景，不想每天走太多路。`,
   );
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -102,6 +113,16 @@ export default function LandingPage() {
             </Button>
           </div>
         </form>
+
+        {/* Demo fixture is server-gated by VOYAGE_DEMO_MODE; this public flag
+            must mirror it or the link 404-toast back to /trips. */}
+        {process.env.NEXT_PUBLIC_VOYAGE_DEMO_MODE === "true" ? (
+          <div className="mt-3 text-center sm:text-left">
+            <Link href="/trip/chongqing-2026" className="text-[12px] text-muted-foreground underline-offset-2 transition-colors hover:text-primary hover:underline">
+              不想打字？先看一个示例行程 →
+            </Link>
+          </div>
+        ) : null}
 
         {/* 4 Core Pillars of Voyage: Plan, Explore, Adapt, Travel */}
         <div className="mt-14 grid grid-cols-2 sm:grid-cols-4 gap-4">

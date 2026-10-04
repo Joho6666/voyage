@@ -13,7 +13,8 @@ import { cn } from "@/lib/utils";
 import { MapPin } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { setTaskStatus } from "@/services/trip-commands";
+import { setTaskStatus, TripCommandError } from "@/services/trip-commands";
+import { resyncTrip } from "@/store/trip-store";
 import type { TaskStatus } from "@/types/travel";
 
 /**
@@ -47,10 +48,17 @@ function TaskList() {
         setTrip(saved, savedRevision);
         setSavingTaskId(null);
       })
-      .catch(() => {
+      .catch((cause) => {
         setTrip(trip, revision);
         setSavingTaskId(null);
-        toast.error("任务状态保存失败，请重试");
+        if (cause instanceof TripCommandError && cause.code === "REVISION_CONFLICT") {
+          // Roll back the optimistic flip but re-sync — the stale revision
+          // would otherwise fail every later write until a manual reload.
+          toast.error("行程已在别处更新，已同步最新版本，请重试");
+          void resyncTrip(trip.id);
+          return;
+        }
+        toast.error(cause instanceof TripCommandError ? cause.message : "任务状态保存失败，请重试");
       });
   };
 

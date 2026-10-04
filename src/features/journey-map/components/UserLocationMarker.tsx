@@ -7,7 +7,7 @@ export function UserLocationMarker({ location }: { location?: UserLocation }) {
       className="relative flex size-6 items-center justify-center -translate-x-1/2 -translate-y-1/2 pointer-events-none"
       title={location ? `定位更新: ${new Date(location.updatedAt).toLocaleTimeString()}` : "当前位置"}
     >
-      <span className="absolute inline-flex size-6 animate-ping rounded-full bg-blue-500 opacity-60" />
+      <span className="absolute inline-flex size-6 animate-ping motion-reduce:animate-none rounded-full bg-blue-500 opacity-60" />
       <span className="relative inline-flex size-3.5 rounded-full border-2 border-white bg-blue-600 shadow-md" />
     </div>
   );

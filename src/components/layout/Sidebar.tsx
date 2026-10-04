@@ -27,7 +27,9 @@ export function Sidebar({ tripId }: { tripId?: string }) {
   }, []);
 
   const displayName = user?.user_metadata?.name || user?.email?.split("@")[0] || "游客";
-  const displaySub = user?.email || "点击登录与同步";
+  // Account is optional: everything works local-first without it, so the
+  // label states that plainly instead of nudging people to register.
+  const displaySub = user?.email || "可选 · 数据保存在本地";
 
   return (
     <aside
@@ -90,7 +92,7 @@ export function Sidebar({ tripId }: { tripId?: string }) {
             "mt-2 flex w-full items-center gap-2 rounded-[8px] p-1.5 text-left hover:bg-secondary transition-colors",
             collapsed && "justify-center p-1",
           )}
-          title={user?.email ? `已登录: ${user.email}` : "点击登录"}
+          title={user?.email ? `已登录: ${user.email}` : "可选登录（数据保存在本地，无需账号）"}
         >
           <div className="grid size-8 place-items-center rounded-full bg-primary/10 text-primary text-[12px] font-medium shrink-0">
             {user?.email ? user.email.slice(0, 1).toUpperCase() : <UserIcon className="size-4" />}

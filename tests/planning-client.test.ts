@@ -7,16 +7,23 @@ import {
 } from "@/features/new-trip/planning-client";
 import { MAX_TRIP_DAYS } from "@/lib/trip-limits";
 
-// +7 天起算，UTC/本地时区偏差不会把日期翻成过去
-const isoDate = (offsetDays: number) =>
-  new Date(Date.now() + offsetDays * 86400000).toISOString().slice(0, 10);
+/** Local-date string N days from now. Hardcoded dates turned this suite into
+ * a time bomb: 2026-10-01 silently became yesterday and the "no warning"
+ * assertions started failing on a calendar change, not a code change. */
+function isoInDays(days: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
 
 function draft(overrides: Partial<Parameters<typeof generateBlockersFor>[0]> = {}) {
   return {
     origin: "桂林",
     destination: "重庆",
-    startDate: isoDate(7),
-    endDate: isoDate(9),
+    startDate: isoInDays(0),
+    endDate: isoInDays(2),
     travelers: "2",
     budget: "2500",
     vibes: ["美食"],
@@ -35,12 +42,12 @@ describe("planning client cap alignment", () => {
   it("uses the same cap as the server", () => {
     // The drift regression: the client once allowed 31 days while the runtime
     // capped at 7, so users could build plans that failed at generate.
-    const long = draft({ startDate: isoDate(7), endDate: isoDate(26) });
+    const long = draft({ startDate: isoInDays(0), endDate: isoInDays(19) });
     expect(draftDateSpan(long)).toBe(20);
     expect(generateBlockersFor(long, undefined)).toContain("日期跨度");
     expect(dateRangeWarning(long)).toContain(`超过可生成的上限 ${MAX_TRIP_DAYS} 天`);
 
-    const atCap = draft({ startDate: isoDate(7), endDate: isoDate(13) });
+    const atCap = draft({ startDate: isoInDays(0), endDate: isoInDays(6) });
     expect(generateBlockersFor(atCap, undefined)).not.toContain("日期跨度");
     expect(dateRangeWarning(atCap)).toBe("");
   });
@@ -62,8 +69,8 @@ describe("planning client cap alignment", () => {
     expect(patch).toMatchObject({
       origin: "桂林",
       destination: "重庆",
-      startDate: isoDate(7),
-      endDate: isoDate(9),
+      startDate: isoInDays(0),
+      endDate: isoInDays(2),
       travelers: 2,
       budget: 2500,
       pace: "relaxed",

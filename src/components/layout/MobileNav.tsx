@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LayoutDashboard, Map, MoreHorizontal, Route, X } from "lucide-react";
@@ -26,6 +26,16 @@ function TripMobileNav({ tripId }: { tripId: string }) {
   const groups = tripNavGroups(tripId);
 
   const closeMore = () => setMoreOpen(false);
+
+  // The "更多" sheet acted like a dialog but ignored Escape entirely.
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onEsc = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMoreOpen(false);
+    };
+    window.addEventListener("keydown", onEsc);
+    return () => window.removeEventListener("keydown", onEsc);
+  }, [moreOpen]);
 
   return (
     <>
@@ -151,7 +161,6 @@ export function AppMobileNav() {
                 href={item.href}
                 className={cn(
                   "flex h-14 flex-col items-center justify-center gap-0.5 text-[11px] text-muted-foreground",
-                  item.href === "/new-trip" && "text-primary",
                   pathname === item.href && "text-primary",
                 )}
               >

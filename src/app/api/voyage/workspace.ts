@@ -72,6 +72,8 @@ function runMaintenanceOnce(keepWorkspaceId: string) {
     .catch((error) => logger.debug("guests.sweep_failed", { error }));
   void sweepExpiredShares()
     .catch((error) => logger.debug("shares.sweep_failed", { error }));
+  void sweepExpiredProposals()
+    .catch((error) => logger.debug("proposals.sweep_failed", { error }));
 }
 
 /**
@@ -104,6 +106,57 @@ export async function sweepExpiredShares(options: { sharesDir?: string; now?: Da
     }
   }
   if (removed) logger.info("shares.swept_expired", { removed });
+  return removed;
+}
+
+/**
+ * Removes proposal files whose one-time token has expired without ever being
+ * applied, plus leftover `.tmp` fragments from interrupted atomic writes.
+ * Every guest embeds a full trip copy per proposal, so without this sweep an
+ * active workspace's proposals/ directory grows without bound — the guest
+ * TTL only reaps users idle for 30 days. Returns the number of expired
+ * proposal records removed (`.tmp` fragments are cleaned silently).
+ */
+export async function sweepExpiredProposals(options: { guestsRoot?: string; now?: Date } = {}): Promise<number> {
+  const rootBoundary = path.resolve(options.guestsRoot ?? path.join(resolveDataDir(), "guests"));
+  let guests: Dirent[];
+  try {
+    guests = await readdir(rootBoundary, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  const now = (options.now ?? new Date()).getTime();
+  let removed = 0;
+  for (const guest of guests) {
+    if (!guest.isDirectory() || !uuid.test(guest.name)) continue;
+    const proposalsDir = path.resolve(rootBoundary, guest.name, "proposals");
+    let entries: Dirent[];
+    try {
+      entries = await readdir(proposalsDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const file = path.resolve(proposalsDir, entry.name);
+      if (!file.startsWith(proposalsDir + path.sep)) continue;
+      if (entry.name.endsWith(".tmp")) {
+        await rm(file, { force: true }).catch(() => undefined);
+        continue;
+      }
+      if (!/^[A-Za-z0-9_-]+\.json$/.test(entry.name)) continue;
+      try {
+        const proposal = JSON.parse(await readFile(file, "utf8")) as { expiresAt?: unknown };
+        if (typeof proposal.expiresAt === "string" && new Date(proposal.expiresAt).getTime() < now) {
+          await rm(file, { force: true });
+          removed += 1;
+        }
+      } catch (error) {
+        logger.debug("proposals.sweep_entry_failed", { file: entry.name, error });
+      }
+    }
+  }
+  if (removed) logger.info("proposals.swept_expired", { removed });
   return removed;
 }
 

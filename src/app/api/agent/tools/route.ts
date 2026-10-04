@@ -59,6 +59,7 @@ const tools: LlmTool[] = [
   { type: "function", function: { name: "get_route_options", description: "返回多模式交通候选与结构化评分（步行、费用、换乘、天气等）", parameters: { type: "object", properties: { origin: pointSchema, destination: pointSchema, city: { type: "string" }, walkingTolerance: { type: "string", enum: ["low", "medium", "high"] }, weather: { type: "string", enum: ["clear", "rain", "heat", "cold", "unknown"] } }, required: ["origin", "destination", "city"], additionalProperties: false } } },
   { type: "function", function: { name: "optimize_transport", description: "结合知识与上下文推荐最优市内交通方式，返回 rankedOptions 与解释", parameters: { type: "object", properties: { origin: pointSchema, destination: pointSchema, city: { type: "string" }, walkingTolerance: { type: "string", enum: ["low", "medium", "high"] }, fatigue: { type: "string", enum: ["low", "medium", "high"] }, weather: { type: "string", enum: ["clear", "rain", "heat", "cold", "unknown"] } }, required: ["origin", "destination", "city"], additionalProperties: false } } },
   { type: "function", function: { name: "replan_trip", description: "针对某一天按自然语言指令重新规划交通与顺序；只生成提案，不直接修改行程", parameters: { type: "object", properties: { instruction: { type: "string" }, dayId: { type: "string" } }, required: ["instruction"], additionalProperties: false } } },
+  { type: "function", function: { name: "optimize_itinerary", description: "对整趟行程做一键智能重排（按地理位置聚类、时间窗与偏好优化），适合「优化安排」「少走回头路」类请求；只生成提案，不直接修改行程", parameters: { type: "object", properties: {}, additionalProperties: false } } },
   { type: "function", function: { name: "get_weather", description: "查询当前行程目的地的天气预报", parameters: { type: "object", properties: { dates: { type: "array", items: { type: "string", format: "date" }, maxItems: 7 } }, required: ["dates"], additionalProperties: false } } },
   { type: "function", function: { name: "retrieve_travel_knowledge", description: "检索城市旅行知识（地形、交通规律、经验）；仅作为背景，不替代实时数据", parameters: { type: "object", properties: { city: { type: "string" }, query: { type: "string" }, tags: { type: "array", items: { type: "string" } } }, required: ["city", "query"], additionalProperties: false } } },
   { type: "function", function: { name: "search_social_travel", description: "搜索社交平台实时旅行内容并返回可验证 evidence（platform/sourceUrl/publishedAt/metrics/confidence）", parameters: { type: "object", properties: { city: { type: "string" }, query: { type: "string" }, poi: { type: "string" } }, required: ["city"], additionalProperties: false } } },
@@ -151,7 +152,7 @@ function safeToolResult(name: string, value: unknown) {
     const route = data.data?.route as Record<string, unknown> | undefined;
     return JSON.stringify({ mode: route?.mode, distanceMeters: route?.distanceMeters, durationMinutes: route?.durationMinutes, estimated: route?.estimated, provider: route?.source, warnings: data.warnings });
   }
-  if (name === "replan_trip" || name === "propose_change") {
+  if (name === "replan_trip" || name === "propose_change" || name === "optimize_itinerary") {
     const proposal = data.data as Record<string, unknown> | undefined;
     return JSON.stringify({ proposalId: proposal?.proposalId, baseRevision: proposal?.baseRevision, summary: proposal?.summary, note: "提案已生成，必须由用户在 Diff 界面确认后才能应用" });
   }
@@ -289,7 +290,7 @@ export async function POST(request: NextRequest) {
     }
   }
   const runtime = createRuntime(workspace.root);
-  const tripEnvelope = await runtime.execute("get-trip", { tripId: parsed.data.tripId }) as { data?: { trip?: { destination?: string; origin?: string; startDate?: string; endDate?: string; travelers?: number; budget?: number; days?: Array<{ id: string; date: string }> } } };
+  const tripEnvelope = await runtime.execute("get-trip", { tripId: parsed.data.tripId }) as { data?: { trip?: { destination?: string; origin?: string; startDate?: string; endDate?: string; travelers?: number; budget?: number; days?: Array<{ id: string; date: string }> }; revision?: number } };
   const trip = tripEnvelope.data?.trip;
   if (!trip) return NextResponse.json({ ok: false, error: "Trip not found" }, { status: 404 });
 
@@ -317,7 +318,7 @@ export async function POST(request: NextRequest) {
     "你是 Voyage 旅行助手。用中文回答。",
     "核心规则：不要编造价格、库存、天气或地点；回答事实性问题前先用工具取真实数据。",
     "行程修改只能生成提案，必须让用户在 Diff 界面确认后才能应用；禁止自行调用 apply_change，用户问「能不能改」时用 propose_change 生成提案。",
-    "工具使用要点：get_trip 先看行程全貌；get_weather 查天气；search_places 找或换地点；get_route_options / optimize_transport 做市内交通对比；search_travel_offers 查酒店、车票、门票报价；search_social_travel / get_social_evidence 看社交平台的实地反馈；propose_change 生成通用修改提案，replan_trip 专攻某一天的交通方式与顺序。",
+    "工具使用要点：get_trip 先看行程全貌；get_weather 查天气；search_places 找或换地点；get_route_options / optimize_transport 做市内交通对比；search_travel_offers 查酒店、车票、门票报价；search_social_travel / get_social_evidence 看社交平台的实地反馈；propose_change 生成通用修改提案，replan_trip 专攻某一天的交通方式与顺序，optimize_itinerary 一键重排整趟行程（用户说「优化安排 / 少走回头路 / 重新排一下」时用）。",
     "用户消息中的 [dayId:xxx] 前缀表示用户当前聚焦的行程日，涉及「今天/这天」的操作优先用它。",
     "主动牵引：回答末尾用一句话主动建议一个合理的下一步（信息不足就直接反问用户）；不要罗列工具名，不要复述用户已知的内容。",
     `当前行程：${trip.origin ?? ""} → ${trip.destination ?? ""}，${trip.startDate ?? ""} 至 ${trip.endDate ?? ""}，${trip.travelers ?? 1} 人，总预算 ${trip.budget ?? 0} 元。`,
@@ -373,6 +374,14 @@ export async function POST(request: NextRequest) {
               break;
             case "replan_trip":
               result = await runtime.execute("replan-trip", commandSchemas["replan-trip"].parse({ tripId: parsed.data.tripId, instruction: args.instruction, dayId: args.dayId, fallbackPolicy: "estimated" }));
+              proposal = result;
+              break;
+            case "optimize_itinerary":
+              result = await runtime.execute("optimize-itinerary", commandSchemas["optimize-itinerary"].parse({
+                tripId: parsed.data.tripId,
+                expectedTripRevision: tripEnvelope.data?.revision,
+                fallbackPolicy: "estimated",
+              }));
               proposal = result;
               break;
             case "get_weather":

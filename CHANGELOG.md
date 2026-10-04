@@ -2,6 +2,38 @@
 
 本文件记录面向使用者的显著变更。日期为合并到 main 的日期。
 
+## 2026-10-03 · 安全加固与无障碍提升
+
+- **限流桶不再信任客户端 IP**：X-Forwarded-For 完全由客户端控制，直接部署时每个请求可以伪造新 IP 绕过限流；现在只用会话 cookie 作为桶 key，反向代理场景可自行加回可信 IP。
+- **写命令补齐限流**：remove-item / remove-day / set-item-status / reorder-day / restore-trip / apply-change / optimize-itinerary 等 14 个改写型命令进入 `write` scope（60 次/分钟），optimize-itinerary 并入 `llm` scope；此前这些命令可无限调用。
+- **后台生成并发闸**：detached 生成 worker 上限 2 个（此前只靠会话状态锁，多会话并发仍可无限消耗 LLM 配额）；超出时返回 429。
+- **外链 schema 强化**：社交证据 schema 新增 `socialHttpsUrlSchema`，仅接受 `https://` URL（zod 的 `.url()` 默认接受 `javascript:`）。
+- **键盘可达性**：Today 打卡行改为 `role="checkbox"` + `aria-checked`，支持 Enter/Space 键切换；PoiCard 卡片和地图标记均补齐键盘可达；hover-only 的拖拽手柄和更多菜单在键盘聚焦时可见。
+- **CommandPalette / 移动端更多面板**：Esc 键关闭（此前显示 Esc 提示但实际无效）；对话框补 `aria-label`；全局启用 `prefers-reduced-motion`，地图 ping 脉冲和弹出动画在减少动画模式下禁用。
+- **离线模式可回退**：行程布局在网络请求失败时尝试读取已缓存的离线行程包（`getCachedTrip` 此前零调用），渲染行程并在顶部显示离线提示；Service Worker 改为 network-first + 缓存回退，为未缓存的离线行程返回 504 而非静默失败。
+- **测试覆盖**：新增离线回退 E2E、删除日命令 E2E（两段式确认）；更新 README 测试数量（301 单元测试，39 条 E2E）。
+
+## 2026-10-01 · 开源开箱即用（README + Auth 弱化）
+
+- **README 第一屏重写**：标题改为 "Open-source AI-native Travel OS"，一屏列出核心承诺（No account required / Local-first / BYO API keys / Real POI·route·weather / 攻略导入 / AI 排程 / Today 执行模式 / Skill+MCP），并新增 **Provider 分级表**：Level 0 Demo（零配置可完整体验）→ Level 1 AMap → Level 2 LLM → Level 3 Social/Offers，明确"不配任何 Key 也能用"。
+- **账号入口弱化**：侧栏账户按钮文案从"点击登录与同步"改为"可选 · 数据保存在本地"，明确无需注册即可完整体验（登录仅为可选跨设备同步）。不删除 Supabase 代码，保持 Optional。
+
+## 2026-10-01 · Today Mode v2（旅行执行控制台）
+
+- **新只读命令 `get-today-context`**：一次返回当前站、下一站（名称、停留、真实距离与推荐交通含估算标注、建议出发/预计到达时间）、今天剩余（地点数、剩余步行米数、预计结束时间）、比计划晚了多少分钟、当天天气（带 provenance，未知保持未知）、以及确定性规则建议（下雨 / 剩余步行超限 / 落后于计划 / 下一站过远）。全部建议都是 advisory：任何修改仍走 propose → Diff → 用户确认。
+- **纯函数在 service 层共享**（`src/services/today/context.ts`）：runtime 命令与 Today 页控制台使用同一份计算，页面显示的剩余步行/预计结束与 Agent 看到的数字永远一致，不重复业务逻辑。
+- **Today 页新增执行台条**：导航按钮下方常显"今天剩余 N 个地点 · 剩余步行 X km · 预计结束 HH:mm"，迟到超过 30 分钟时显示"比计划晚了约 N 分钟"提示；已完成/跳过地点不计入剩余，也不被重排。
+- **MCP**：新增 `voyage_get_today_context`（只读）；命令暴露矩阵同步。
+- 6 项新测试：当前/下一站与交通计算、done 不计入剩余、迟到检测、雨天建议、剩余步行建议、未知天气不伪造。
+
+## 2026-10-01 · Itinerary Optimizer v1（智能排程）
+
+- **新 Runtime 命令 `optimize-itinerary`**：对已有行程的 planned 条目做整体重排——按经纬度地理聚类（farthest-first 确定性种子 + k-means，无随机）、日内 nearest-neighbour 链、时间窗就位（观景/夜景放晚间档、餐饮锚定正餐）、用户画像生效（pace 控制每日密度、low 步行耐受触发日步行预算并把最孤立地点外移、elderly/children 降低密度）、雨天室内优先并把高体力户外移出。**始终产出提案**（Diff + proposalToken），用户确认后才应用；done/current 条目原地保留；无法排程的事实（营业时间 unknown、无天气预报）如实记入 unresolvedConstraints，绝不伪造。
+- **攻略导入接入优化器**：规划会话贴链接生成、行程页一键导入两处的"按攻略顺序平均切块"替换为 `optimizeGuideDayAssignment`——攻略原始顺序保留为信号（聚类种子与 tie-breaker），地理相近的地点优先同日，导入 toast 展示排程理由。
+- **解释而非黑箱**：每次排程输出 `decisions[]`（基于真实距离/类型/天气/画像的中文理由，如"洪崖洞与解放碑两地相距约 350 m"）、`warnings[]`、`estimatedWalkingMetersByDay`。
+- **MCP**：新增 `voyage_optimize_itinerary`（WRITE annotation，返回 Diff 摘要）；命令暴露矩阵文档化于 `docs/RUNTIME_COMMAND_EXPOSURE.md`。
+- 12 项 Optimizer 纯函数测试 + 4 项 runtime proposal 流测试；验收场景（桂林→重庆 8 地点 3 天）通过：磁器口（西）不与南山（东南）同日、南山一棵树排晚间、低步行偏好显著降低总步行、同输入输出完全确定。
+
 ## 2026-10-01 · MCP 确认机制加固（proposalToken）
 
 - **提案应用必须携带一次性 proposalToken**：`propose-change`（含 replan 产生的提案）现在签发短时效（默认 10 分钟，可通过 repository 选项调整）、一次性、绑定 tripId + revision + changeSet 哈希的 token；`apply-change` 缺 token、token 错误、过期、已消费、revision 漂移或 changeSet 被篡改时分别以 `PROPOSAL_TOKEN_REQUIRED` / `PROPOSAL_TOKEN_INVALID` / `PROPOSAL_EXPIRED` / `PROPOSAL_ALREADY_APPLIED` / `PROPOSAL_STALE` / `PROPOSAL_TAMPERED` 明确拒绝。服务端只存 token 的 sha256，明文只出现在 propose 响应里。此前 MCP 端模型可以自己 propose 再自己 apply（`confirmed:true` 模型可自行填写），现在这条捷径被关闭。

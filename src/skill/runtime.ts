@@ -8,6 +8,8 @@ import { buildTransportKnowledgeContext } from "@/services/knowledge/context-bui
 import type { ScoredTransportOption, TransportContext } from "@/types/transport-intelligence";
 import { planActionsWithRules, resolveRequestedDay } from "@/services/ai/actions/rule-planner";
 import { computeTripChangeSet } from "@/services/ai/diff";
+import { optimizeTripPlan } from "@/services/itinerary-optimizer";
+import { buildTodayContext } from "@/services/today/context";
 import { haversineMeters, estimateTransit } from "@/lib/utils";
 import { createTripId } from "@/services/planning/rule-planner";
 import { planOutline } from "@/services/planning/outline-planner";
@@ -42,6 +44,8 @@ import {
   getWeatherInputSchema,
   getRouteOptionsInputSchema,
   optimizeTransportInputSchema,
+  optimizeItineraryInputSchema,
+  getTodayContextInputSchema,
   retrieveTravelKnowledgeInputSchema,
   replanTripInputSchema,
   searchFlightsInputSchema,
@@ -54,6 +58,8 @@ import {
   reorderDayInputSchema,
   addPlaceItemInputSchema,
   setItemStatusInputSchema,
+  removeItemInputSchema,
+  removeDayInputSchema,
   importRouteInputSchema,
   setTaskStatusInputSchema,
   addPlaceInputSchema,
@@ -214,6 +220,21 @@ function routeSegment(input: {
   };
 }
 
+/** Maps a list with at most `limit` workers in flight. Route planning jobs are
+ * independent provider calls; AMap personal keys allow ~3 QPS, so 3 is the
+ * throughput ceiling we are willing to use. */
+async function mapWithConcurrency<T, R>(items: T[], limit: number, worker: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await worker(items[index], index);
+    }
+  }));
+  return results;
+}
+
 async function enrichRoutes(
   trip: Trip,
   provider: TravelDataProvider,
@@ -228,9 +249,13 @@ async function enrichRoutes(
   let level: ProviderLevel = provider.kind === "amap" ? "REAL" : "MOCK";
   const warnings: string[] = [];
 
+  // Collect every hop across the target days first, then plan them with a
+  // small worker pool — the old per-day serial loop left most of the QPS
+  // budget idle and stretched generation by seconds per day.
+  type SegmentJob = { dayId: string; from: ItineraryItem; to: ItineraryItem; fromPlace: Place; toPlace: Place; mode: "walk" | "metro" | "bus" | "taxi" | "drive" };
+  const jobs: SegmentJob[] = [];
   for (const dayId of dayIds) {
     const items = next.items.filter((item) => item.dayId === dayId).sort((a, b) => a.order - b.order);
-    const resolved: RouteSegment[] = [];
     for (let index = 0; index < items.length - 1; index += 1) {
       const from = items[index];
       const to = items[index + 1];
@@ -241,21 +266,38 @@ async function enrichRoutes(
       const mode = baseline?.mode === "highspeed" || baseline?.mode === "flight"
         ? "taxi"
         : preferredMode ?? baseline?.mode ?? "walk";
-      try {
-        const measured = matrixRouteLookup?.(fromPlace.id, toPlace.id);
-        const route = measured && measured.mode === mode
-          ? measured
-          : await provider.planRoute({ origin: fromPlace, destination: toPlace, mode, city: next.destination });
-        resolved.push(routeSegment({ trip: next, dayId, from, to, fromPlace, toPlace, route, estimated: provider.kind !== "amap" }));
-      } catch (error) {
-        if (!allowEstimate) throw normalizeProviderError(error, "ROUTE_PROVIDER_UNAVAILABLE");
-        const route = estimateRoute(fromPlace, toPlace, mode);
-        resolved.push(routeSegment({ trip: next, dayId, from, to, fromPlace, toPlace, route, estimated: true }));
-        level = "ESTIMATED";
-        warnings.push(`Route ${fromPlace.name} → ${toPlace.name} uses Haversine estimation`);
-      }
+      jobs.push({ dayId, from, to, fromPlace, toPlace, mode });
     }
-    next = { ...next, segments: [...next.segments.filter((segment) => segment.dayId !== dayId), ...resolved] };
+  }
+  const routed = await mapWithConcurrency(jobs, 3, async (job) => {
+    try {
+      // Brain route-matrix reuse: a route already measured by the matrix for
+      // the same mode is consumed instead of spending another QPS slot.
+      const measured = matrixRouteLookup?.(job.fromPlace.id, job.toPlace.id);
+      const route = measured && measured.mode === job.mode
+        ? measured
+        : await provider.planRoute({ origin: job.fromPlace, destination: job.toPlace, mode: job.mode, city: next.destination });
+      return { segment: routeSegment({ trip: next, dayId: job.dayId, from: job.from, to: job.to, fromPlace: job.fromPlace, toPlace: job.toPlace, route, estimated: provider.kind !== "amap" }), estimated: false };
+    } catch (error) {
+      if (!allowEstimate) throw normalizeProviderError(error, "ROUTE_PROVIDER_UNAVAILABLE");
+      const route = estimateRoute(job.fromPlace, job.toPlace, job.mode);
+      return { segment: routeSegment({ trip: next, dayId: job.dayId, from: job.from, to: job.to, fromPlace: job.fromPlace, toPlace: job.toPlace, route, estimated: true }), estimated: true };
+    }
+  });
+  const resolvedByDay = new Map<string, RouteSegment[]>();
+  for (let index = 0; index < jobs.length; index += 1) {
+    const job = jobs[index];
+    const { segment, estimated } = routed[index];
+    const list = resolvedByDay.get(job.dayId) ?? [];
+    list.push(segment);
+    resolvedByDay.set(job.dayId, list);
+    if (estimated) {
+      level = "ESTIMATED";
+      warnings.push(`Route ${job.fromPlace.name} → ${job.toPlace.name} uses Haversine estimation`);
+    }
+  }
+  for (const dayId of dayIds) {
+    next = { ...next, segments: [...next.segments.filter((segment) => segment.dayId !== dayId), ...resolvedByDay.get(dayId) ?? []] };
     next = recomputeDay(next, dayId);
   }
   return { trip: next, level, warnings };
@@ -269,13 +311,26 @@ async function collectCandidates(provider: TravelDataProvider, destination: stri
   const groups: Array<[string, Place["category"]]> = [
     ["景点", "attraction"], ["美食", "food"], ["咖啡", "cafe"], ["酒店", "hotel"], ["购物", "shopping"], ["展览 室内", "activity"],
   ];
-  // AMap Web Service keys commonly have a low QPS limit. Avoid firing all
-  // category searches concurrently during trip creation; this also keeps the
-  // provider boundary predictable for other rate-limited implementations.
+  // AMap Web Service keys commonly have a ~3 QPS quota, and this call runs
+  // concurrently with the weather request — so POI searches go in batches of
+  // two with a short pause, plus exactly one spaced retry for transient QPS
+  // rejections. Faster than the old strictly-serial + fixed-500ms loop,
+  // without breaching the ceiling.
+  const searchOne = async (query: string, category: Place["category"]): Promise<Place[]> => {
+    const attempt = () => provider.searchPlaces({ destination, query, category, limit: 12 });
+    try {
+      return await attempt();
+    } catch (error) {
+      if (provider.kind !== "amap") throw error;
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      return attempt();
+    }
+  };
+  const batchSize = provider.kind === "amap" ? 2 : groups.length;
   const results: Place[][] = [];
-  for (const [index, [query, category]] of groups.entries()) {
-    if (provider.kind === "amap" && index > 0) await new Promise((resolve) => setTimeout(resolve, 500));
-    results.push(await provider.searchPlaces({ destination, query, category, limit: 12 }));
+  for (let index = 0; index < groups.length; index += batchSize) {
+    if (provider.kind === "amap" && index > 0) await new Promise((resolve) => setTimeout(resolve, 400));
+    results.push(...await Promise.all(groups.slice(index, index + batchSize).map(([query, category]) => searchOne(query, category))));
   }
   const candidates = uniquePlaces(results.flat());
   if (candidates.length < 4) throw new SkillError("NO_POI_RESULTS", `Only ${candidates.length} valid POIs were returned`);
@@ -492,20 +547,10 @@ export class VoyageSkillRuntime {
     const input = createTripInputSchema.parse(raw);
     const provider = await this.providerFactory();
     const finish = input.endDate ?? endDate(input.startDate, input.days ?? 1);
-    const providerCandidates = await collectCandidates(provider, input.destination).catch((error) => {
-      throw normalizeProviderError(error, "NO_POI_RESULTS");
-    });
     const profile = input.planningProfile;
     // One truth for the trip length: every prompt, filter and validation below
     // must agree, so the profile is normalised before anything reads it.
     const alignedProfile = profile ? alignPlanningDays(profile) : undefined;
-    const candidates = alignedProfile
-      ? filterPlanningCandidates(providerCandidates, alignedProfile, daysBetween(input.startDate, finish))
-      : providerCandidates;
-    const constraintWarnings = planningConstraintWarnings(alignedProfile, providerCandidates, candidates);
-    if (!candidates.length) {
-      throw new SkillError("NO_POI_RESULTS", "旅行画像过滤后没有可用的 provider 候选", { warnings: constraintWarnings });
-    }
     const planningPrompt = alignedProfile
       ? [input.prompt, planningProfileToPrompt(alignedProfile)].filter(Boolean).join("\n")
       : input.prompt;
@@ -514,22 +559,36 @@ export class VoyageSkillRuntime {
     const effectiveVibes = alignedProfile?.vibes.length ? alignedProfile.vibes : input.vibes ?? input.preferences;
     const includeSocial = input.includeSocialEvidence || Boolean(alignedProfile?.socialOptIn || alignedProfile?.includeSocialEvidence);
     const includeOffers = input.includeExternalOffers || Boolean(alignedProfile?.includeExternalOffers);
-    const forecasts = await provider.getWeather(input.destination).catch((error) => {
-      if (input.fallbackPolicy !== "estimated") throw normalizeProviderError(error, "WEATHER_UNAVAILABLE");
-      return [];
-    });
-
-    const social = includeSocial
-      ? await collectSocialObservations(this.socialRouterFactory(), {
-          city: input.destination,
-          query: planningPrompt,
-          limit: 5,
-        }).catch((error) => ({
-          observations: [] as SocialObservation[],
-          platformStatus: Object.fromEntries(DEFAULT_SOCIAL_PLATFORMS.map((platform) => [platform, "error" as const])) as Record<string, SocialProviderStatus>,
-          warnings: [error instanceof Error ? error.message : "social search failed"],
-        }))
-      : undefined;
+    // POI search, weather and social observation are mutually independent:
+    // running them concurrently instead of back-to-back trims seconds off
+    // every generation before the (unavoidably serial) LLM outline call.
+    const [providerCandidates, forecasts, social] = await Promise.all([
+      collectCandidates(provider, input.destination).catch((error) => {
+        throw normalizeProviderError(error, "NO_POI_RESULTS");
+      }),
+      provider.getWeather(input.destination).catch((error) => {
+        if (input.fallbackPolicy !== "estimated") throw normalizeProviderError(error, "WEATHER_UNAVAILABLE");
+        return [];
+      }),
+      includeSocial
+        ? collectSocialObservations(this.socialRouterFactory(), {
+            city: input.destination,
+            query: planningPrompt,
+            limit: 5,
+          }).catch((error) => ({
+            observations: [] as SocialObservation[],
+            platformStatus: Object.fromEntries(DEFAULT_SOCIAL_PLATFORMS.map((platform) => [platform, "error" as const])) as Record<string, SocialProviderStatus>,
+            warnings: [error instanceof Error ? error.message : "social search failed"],
+          }))
+        : undefined,
+    ]);
+    const candidates = alignedProfile
+      ? filterPlanningCandidates(providerCandidates, alignedProfile, daysBetween(input.startDate, finish))
+      : providerCandidates;
+    const constraintWarnings = planningConstraintWarnings(alignedProfile, providerCandidates, candidates);
+    if (!candidates.length) {
+      throw new SkillError("NO_POI_RESULTS", "旅行画像过滤后没有可用的 provider 候选", { warnings: constraintWarnings });
+    }
     const socialBuilt = social
       ? buildSocialEvidence({ city: input.destination, observations: social.observations, places: candidates })
       : { evidence: [], signals: [] };
@@ -1342,6 +1401,67 @@ export class VoyageSkillRuntime {
     return successEnvelope({ tripId: input.tripId, trip: saved.trip, revision: saved.revision, tripHash: saved.hash });
   }
 
+  /**
+   * Removing a stop from its day. The check-in task attached to the stop goes
+   * with it (same linkage rule as setItemStatus, applied symmetrically) and
+   * the day is recomputed so timings and segments stay consistent.
+   */
+  async removeItem(raw: unknown) {
+    const input = removeItemInputSchema.parse(raw);
+    const stored = await this.repository.getTrip(input.tripId);
+    if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+    if (stored.revision !== input.expectedTripRevision) throw new SkillError("REVISION_CONFLICT", "Trip revision does not match expectedTripRevision");
+    const item = stored.trip.items.find((candidate) => candidate.id === input.itemId);
+    if (!item) throw new SkillError("INVALID_INPUT", "行程条目不存在");
+    let trip: Trip = {
+      ...stored.trip,
+      items: stored.trip.items.filter((candidate) => candidate.id !== input.itemId),
+      tasks: stored.trip.tasks.filter((task) => {
+        const linked = task.linkedItemId === item.id
+          || (Boolean(task.checkin) && task.dayId === item.dayId && task.placeId === item.placeId);
+        return !linked;
+      }),
+    };
+    trip = recomputeDay(trip, item.dayId);
+    const saved = await this.repository.updateTrip({ tripId: input.tripId, expectedRevision: stored.revision, trip });
+    return successEnvelope({ tripId: input.tripId, trip: saved.trip, revision: saved.revision, tripHash: saved.hash });
+  }
+
+  /**
+   * Removing an entire day. The day's items, tasks and cross-item segments go
+   * with it, remaining days are re-indexed (Day N stays contiguous), and a
+   * full recompute keeps timing and segments consistent afterwards. Places
+   * survive the deletion — a place may be a map bookmark or referenced
+   * elsewhere, and remove-item never deletes places either.
+   */
+  async removeDay(raw: unknown) {
+    const input = removeDayInputSchema.parse(raw);
+    const stored = await this.repository.getTrip(input.tripId);
+    if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+    if (stored.revision !== input.expectedTripRevision) throw new SkillError("REVISION_CONFLICT", "Trip revision does not match expectedTripRevision");
+    const day = stored.trip.days.find((candidate) => candidate.id === input.dayId);
+    if (!day) throw new SkillError("INVALID_INPUT", "行程天不存在");
+    if (stored.trip.days.length <= 1) throw new SkillError("INVALID_INPUT", "至少要保留一天行程");
+    const dayItemIds = new Set(stored.trip.items.filter((item) => item.dayId === input.dayId).map((item) => item.id));
+    let trip: Trip = {
+      ...stored.trip,
+      days: stored.trip.days.filter((candidate) => candidate.id !== input.dayId).map((candidate, index) => ({ ...candidate, index })),
+      items: stored.trip.items.filter((item) => item.dayId !== input.dayId),
+      tasks: stored.trip.tasks.filter((task) => task.dayId !== input.dayId),
+      segments: stored.trip.segments.filter((segment) => segment.dayId !== input.dayId && !dayItemIds.has(segment.fromItemId) && !dayItemIds.has(segment.toItemId)),
+    };
+    // The trips list and the trip header render the span from startDate and
+    // endDate — deleting the first or last day would otherwise leave a range
+    // that advertises days that no longer exist.
+    if (trip.days.length) {
+      const dates = trip.days.map((day) => day.date).sort();
+      trip = { ...trip, startDate: dates[0]!, endDate: dates[dates.length - 1]! };
+    }
+    trip = recomputeTrip(trip);
+    const saved = await this.repository.updateTrip({ tripId: input.tripId, expectedRevision: stored.revision, trip });
+    return successEnvelope({ tripId: input.tripId, trip: saved.trip, revision: saved.revision, tripHash: saved.hash });
+  }
+
   async proposeChange(raw: unknown) {
     const input = proposeChangeInputSchema.parse(raw);
     const stored = await this.repository.getTrip(input.tripId);
@@ -1425,6 +1545,90 @@ export class VoyageSkillRuntime {
     const input = applyChangeInputSchema.parse(raw);
     const stored = await this.repository.applyProposal(input);
     return successEnvelope({ tripId: input.tripId, proposalId: input.proposalId, trip: stored.trip, revision: stored.revision, tripHash: stored.hash });
+  }
+
+  /**
+   * Itinerary Optimizer v1: reschedules planned items into a geographically
+   * clustered plan that respects day-part placement and the user's profile.
+   * Always produces a proposal (Diff + proposalToken)
+   * for the user to confirm — the optimizer never writes the trip directly.
+   */
+  async optimizeItinerary(raw: unknown) {
+    const input = optimizeItineraryInputSchema.parse(raw);
+    const stored = await this.repository.getTrip(input.tripId);
+    if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+    if (stored.revision !== input.expectedTripRevision) throw new SkillError("REVISION_CONFLICT", "Trip revision does not match expectedTripRevision");
+
+    const result = optimizeTripPlan({ trip: stored.trip });
+    const optimizationEnvelope = {
+      decisions: result?.optimization.decisions ?? [],
+      warnings: result?.optimization.warnings ?? [],
+      unresolvedConstraints: result?.optimization.unresolvedConstraints ?? [],
+      estimatedWalkingMetersByDay: result?.optimization.metrics.estimatedWalkingMetersByDay ?? {},
+    };
+    if (!result || !result.changedDayIds.length) {
+      return successEnvelope(
+        {
+          tripId: input.tripId,
+          changed: false,
+          message: result ? "当前安排已是优化器的最优解，未生成提案" : "没有可重排的 planned 行程项",
+          optimization: optimizationEnvelope,
+        },
+        status("UNKNOWN", "UNKNOWN", "UNKNOWN"),
+      );
+    }
+
+    let proposed = result.trip;
+    for (const dayId of result.changedDayIds) {
+      proposed = recomputeDay(proposed, dayId);
+    }
+    const actions: TravelAction[] = result.changedDayIds.map((dayId) => ({ type: "OPTIMIZE_DAY" as const, payload: { dayId } }));
+    const changeSet = computeTripChangeSet(stored.trip, proposed, actions, "智能排程优化：按地理位置聚类、时间窗与偏好重排");
+    const { record: proposal, token } = await this.repository.saveProposal({
+      tripId: stored.trip.id,
+      baseRevision: stored.revision,
+      baseHash: stored.hash,
+      actions,
+      changeSet,
+      proposedTrip: proposed,
+    });
+    return successEnvelope(
+      {
+        proposalId: proposal.id,
+        proposalToken: token,
+        tripId: input.tripId,
+        baseRevision: proposal.baseRevision,
+        actions,
+        changes: changeSet,
+        summary: changeSet.summary,
+        optimization: optimizationEnvelope,
+      },
+      status("UNKNOWN", "UNKNOWN", "UNKNOWN"),
+    );
+  }
+
+  /**
+   * Today Mode v2: the execution console's single source of truth. Read-only;
+   * deterministic rules only — lateness, remaining walking, next-hop
+   * distance, weather — every suggestion maps to a user-initiated
+   * propose-change, never a direct write.
+   */
+  async getTodayContext(raw: unknown) {
+    const input = getTodayContextInputSchema.parse(raw);
+    const stored = await this.repository.getTrip(input.tripId);
+    if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+    let context;
+    try {
+      context = buildTodayContext(stored.trip, { dayId: input.dayId, asOf: input.asOf });
+    } catch {
+      throw new SkillError("TRIP_NOT_FOUND", "Trip has no days");
+    }
+    return successEnvelope(
+      { tripId: input.tripId, ...context },
+      status("UNKNOWN", "UNKNOWN", "UNKNOWN", undefined, context.weather?.provenance?.source === "amap" ? "REAL" : "UNKNOWN"),
+      [],
+      context.weather?.provenance ? { source: context.weather.provenance.source } : undefined,
+    );
   }
 
   async getPlace(raw: unknown) {
@@ -1545,12 +1749,16 @@ export class VoyageSkillRuntime {
       case "reorder-day": return this.reorderDay(input);
       case "add-place-item": return this.addPlaceItem(input);
       case "set-item-status": return this.setItemStatus(input);
+      case "remove-item": return this.removeItem(input);
+      case "remove-day": return this.removeDay(input);
       case "add-place": return this.addPlace(input);
       case "restore-trip": return this.restoreTrip(input);
       case "import-route": return this.importRoute(input);
       case "set-task-status": return this.setTaskStatus(input);
       case "propose-change": return this.proposeChange(input);
       case "apply-change": return this.applyChange(input);
+      case "optimize-itinerary": return this.optimizeItinerary(input);
+      case "get-today-context": return this.getTodayContext(input);
       case "get-place": return this.getPlace(input);
       case "update-trip": return this.updateTrip(input);
       case "search-social": return this.searchSocial(input);

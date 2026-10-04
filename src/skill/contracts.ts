@@ -172,6 +172,28 @@ export const setItemStatusInputSchema = z.object({
 });
 
 /**
+ * Removing a stop from its day (the PoiCard overflow menu). A direct user
+ * mutation like reorder-day, so it goes through the runtime under a revision
+ * lock — the old local-only patch vanished on the next server rehydrate.
+ */
+export const removeItemInputSchema = z.object({
+  tripId: z.string().min(1),
+  itemId: z.string().min(1),
+  expectedTripRevision: z.number().int().min(1),
+});
+
+/**
+ * Removing an entire day (the DayHeader menu). Like remove-item this is a
+ * direct user mutation under the revision lock; the day's items, tasks and
+ * segments go with it and the remaining days are re-indexed.
+ */
+export const removeDayInputSchema = z.object({
+  tripId: z.string().min(1),
+  dayId: z.string().min(1),
+  expectedTripRevision: z.number().int().min(1),
+});
+
+/**
  * One-click import of a guide route (小红书/抖音/微信 text): ordered places are
  * spread across trip days in one transaction, each getting a check-in task so
  * the traveller can tick them off as they go. Total places are capped — this
@@ -240,6 +262,28 @@ export const applyChangeInputSchema = z.object({
   proposalToken: z.string().min(1),
 });
 
+/**
+ * Itinerary Optimizer v1: reschedules planned items of an existing trip into
+ * a geographically clustered, time-window aware plan. The result is always a
+ * proposal (Diff + proposalToken) — never a direct write — so the user sees
+ * and confirms every move.
+ */
+export const optimizeItineraryInputSchema = z.object({
+  tripId: z.string().min(1),
+  expectedTripRevision: z.number().int().min(1),
+  strategy: z.enum(["balanced"]).default("balanced"),
+  preserveMustVisit: z.boolean().default(true),
+  fallbackPolicy: fallbackPolicySchema,
+});
+
+/** Today Mode v2: read-only execution context for the current day. */
+export const getTodayContextInputSchema = z.object({
+  tripId: z.string().min(1),
+  dayId: z.string().min(1).optional(),
+  /** ISO datetime or "HH:mm" — drives lateness detection and day resolution. */
+  asOf: z.string().min(4).max(40).optional(),
+});
+
 export const getPlaceInputSchema = z.object({
   placeId: z.string().min(1).optional(),
   tripId: z.string().min(1).optional(),
@@ -299,12 +343,16 @@ export const commandSchemas = {
   "reorder-day": reorderDayInputSchema,
   "add-place-item": addPlaceItemInputSchema,
   "set-item-status": setItemStatusInputSchema,
+  "remove-item": removeItemInputSchema,
+  "remove-day": removeDayInputSchema,
   "add-place": addPlaceInputSchema,
   "import-route": importRouteInputSchema,
   "set-task-status": setTaskStatusInputSchema,
   "restore-trip": restoreTripInputSchema,
   "propose-change": proposeChangeInputSchema,
   "apply-change": applyChangeInputSchema,
+  "optimize-itinerary": optimizeItineraryInputSchema,
+  "get-today-context": getTodayContextInputSchema,
   "get-place": getPlaceInputSchema,
   "update-trip": updateTripInputSchema,
   "search-social": searchSocialInputSchema,
@@ -355,6 +403,8 @@ export const outputSchemas = {
   "reorder-day": tripDataSchema,
   "add-place-item": tripDataSchema,
   "set-item-status": tripDataSchema,
+  "remove-item": tripDataSchema,
+  "remove-day": tripDataSchema,
   "add-place": tripDataSchema,
   "import-route": tripDataSchema,
   "set-task-status": tripDataSchema,

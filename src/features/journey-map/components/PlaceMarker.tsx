@@ -19,19 +19,34 @@ export function PlaceMarker({
     "data-place-id": marker.placeId,
   };
 
+  // Markers used to be click-only divs: keyboard users could not reach any
+  // place on the map (CommandPalette was the only workaround).
+  const interactive = {
+    role: "button" as const,
+    tabIndex: 0,
+    "aria-label": title,
+    onKeyDown: (event: React.KeyboardEvent) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        onClick?.();
+      }
+    },
+  };
+
   if (variant === "NEXT") {
     return (
       <div
         {...markerAttributes}
+        {...interactive}
         onClick={onClick}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
-        className="cursor-pointer select-none transition-transform duration-200 hover:scale-105"
+        className="cursor-pointer select-none transition-transform duration-200 hover:scale-105 focus-visible:outline-2 focus-visible:outline-ring rounded-full"
         style={{ zIndex: 120 }}
       >
         <div className="flex items-center gap-1.5 rounded-full border-2 border-white bg-primary px-2.5 py-1 text-white shadow-lg ring-4 ring-primary/20">
           <span className="relative flex size-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
+            <span className="absolute inline-flex h-full w-full animate-ping motion-reduce:animate-none rounded-full bg-white opacity-75" />
             <span className="relative inline-flex size-2 rounded-full bg-white" />
           </span>
           <span className="text-[10px] font-bold uppercase tracking-wider text-white/90">NEXT</span>
@@ -51,10 +66,11 @@ export function PlaceMarker({
     return (
       <div
         {...markerAttributes}
+        {...interactive}
         onClick={onClick}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
-        className="cursor-pointer select-none transition-transform duration-200"
+        className="cursor-pointer select-none transition-transform duration-200 focus-visible:outline-2 focus-visible:outline-ring rounded-full"
         style={{ zIndex: 150 }}
       >
         <div
@@ -82,10 +98,11 @@ export function PlaceMarker({
     return (
       <div
         {...markerAttributes}
+        {...interactive}
         onClick={onClick}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
-        className="cursor-pointer select-none transition-all duration-150 scale-105"
+        className="cursor-pointer select-none transition-all duration-150 scale-105 focus-visible:outline-2 focus-visible:outline-ring rounded-full"
         style={{ zIndex: 110 }}
       >
         <div className="flex items-center gap-1.5 rounded-full border border-border/80 bg-surface/95 px-2.5 py-1 text-foreground shadow-md backdrop-blur-xs">
@@ -105,10 +122,11 @@ export function PlaceMarker({
     return (
       <div
         {...markerAttributes}
+        {...interactive}
         onClick={onClick}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
-        className="grid size-6 place-items-center rounded-full border-2 border-white bg-muted text-[11px] font-bold text-muted-foreground opacity-70 transition-transform duration-150 hover:opacity-100 hover:scale-110"
+        className="grid size-6 place-items-center rounded-full border-2 border-white bg-muted text-[11px] font-bold text-muted-foreground opacity-70 transition-transform duration-150 hover:opacity-100 hover:scale-110 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-ring"
         aria-label={`已打卡: ${title}`}
       >
         ✓
@@ -120,10 +138,11 @@ export function PlaceMarker({
     return (
       <div
         {...markerAttributes}
+        {...interactive}
         onClick={onClick}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
-        className="grid size-7 place-items-center rounded-full border-2 border-white bg-blue-600 text-white shadow-md transition-transform duration-150 hover:scale-110"
+        className="grid size-7 place-items-center rounded-full border-2 border-white bg-blue-600 text-white shadow-md transition-transform duration-150 hover:scale-110 focus-visible:outline-2 focus-visible:outline-ring"
         aria-label={`酒店: ${title}`}
       >
         <span className="text-[11px] font-bold">H</span>
@@ -135,10 +154,11 @@ export function PlaceMarker({
     return (
       <div
         {...markerAttributes}
+        {...interactive}
         onClick={onClick}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
-        className="grid size-6 place-items-center rounded-full border-2 border-white bg-amber-600 text-white shadow-sm transition-transform duration-150 hover:scale-110"
+        className="grid size-6 place-items-center rounded-full border-2 border-white bg-amber-600 text-white shadow-sm transition-transform duration-150 hover:scale-110 focus-visible:outline-2 focus-visible:outline-ring"
         aria-label={`餐饮: ${title}`}
       >
         <span className="text-[11px]">🍽</span>
@@ -150,10 +170,11 @@ export function PlaceMarker({
     return (
       <div
         {...markerAttributes}
+        {...interactive}
         onClick={onClick}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
-        className="grid size-6 place-items-center rounded-full border-2 border-white bg-teal-600 text-white shadow-sm transition-transform duration-150 hover:scale-110"
+        className="grid size-6 place-items-center rounded-full border-2 border-white bg-teal-600 text-white shadow-sm transition-transform duration-150 hover:scale-110 focus-visible:outline-2 focus-visible:outline-ring"
         aria-label={`交通枢纽: ${title}`}
       >
         <span className="text-[11px]">🚇</span>
@@ -165,11 +186,12 @@ export function PlaceMarker({
     return (
       <div
         {...markerAttributes}
+        {...interactive}
         onClick={onClick}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
         className={cn(
-          "size-3 rounded-full border-2 border-white shadow-xs transition-transform duration-150 hover:scale-150",
+          "size-3 rounded-full border-2 border-white shadow-xs transition-transform duration-150 hover:scale-150 focus-visible:outline-2 focus-visible:outline-ring",
           isSelected && "scale-150 ring-2 ring-primary ring-offset-1",
         )}
         style={{ background: color }}
@@ -182,11 +204,12 @@ export function PlaceMarker({
   return (
     <div
       {...markerAttributes}
+      {...interactive}
       onClick={onClick}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       className={cn(
-        "grid size-6 place-items-center rounded-full border-2 border-white text-[11px] font-bold text-white shadow-sm transition-transform duration-150 hover:scale-115 active:scale-95",
+        "grid size-6 place-items-center rounded-full border-2 border-white text-[11px] font-bold text-white shadow-sm transition-transform duration-150 hover:scale-115 active:scale-95 focus-visible:outline-2 focus-visible:outline-ring",
         isSelected && "scale-125 ring-2 ring-primary ring-offset-1",
       )}
       style={{ background: color }}

@@ -1,6 +1,7 @@
 "use client";
 
-import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { useMemo } from "react";
+import { DndContext, PointerSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { DayHeader } from "./DayHeader";
 import { PoiCard } from "./PoiCard";
@@ -11,8 +12,20 @@ import type { Day } from "@/types/travel";
 export function DayTimeline({ day }: { day: Day }) {
   const trip = useTripStore((s) => s.trip);
   const reorder = useTripStore((s) => s.reorder);
-  const items = trip.items.filter((i) => i.dayId === day.id).sort((a, b) => a.order - b.order);
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  // Memoized: any single trip write (e.g. one check-off) replaces the whole
+  // trip object, and without this every day's timeline re-sorted and every
+  // card re-rendered.
+  const items = useMemo(
+    () => trip.items.filter((i) => i.dayId === day.id).sort((a, b) => a.order - b.order),
+    [trip.items, day.id],
+  );
+  // Mouse drags start on a 6px move; touch drags need a deliberate long-press
+  // so a scroll gesture never hijacks the handle (distance-based touch
+  // activation fights vertical scrolling and loses).
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 6 } }),
+  );
 
   const onDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;

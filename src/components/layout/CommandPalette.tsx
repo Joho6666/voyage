@@ -32,6 +32,16 @@ export function CommandPalette() {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, setOpen]);
 
+  // The palette advertised an Esc shortcut it never honoured.
+  useEffect(() => {
+    if (!open) return;
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onEsc);
+    return () => window.removeEventListener("keydown", onEsc);
+  }, [open, setOpen]);
+
   const places = useMemo(
     () => trip.places.filter((p) => p.name.includes(query) || query === ""),
     [query, trip.places],
@@ -45,9 +55,15 @@ export function CommandPalette() {
   };
 
   return (
-    <div className="fixed inset-0 z-[70] bg-[var(--overlay)] flex items-start justify-center pt-[10vh] p-4" onClick={() => setOpen(false)}>
+    <div
+      className="fixed inset-0 z-[70] bg-[var(--overlay)] flex items-start justify-center pt-[10vh] p-4"
+      onClick={() => setOpen(false)}
+    >
       <Command
-        className="w-full max-w-xl overflow-hidden rounded-[16px] border border-border bg-surface shadow-[var(--shadow-float)] animate-in fade-in-0 zoom-in-95"
+        role="dialog"
+        aria-modal="true"
+        aria-label="搜索页面或行程地点"
+        className="w-full max-w-xl overflow-hidden rounded-[16px] border border-border bg-surface shadow-[var(--shadow-float)] animate-in fade-in-0 zoom-in-95 motion-reduce:animate-none"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center border-b border-border px-3.5">
@@ -59,7 +75,7 @@ export function CommandPalette() {
             placeholder="搜索页面或行程地点…"
             className="h-13 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground/60 text-foreground"
           />
-          <span className="text-[11px] text-muted-foreground/60 border border-border px-1.5 py-0.5 rounded font-mono">
+          <span className="text-[11px] text-muted-foreground border border-border px-1.5 py-0.5 rounded font-mono">
             Esc
           </span>
         </div>

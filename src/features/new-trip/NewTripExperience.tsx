@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "motion/react";
 import { ArrowRight, Check, CircleAlert, Compass, LoaderCircle, RotateCcw, ShieldCheck, Sparkles } from "lucide-react";
@@ -8,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { brand } from "@/lib/brand";
 import { toast } from "sonner";
-import { hydrateTrip } from "@/store/trip-store";
 import { usePlanningStore } from "@/store/planning-store";
 import type { Trip } from "@/types/travel";
 import { PlanningChat } from "@/components/planning/PlanningChat";
@@ -17,10 +17,25 @@ import { PlanningStatusCard } from "@/components/planning/PlanningStatusCard";
 import type { PlanningLlmState, PlanningLlmStatus, PlanningMessage, PlanningProfileDraft } from "@/components/planning/types";
 import { dateRangeWarning, generateBlockersFor, profilePatchFromDraft } from "./planning-client";
 
+/**
+ * First upcoming Saturday as an absolute date. The profile extractor only
+ * reads explicit dates (20XX-M-D), so relative words like 周末 would strand
+ * the traveller on the departure-date blocker after a whole conversation.
+ */
+function nextSaturdayIso(): string {
+  const date = new Date();
+  date.setDate(date.getDate() + (((6 - date.getDay()) % 7 + 7) % 7 || 7));
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+const DEFAULT_PROMPT = `${nextSaturdayIso()} 从上海出发去成都玩 3 天，喜欢美食和夜景，节奏轻松一点。`;
+
 const QUICK_PROMPTS = [
-  "从桂林出发，去南京玩 3 天，喜欢美食，不想走太多路",
-  "周末去重庆，想看夜景、吃火锅，节奏轻松一点",
-  "带父母去厦门，4 天，少换酒店，靠近公共交通",
+  `${nextSaturdayIso()} 从桂林出发，去南京玩 3 天，喜欢美食，不想走太多路`,
+  `${nextSaturdayIso()} 去重庆，想看夜景、吃火锅，节奏轻松一点`,
+  `${nextSaturdayIso()} 带父母去厦门，4 天，少换酒店，靠近公共交通`,
 ];
 
 const DEFAULT_SUGGESTIONS = ["轻松一点，少走路", "我想把预算控制住", "有哪些必去但不赶的地方？", "我有一个一定要去的地方"];
@@ -40,7 +55,13 @@ const MISSING_FIELD_LABELS: Record<string, string> = {
   socialOptIn: "社区攻略授权",
 };
 
-const GENERATION_STAGES = ["读取已确认的旅行偏好", "整理候选地点与外部数据", "编排每天的行程节奏", "计算交通并保存路线"];const LINK_URL_PATTERN = /https?:\/\/[^\s，。；！？、"'<>）)】\]]+/i;
+const GENERATION_STAGES = ["读取已确认的旅行偏好", "整理候选地点与外部数据", "编排每天的行程节奏", "计算交通并保存路线"];
+const GENERATION_POLL_INTERVAL_MS = 3000;
+// 11 minutes: past the server's 10-minute stale-generation self-heal, so a
+// crashed worker unblocks the session (GET flips it to failed) before the
+// client gives up — the old 8-minute cap left a 2-minute dead zone where
+// every retry bounced off a LOCKED 409.
+const GENERATION_POLL_TIMEOUT_MS = 11 * 60 * 1000;const LINK_URL_PATTERN = /https?:\/\/[^\s，。；！？、"'<>）)】\]]+/i;
 const SUPPORTED_LINK_HOST = /(?:xiaohongshu\.com|xhslink\.com|douyin\.com|iesdouyin\.com)/i;
 
 interface LinkImportData {
@@ -381,20 +402,6 @@ function parsePlanningPayload(payload: unknown, baseProfile: PlanningProfileDraf
   return parsed;
 }
 
-function parseGenerationPayload(payload: unknown, baseProfile: PlanningProfileDraft): ParsedPlanningPayload {
-  const parsed = parsePlanningPayload(payload, baseProfile);
-  const nodes = responseNodes(payload);
-  const rawTrip = firstRecord(nodes, ["trip", "generatedTrip", "createdTrip"]);
-  const trip = rawTrip && typeof rawTrip.id === "string" && Array.isArray(rawTrip.days) && Array.isArray(rawTrip.items) ? rawTrip as unknown as Trip : undefined;
-  const tripId = asString(firstValue(nodes, ["tripId", "createdTripId"])) ?? (trip ? trip.id : undefined);
-  // The planning-session revision and the stored trip revision are different
-  // numbers. Only the Runtime trip envelope carries the trip's own revision, so
-  // read it from the node that actually holds the trip payload.
-  const tripNode = nodes.find((node) => node.trip === rawTrip || (typeof node.tripHash === "string" && node.tripId !== undefined));
-  const rawTripRevision = asNumber(tripNode?.revision) ?? asNumber((trip as unknown as UnknownRecord | undefined)?.revision);
-  const tripRevision = rawTripRevision !== undefined && rawTripRevision >= 1 ? Math.floor(rawTripRevision) : undefined;
-  return { ...parsed, trip, tripRevision, tripId };
-}
 
 /**
  * Mirrors the generate endpoint's preconditions: a destination, a real
@@ -432,13 +439,14 @@ function errorDetails(payload: unknown) {
  * what to do next.
  */
 const PROVIDER_ERROR_COPY: Array<{ test: RegExp; message: string }> = [
-  { test: /NO_PROVIDER_CONFIGURED/, message: "尚未配置高德服务端 Key。请设置 AMAP_SERVER_KEY 后再创建真实行程。" },
+  { test: /NO_PROVIDER_CONFIGURED/, message: "尚未配置高德服务端 Key。请在设置页配置 AMAP_SERVER_KEY 后再生成真实路线。" },
   { test: /PROVIDER_AUTH_FAILED|AMAP_INVALID_USER_KEY/, message: "高德 Web 服务 Key 无效或未开通 POI 服务，请检查控制台的 Key 类型、服务权限和安全设置。" },
   { test: /AMAP_NETWORK_UNAVAILABLE/, message: "高德服务连接失败（不是没有地点结果）。请检查本机网络/代理后重试；如果服务刚启动，请刷新页面再试。" },
   { test: /ROUTE_PROVIDER_UNAVAILABLE/, message: "高德路线服务暂时不可用；可重试，行程中的路线会明确标记为估算。" },
   { test: /REVISION_CONFLICT/, message: "这条规划刚刚在其他页面更新了。已同步最新版本，可以再点一次生成。" },
   { test: /CONFIRMATION_REQUIRED/, message: "生成路线图需要你在页面上明确确认一次，请重新点击按钮。" },
-  { test: /PLANNING_SESSION_LOCKED/, message: "这次规划已经在生成中或已完成，请回到行程页继续调整。" },
+  { test: /PLANNING_SESSION_LOCKED/, message: "这次规划正在后台生成中，完成后行程会出现在「我的旅行」，稍等片刻即可。" },
+  { test: /PLANNING_SESSION_COMPLETED/, message: "这次规划已经完成，直接去「我的旅行」查看行程。" },
   { test: /PLANNING_SESSION_NOT_FOUND/, message: "这次规划会话已失效，请重新开始对话。" },
   { test: /INVALID_INPUT/, message: "规划信息不完整，请补充目的地、出发日期与返程信息。" },
 ];
@@ -471,7 +479,7 @@ function GenerationProgress({ destination }: { destination: string }) {
         <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground"><LoaderCircle className="size-4 animate-spin" /></span>
         <div>
           <h2 className="text-sm font-semibold">正在生成{destination ? ` · ${destination}` : "路线图"}</h2>
-          <p className="mt-1 text-[11px] leading-5 text-muted-foreground">这是一次真实的生成请求，完成后会进入行程工作区。我们不会把静态动画当成 provider 已完成的证明。</p>
+          <p className="mt-1 text-[11px] leading-5 text-muted-foreground">这是一次真实的生成请求，生成在服务端后台进行——关闭页面也不会中断，回来时会自动接上。</p>
         </div>
       </div>
       <div className="mt-4 grid gap-2 sm:grid-cols-4">
@@ -491,7 +499,11 @@ function GenerationProgress({ destination }: { destination: string }) {
 export function NewTripExperience() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [prompt, setPrompt] = useState("喜欢美食和夜景，安排轻松一点。");
+  const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
+  // The prefilled example is a shortcut, not an instruction: when the
+  // traveller never touched the composer, its example city/date must not
+  // override the profile fields they filled by hand (direct generate).
+  const [promptTouched, setPromptTouched] = useState(false);
   const [profile, setProfile] = useState<PlanningProfileDraft>(() => createDefaultProfile());
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
@@ -510,6 +522,19 @@ export function NewTripExperience() {
   const [linkImport, setLinkImport] = useState<LinkImportData | null>(null);
   const messagesRef = useRef<PlanningMessage[]>([]);
   const profileRef = useRef(profile);
+  // Generation epoch: every reset()/unmount invalidates in-flight background
+  // polling, so an abandoned generate can never clear a NEWER session pointer
+  // or yank the user to a trip page they already walked away from.
+  const generationEpochRef = useRef(0);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      generationEpochRef.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     profileRef.current = profile;
@@ -530,7 +555,7 @@ export function NewTripExperience() {
 
   useEffect(() => {
     const query = searchParams.get("q");
-    if (query) setPrompt(query);
+    if (query) { setPrompt(query); setPromptTouched(true); }
   }, [searchParams]);
 
   const isBusy = busy !== "idle";
@@ -579,20 +604,27 @@ export function NewTripExperience() {
     return parsed.revision === undefined ? { ...parsed, revision: 1 } : parsed;
   };
 
+  const createSession = async (promptText: string | undefined, includeProfile = false) => {
+    const parsed = await requestSession(promptText, includeProfile ? profileRef.current : undefined);
+    setSessionId(parsed.sessionId ?? null);
+    usePlanningStore.getState().setSession({ sessionId: parsed.sessionId ?? "", destination: parsed.profile.destination });
+    adoptPayload(parsed, profileRef.current);
+    const initialMessages = parsed.messages.some((message) => message.role === "assistant")
+      ? parsed.messages
+      : [...parsed.messages, welcomeMessage(promptText ?? "", parsed.profile)];
+    replaceMessages(initialMessages);
+    if (!parsed.messages.length) setStreamingMessageId(null);
+    return parsed;
+  };
+
   const startConversation = async () => {
     if (busy !== "idle") return;
     setBusy("starting");
     setError("");
     try {
-      const parsed = await requestSession(prompt);
-      setSessionId(parsed.sessionId ?? null);
-      usePlanningStore.getState().setSession({ sessionId: parsed.sessionId ?? "", destination: parsed.profile.destination });
-      adoptPayload(parsed, profileRef.current);
-      const initialMessages = parsed.messages.some((message) => message.role === "assistant")
-        ? parsed.messages
-        : [...parsed.messages, welcomeMessage(prompt, parsed.profile)];
-      replaceMessages(initialMessages);
-      if (!parsed.messages.length) setStreamingMessageId(null);
+      // Clicking 开始对话 is an explicit choice, so the prefilled example
+      // counts as intent here even when untouched.
+      await createSession(prompt);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "规划会话创建失败，请重试。");
     } finally {
@@ -611,6 +643,14 @@ export function NewTripExperience() {
     const text = (requested ?? draft).trim();
     if (!text || !sessionId || busy !== "idle") return;
     const currentProfile = profileRef.current;
+    // A link pasted before any destination is known would otherwise be
+    // swallowed into the transcript behind a dead-end error. Keep it in the
+    // composer untouched and tell the traveller exactly what to send next.
+    const earlyLink = text.match(LINK_URL_PATTERN)?.[0];
+    if (earlyLink && SUPPORTED_LINK_HOST.test(earlyLink) && !currentProfile.destination.trim()) {
+      setError("先补充目的地，我才能核实链接里的地点：发送例如「我想去重庆玩 3 天」，然后重新粘贴链接即可。");
+      return;
+    }
     const userMessage: PlanningMessage = { id: `planning-user-${Date.now()}`, role: "user", content: text };
     replaceMessages([...messagesRef.current, userMessage]);
     setDraft("");
@@ -628,7 +668,7 @@ export function NewTripExperience() {
       const link = text.match(LINK_URL_PATTERN)?.[0];
       if (link && SUPPORTED_LINK_HOST.test(link)) {
         if (!currentProfile.destination.trim()) {
-          throw new Error("先告诉我目的地城市（例如「去重庆」），我才能用高德核实链接里的地点");
+          throw new Error("先告诉我目的地城市（例如「我想去重庆玩 3 天」），我才能用高德核实链接里的地点");
         }
         let result: { ok?: boolean; data?: LinkImportData; error?: { message?: string } };
         try {
@@ -639,10 +679,10 @@ export function NewTripExperience() {
           });
           result = await response.json() as typeof result;
         } catch {
-          throw new Error("链接解析请求失败，请检查网络后重试，或改用「粘贴攻略文本」");
+          throw new Error("链接解析请求失败，请检查网络后重试；也可以直接把攻略正文粘贴到这里");
         }
         if (!result.ok || !result.data) {
-          throw new Error(result.error?.message ?? "链接解析失败，可改用「粘贴攻略文本」");
+          throw new Error(result.error?.message ?? "链接解析失败；可以直接把攻略正文粘贴到这里");
         }
         const data = result.data;
         importedNames = data.candidates.filter((candidate) => candidate.resolved && candidate.place).map((candidate) => candidate.place!.name);
@@ -761,6 +801,21 @@ export function NewTripExperience() {
       setSessionId(parsed.sessionId);
       setRevision(parsed.revision ?? 1);
       adoptPayload(parsed, profileRef.current);
+      // A generation left running from a previous visit keeps going server-side;
+      // adopt the session and follow it to the trip page instead of offering a
+      // conversation that is about to be replaced.
+      const resumedData = isRecord(payload) && isRecord(payload.data) ? payload.data : {};
+      const resumedSession = isRecord(resumedData.session) ? resumedData.session : {};
+      if (resumedSession.status === "generating") {
+        setBusy("generating");
+        const epoch = ++generationEpochRef.current;
+        const outcome = await followGeneration(parsed.sessionId, epoch);
+        if (outcome.status === "cancelled") return;
+        if (outcome.status === "completed" && outcome.tripId) return;
+        if (outcome.status === "timeout") return;
+        setError(outcome.reason ?? "上次生成未完成，可以修改后重新生成。");
+        return;
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "会话恢复失败，请重试。");
     } finally {
@@ -768,9 +823,58 @@ export function NewTripExperience() {
     }
   };
 
+  /**
+   * Server-side generation runs detached (closing the tab never cancels it);
+   * the session record is the handoff, so poll it until it settles.
+   */
+  const pollGenerationOutcome = async (pollSessionId: string, epoch: number): Promise<{ status: string; tripId?: string; reason?: string }> => {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < GENERATION_POLL_TIMEOUT_MS) {
+      await new Promise((resolve) => window.setTimeout(resolve, GENERATION_POLL_INTERVAL_MS));
+      // reset() or unmount invalidates the epoch: stop polling and leave every
+      // piece of state the user is now building alone.
+      if (epoch !== generationEpochRef.current || !mountedRef.current) return { status: "cancelled" };
+      let payload: unknown;
+      try {
+        const response = await fetch(`/api/voyage/planning/session/${encodeURIComponent(pollSessionId)}`, { headers: { accept: "application/json" }, cache: "no-store" });
+        payload = await readPayload(response);
+      } catch {
+        continue; // transient network hiccup — the server-side work continues
+      }
+      if (!isRecord(payload) || !isRecord(payload.data) || !isRecord(payload.data.session)) continue;
+      const session = payload.data.session;
+      const status = typeof session.status === "string" ? session.status : "";
+      if (status === "completed" || status === "ready") {
+        return { status: "completed", tripId: typeof session.tripId === "string" ? session.tripId : undefined };
+      }
+      if (status === "failed") {
+        return { status: "failed", reason: typeof session.fallbackReason === "string" ? session.fallbackReason : undefined };
+      }
+    }
+    return { status: "timeout" };
+  };
+
+  /** Shared tail of both generate paths: follow the background generation to
+   * the trip page. Returns the outcome so each caller can phrase its error. */
+  const followGeneration = async (pollSessionId: string, epoch: number): Promise<{ status: string; tripId?: string; reason?: string }> => {
+    const outcome = await pollGenerationOutcome(pollSessionId, epoch);
+    if (outcome.status === "cancelled") return outcome;
+    if (outcome.status === "completed" && outcome.tripId) {
+      // The session has served its purpose once the trip exists; keeping the
+      // pointer would only offer a stale, already-generated conversation.
+      // The toast is also the audible announcement for screen readers —
+      // client-side navigation itself is silent.
+      toast.success("生成完成，正在打开行程…");
+      usePlanningStore.getState().clearSession();
+      setResumable(null);
+      await new Promise((resolve) => window.setTimeout(resolve, 220));
+      router.push(`/trip/${encodeURIComponent(outcome.tripId)}`);
+    }
+    return outcome;
+  };
+
   const generateRoute = async (sessionOverride?: ParsedPlanningPayload) => {
-    const currentSessionId = sessionOverride?.sessionId ?? sessionId;
-    if (!currentSessionId || (busy !== "idle" && !sessionOverride)) return;
+    if (busy !== "idle" && !sessionOverride) return;
     const blockers = generateBlockersFor(profileRef.current, sessionOverride?.days ?? plannerDays);
     if (blockers.length) {
       setError(`生成路线图前还需要确认：${blockers.join("、")}。只填天数不够，出发日期必须有真实日期。`);
@@ -779,9 +883,22 @@ export function NewTripExperience() {
     setBusy("generating");
     setError("");
     setWarnings([]);
+    const epoch = ++generationEpochRef.current;
     let payload: unknown;
+    let currentSessionId = sessionOverride?.sessionId ?? sessionId;
+    let currentRevision = sessionOverride?.revision ?? revision;
     try {
-      const currentRevision = sessionOverride?.revision ?? revision;
+      if (!currentSessionId) {
+        // Direct generate: the profile panel already holds every required
+        // constraint, so the session is created transparently. The composer
+        // text joins only when the traveller actually typed something — the
+        // untouched example's city/date must not override the form fields.
+        const created = await createSession(promptTouched ? prompt : undefined, true);
+        if (!created.sessionId) throw new Error("规划服务没有返回会话 ID，请重试。浏览器没有发送或读取任何服务凭据。");
+        currentSessionId = created.sessionId;
+        currentRevision = created.revision ?? 1;
+        setRevision(currentRevision);
+      }
       const expectedRevision = sessionOverride ? currentRevision : await syncProfileBeforeGenerate(currentSessionId, currentRevision);
       const response = await fetch(`/api/voyage/planning/session/${encodeURIComponent(currentSessionId)}/generate`, {
         method: "POST",
@@ -791,25 +908,33 @@ export function NewTripExperience() {
       });
       payload = await readPayload(response);
       if (!response.ok || (isRecord(payload) && payload.ok === false)) throw new Error(friendlyError(payload, response.status, "路线生成失败，请检查信息后重试。"));
-      const parsed = parseGenerationPayload(payload, profileRef.current);
-      const tripId = parsed.trip?.id ?? parsed.tripId;
-      if (!tripId) throw new Error("路线服务没有返回行程 ID，请稍后重试。");
-      // The session has served its purpose once the trip exists; keeping the
-      // pointer would only offer a stale, already-generated conversation.
-      usePlanningStore.getState().clearSession();
-      setResumable(null);
-      if (parsed.trip) hydrateTrip(parsed.trip, parsed.tripRevision ?? 1);
-      await new Promise((resolve) => window.setTimeout(resolve, 220));
-      router.push(`/trip/${encodeURIComponent(tripId)}`);
+
+      const outcome = await followGeneration(currentSessionId, epoch);
+      if (outcome.status === "cancelled") return;
+      if (outcome.status === "timeout") {
+        setBusy("idle");
+        setWarnings(["生成仍在后台进行，行程完成后会自动出现在「我的旅行」；留在本页也可以继续等待。"]);
+        return;
+      }
+      if (outcome.status === "failed" || !outcome.tripId) {
+        setBusy("idle");
+        setError(outcome.reason ?? "生成失败，会话与偏好都已保留，修改后可直接再点一次「生成路线图」。");
+        const details = errorDetails(payload);
+        const resynced = await resyncRevision(currentSessionId, details.revision);
+        if (resynced !== undefined) setWarnings(["可以在修改信息后直接再点一次「生成路线图」，这次会话和偏好都不会丢失。"]);
+        return;
+      }
       return;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "路线生成失败，请稍后重试。");
       setBusy("idle");
     }
     // Keep the session retryable: adopt the revision the server actually holds.
-    const details = errorDetails(payload);
-    const resynced = await resyncRevision(currentSessionId, details.revision);
-    if (resynced !== undefined) setWarnings(["可以在修改信息后直接再点一次「生成路线图」，这次会话和偏好都不会丢失。"]);
+    if (currentSessionId) {
+      const details = errorDetails(payload);
+      const resynced = await resyncRevision(currentSessionId, details.revision);
+      if (resynced !== undefined) setWarnings(["可以在修改信息后直接再点一次「生成路线图」，这次会话和偏好都不会丢失。"]);
+    }
   };
 
   /**
@@ -836,6 +961,9 @@ export function NewTripExperience() {
   };
 
   const reset = () => {
+    // Invalidate any in-flight generation polling before touching state, so
+    // the abandoned poll can never clobber the fresh session below.
+    generationEpochRef.current += 1;
     const fresh = createDefaultProfile();
     setSessionId(null);
     setLinkImport(null);
@@ -862,11 +990,14 @@ export function NewTripExperience() {
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[420px] bg-[radial-gradient(circle_at_15%_0%,rgba(15,118,110,0.12),transparent_32%),radial-gradient(circle_at_90%_5%,rgba(194,65,12,0.08),transparent_26%)]" />
       <div className="relative mx-auto max-w-6xl px-4 pb-12 pt-5 sm:px-6 sm:pt-7 lg:px-8">
         <header className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5">
+          <Link href="/" className="flex items-center gap-2.5" aria-label="返回首页">
             <span className="grid size-9 place-items-center rounded-xl bg-foreground text-background"><Compass className="size-4" /></span>
             <div><p className="text-[13px] font-semibold tracking-tight">{brand.name}</p><p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{brand.product}</p></div>
+          </Link>
+          <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+            <Link href="/trips" className="px-1 transition-colors hover:text-foreground">我的旅行</Link>
+            <span className="inline-flex items-center gap-1.5"><ShieldCheck className="size-3.5 text-primary" />服务端规划 · 凭据不下发</span>
           </div>
-          <div className="flex items-center gap-2 text-[10px] text-muted-foreground"><ShieldCheck className="size-3.5 text-primary" />服务端规划 · 凭据不下发</div>
         </header>
 
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-7">
@@ -903,12 +1034,12 @@ export function NewTripExperience() {
                   ) : null}
                   <div className="rounded-[24px] border border-border bg-surface p-4 shadow-[0_22px_70px_rgba(28,25,23,0.08)] sm:p-5">
                     <div className="flex items-start justify-between gap-3"><div><p className="text-[11px] font-medium uppercase tracking-[0.16em] text-primary">Start here</p><h2 className="mt-2 text-xl font-semibold tracking-tight">先说说这趟旅行</h2></div><Sparkles className="mt-1 size-5 text-primary" /></div>
-                    <Textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") void startConversation(); }} className="mt-5 min-h-32 resize-none border-border/80 bg-background/60 px-3.5 py-3 text-[14px] leading-6 shadow-none focus-visible:ring-primary/20" placeholder="告诉我你想去哪里、玩几天、和谁一起、预算和喜好……" aria-label="旅行初始想法" />
+                    <Textarea value={prompt} onChange={(event) => { setPromptTouched(true); setPrompt(event.target.value); }} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") void startConversation(); }} className="mt-5 min-h-32 resize-none border-border/80 bg-background/60 px-3.5 py-3 text-[14px] leading-6 shadow-none focus-visible:ring-primary/20" placeholder="告诉我你想去哪里、玩几天、和谁一起……也可以直接粘贴小红书/抖音攻略链接" aria-label="旅行初始想法" />
                     {searchParams.get("q") ? <p className="mt-2 text-[11px] text-primary">已带入首页的旅行描述，可以继续修改。</p> : null}
-                    <div className="mt-4"><p className="mb-2 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">灵感提示</p><div className="flex flex-wrap gap-1.5">{QUICK_PROMPTS.map((item) => <button key={item} type="button" onClick={() => setPrompt(item)} className="rounded-full border border-border bg-background px-2.5 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:border-primary/30 hover:bg-accent hover:text-accent-foreground">{item}</button>)}</div></div>
+                    <div className="mt-4"><p className="mb-2 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">灵感提示</p><div className="flex flex-wrap gap-1.5">{QUICK_PROMPTS.map((item) => <button key={item} type="button" onClick={() => { setPromptTouched(true); setPrompt(item); }} className="rounded-full border border-border bg-background px-2.5 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:border-primary/30 hover:bg-accent hover:text-accent-foreground">{item}</button>)}</div></div>
                     <div className="mt-5 flex flex-col-reverse gap-2 border-t border-border/80 pt-4 sm:flex-row sm:items-center sm:justify-between"><p className="text-[10px] leading-4 text-muted-foreground">Enter 不会直接生成<br />你可以在对话里慢慢补充</p><Button size="lg" onClick={() => void startConversation()} disabled={isBusy}>{busy === "starting" ? <LoaderCircle className="animate-spin" /> : <ArrowRight />}开始对话</Button></div>
                   </div>
-                  {error ? <div role="alert" className="mt-3 flex items-start gap-2 rounded-[14px] border border-rose-500/25 bg-rose-500/[0.06] px-3 py-2.5 text-xs text-rose-800"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{error}</span></div> : null}
+                  {error ? <div role="alert" className="mt-3 flex items-start gap-2 rounded-[14px] border border-rose-500/25 bg-rose-500/[0.06] px-3 py-2.5 text-xs text-rose-800"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{error}</span>{error.includes("设置页") ? <Link href="/settings" className="ml-auto shrink-0 self-center font-medium text-primary underline underline-offset-2">前往设置</Link> : null}</div> : null}
                 </>
               ) : (
                 <>
@@ -945,12 +1076,12 @@ export function NewTripExperience() {
                     </div>
                   ) : null}
                   <PlanningChat messages={messages} suggestedReplies={suggestedReplies} draft={draft} onDraftChange={setDraft} onSend={(message) => void sendMessage(message)} disabled={busy === "sending" || busy === "generating"} isTyping={busy === "sending"} streamingMessageId={streamingMessageId} />
-                  {error ? <div role="alert" className="mt-3 flex items-start gap-2 rounded-[14px] border border-rose-500/25 bg-rose-500/[0.06] px-3 py-2.5 text-xs text-rose-800"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{error}</span></div> : null}
+                  {error ? <div role="alert" className="mt-3 flex items-start gap-2 rounded-[14px] border border-rose-500/25 bg-rose-500/[0.06] px-3 py-2.5 text-xs text-rose-800"><CircleAlert className="mt-0.5 size-4 shrink-0" /><span>{error}</span>{error.includes("设置页") ? <Link href="/settings" className="ml-auto shrink-0 self-center font-medium text-primary underline underline-offset-2">前往设置</Link> : null}</div> : null}
                   {busy === "generating" ? <div className="mt-4"><GenerationProgress destination={profile.destination} /></div> : null}
                 </>
               )}
             </div>
-            <aside className="lg:sticky lg:top-5"><PlanningProfilePanel profile={profile} onChange={updateProfile} onGenerate={sessionId ? () => void generateRoute() : undefined} generating={busy === "generating"} disabled={busy !== "idle"} llmStatus={llmStatus} missingFields={missingFields} blockers={blockers} days={plannerDays} rangeWarning={rangeWarning} /><div className="mt-3 rounded-[14px] border border-border bg-surface/60 p-3 text-[11px] leading-5 text-muted-foreground"><div className="flex items-center gap-2 text-foreground"><Check className="size-3.5 text-primary" /><span className="font-medium">确认后才会调用路线与供应商能力</span></div><p className="mt-1">模型只负责理解偏好；地点、路线、天气和报价会在生成阶段按 provider 来源标注。</p>{missingFields.length ? <p className="mt-2">还可以补充：{missingFields.join("、")}</p> : null}</div></aside>
+            <aside className="lg:sticky lg:top-5"><PlanningProfilePanel profile={profile} onChange={updateProfile} onGenerate={() => void generateRoute()} generating={busy === "generating"} disabled={busy !== "idle"} llmStatus={llmStatus} missingFields={missingFields} blockers={blockers} days={plannerDays} rangeWarning={rangeWarning} /><div className="mt-3 rounded-[14px] border border-border bg-surface/60 p-3 text-[11px] leading-5 text-muted-foreground"><div className="flex items-center gap-2 text-foreground"><Check className="size-3.5 text-primary" /><span className="font-medium">确认后才会调用路线与供应商能力</span></div><p className="mt-1">模型只负责理解偏好；地点、路线、天气和报价会在生成阶段按 provider 来源标注。</p>{missingFields.length ? <p className="mt-2">还可以补充：{missingFields.join("、")}</p> : null}</div></aside>
           </div>
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3 text-[10px] text-muted-foreground"><p>会话数据只通过当前页面的相对 API 路径传输，不包含任何 API Key。</p>{sessionId ? <button type="button" onClick={reset} className="inline-flex items-center gap-1 text-foreground hover:text-primary">重新开始 <ArrowRight className="size-3" /></button> : null}</div>
         </motion.div>
