@@ -578,6 +578,9 @@ function constraintStatuses(): ReservationStatus[] {
 export function buildTripConstraints(trip: Trip): TripHardConstraint[] {
   const constraints: TripHardConstraint[] = [];
   for (const reservation of trip.reservations ?? []) {
+    // An id-less reservation cannot participate in constraint bookkeeping
+    // (is-own checks, repair targets) — skip it rather than guess.
+    if (!reservation.id) continue;
     if (!constraintStatuses().includes(reservation.status)) continue;
     const startMs = Date.parse(reservation.startAt);
     if (!Number.isFinite(startMs)) continue;
