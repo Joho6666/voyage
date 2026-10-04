@@ -10,8 +10,8 @@ import { planActionsWithRules, resolveRequestedDay } from "@/services/ai/actions
 import { computeTripChangeSet } from "@/services/ai/diff";
 import { optimizeTripPlan } from "@/services/itinerary-optimizer";
 import { buildTodayContext } from "@/services/today/context";
-import { getTripState } from "@/services/trip-state/engine";
-import { collectActiveEvents } from "@/services/trip-state/engine";
+import { getTripState, collectActiveEvents } from "@/services/trip-state/engine";
+import { analyzeEventImpact } from "@/services/impact-engine";
 import { haversineMeters, estimateTransit, uid } from "@/lib/utils";
 import { createTripId } from "@/services/planning/rule-planner";
 import { planOutline } from "@/services/planning/outline-planner";
@@ -30,7 +30,7 @@ import {
 } from "@/services/brain/constraints";
 import type { BrainMetadata, RouteMatrix } from "@/schemas/brain";
 import { reservationSchema, type Reservation } from "@/schemas/reservation";
-import { MAX_TRIP_EVENTS, travelEventSchema } from "@/schemas/travel-event";
+import { MAX_TRIP_EVENTS, travelEventSchema, type TravelEvent } from "@/schemas/travel-event";
 import {
   alignPlanningDays,
   filterPlanningCandidates,
@@ -80,6 +80,7 @@ import {
   recordTravelEventInputSchema,
   getActiveEventsInputSchema,
   getTripStateInputSchema,
+  analyzeEventImpactInputSchema,
   successEnvelope,
   type ProviderLevel,
   type ProviderStatus,
@@ -1860,6 +1861,43 @@ export class VoyageSkillRuntime {
     );
   }
 
+  /** Phase 6.5: read-only impact analysis of one event. */
+  async analyzeEventImpactView(raw: unknown) {
+    const input = analyzeEventImpactInputSchema.parse(raw);
+    const stored = await this.repository.getTrip(input.tripId);
+    if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+    let event: TravelEvent;
+    if (input.eventId) {
+      const recorded = (stored.trip.travelEvents ?? []).find((candidate) => candidate.id === input.eventId);
+      if (!recorded) throw new SkillError("INVALID_INPUT", "Event not found on this trip");
+      event = recorded;
+    } else if (input.event) {
+      const now = new Date().toISOString();
+      const { confidence, estimated, ...eventFields } = input.event;
+      event = travelEventSchema.parse({
+        ...eventFields,
+        id: "evt-analysis",
+        tripId: input.tripId,
+        occurredAt: input.event.effectiveFrom ?? input.asOf ?? now,
+        provenance: {
+          source: input.event.source ?? "system",
+          fetchedAt: now,
+          confidence: confidence ?? 0.5,
+          estimated: estimated ?? false,
+        },
+      });
+    } else {
+      throw new SkillError("INVALID_INPUT", "provide eventId or event");
+    }
+    const state = getTripState(stored.trip, { asOf: input.asOf ?? event.occurredAt });
+    const impact = analyzeEventImpact(event, stored.trip, state);
+    return successEnvelope(
+      { tripId: input.tripId, eventId: event.id, state, impact },
+      status("UNKNOWN", "UNKNOWN", "UNKNOWN"),
+      impact.unknowns,
+    );
+  }
+
   async importReservations(raw: unknown) {
     const input = importReservationsInputSchema.parse(raw);
     const stored = await this.loadTripForWrite(input.tripId, input.expectedTripRevision);
@@ -2002,6 +2040,7 @@ export class VoyageSkillRuntime {
       case "record-travel-event": return this.recordTravelEvent(input);
       case "get-active-events": return this.getActiveEvents(input);
       case "get-trip-state": return this.getTripStateView(input);
+      case "analyze-event-impact": return this.analyzeEventImpactView(input);
       case "import-reservations": return this.importReservations(input);
       case "search-social": return this.searchSocial(input);
       case "get-social-trending": return this.getSocialTrending(input);

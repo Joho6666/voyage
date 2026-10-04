@@ -378,6 +378,19 @@ export const getTripStateInputSchema = z.object({
   asOf: z.string().min(10).max(40).optional(),
 });
 
+/**
+ * Phase 6.5: analyze one event's impact WITHOUT recording it. Either pass an
+ * inline event or reference an already-recorded one by id. Read-only.
+ */
+export const analyzeEventImpactInputSchema = z.object({
+  tripId: z.string().min(1),
+  eventId: z.string().min(1).optional(),
+  event: travelEventInputSchema.optional(),
+  asOf: z.string().min(10).max(40).optional(),
+}).refine((input) => Boolean(input.eventId) !== Boolean(input.event), {
+  message: "provide exactly one of eventId or event",
+});
+
 export const searchSocialInputSchema = z.object({
   city: z.string().min(1).max(80),
   query: z.string().max(120).optional(),
@@ -440,6 +453,7 @@ export const commandSchemas = {
   "record-travel-event": recordTravelEventInputSchema,
   "get-active-events": getActiveEventsInputSchema,
   "get-trip-state": getTripStateInputSchema,
+  "analyze-event-impact": analyzeEventImpactInputSchema,
 } as const;
 
 export type SkillCommand = keyof typeof commandSchemas;

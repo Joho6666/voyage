@@ -266,6 +266,24 @@ export const voyageTools: Record<string, VoyageToolDefinition> = {
     },
     "get-trip-state",
   ),
+  voyage_analyze_event_impact: tool(
+    "Analyze one TravelEvent's impact on the trip (affected/at-risk/impossible items, time/budget/walking deltas, recommended strategies). Read-only; nothing is recorded or changed.",
+    {
+      tripId: z.string(),
+      eventId: z.string().optional(),
+      event: z.object({
+        type: z.enum(["WEATHER_CHANGED", "HEAVY_RAIN", "EXTREME_HEAT", "FLIGHT_DELAYED", "FLIGHT_CANCELLED", "TRAIN_DELAYED", "ROAD_CONGESTED", "ROUTE_CLOSED", "POI_CLOSED", "OPENING_HOURS_CHANGED", "RESERVATION_CHANGED", "RESERVATION_CANCELLED", "USER_LATE", "USER_AHEAD", "WALKING_OVERLOAD", "BUDGET_THRESHOLD", "TRIP_CONSTRAINT_VIOLATED"]),
+        severity: z.enum(["info", "warning", "critical"]).optional(),
+        effectiveFrom: z.string().optional(),
+        effectiveUntil: z.string().optional(),
+        summary: z.string().optional(),
+        payload: z.record(z.string(), z.unknown()).optional(),
+        relatedEntities: z.array(z.object({ kind: z.string(), id: z.string() })).optional(),
+      }).optional(),
+      asOf: z.string().optional(),
+    },
+    "analyze-event-impact",
+  ),
 };
 
 export function normalizeToolError(error: unknown) {
