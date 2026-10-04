@@ -23,6 +23,7 @@ import { TravelImage } from "@/components/travel/TravelImage";
 import { travelAgent } from "@/services/ai";
 import type { AgentMessage, AgentTurn } from "@/services/ai/types";
 import { suggestTodayActions } from "@/features/today/suggestions";
+import { TripStateConsole } from "@/features/today/TripStateConsole";
 import { toggleItemDone } from "@/services/check-in";
 import { restoreTrip, TripCommandError } from "@/services/trip-commands";
 import { useHistoryStore } from "@/store/history-store";
@@ -333,6 +334,11 @@ export default function TodayPage() {
           </div>
         </div>
       ) : null}
+
+      {/* Phase 6.7 execution console: TripState-driven strip (risk, current/
+          next stop, lateness, remaining walking, hard constraints) with
+          proactive cards that flow into the normal agent → Diff pipeline. */}
+      <TripStateConsole trip={trip} dayId={selectedDayId ?? null} busy={busy} onAct={(message) => void handleAction(message)} />
 
       {/* Live Travel Status Card */}
       <section className="mt-4 rounded-[14px] border border-border bg-surface p-4 shadow-sm">
