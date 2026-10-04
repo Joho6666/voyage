@@ -372,6 +372,12 @@ export const getActiveEventsInputSchema = z.object({
   includeAcknowledged: z.boolean().default(false),
 });
 
+/** Phase 6.4: deterministic execution state of a trip at an instant. */
+export const getTripStateInputSchema = z.object({
+  tripId: z.string().min(1),
+  asOf: z.string().min(10).max(40).optional(),
+});
+
 export const searchSocialInputSchema = z.object({
   city: z.string().min(1).max(80),
   query: z.string().max(120).optional(),
@@ -433,6 +439,7 @@ export const commandSchemas = {
   "get-constraints": getConstraintsInputSchema,
   "record-travel-event": recordTravelEventInputSchema,
   "get-active-events": getActiveEventsInputSchema,
+  "get-trip-state": getTripStateInputSchema,
 } as const;
 
 export type SkillCommand = keyof typeof commandSchemas;

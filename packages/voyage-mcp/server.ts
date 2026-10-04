@@ -259,6 +259,13 @@ export const voyageTools: Record<string, VoyageToolDefinition> = {
     "import-reservations",
     { annotations: WRITE },
   ),
+  voyage_get_trip_state: tool(
+    "Deterministic execution state at an instant: phase, current/next stop, lateness vs plan, remaining walking/travel, estimated finish, active reservations and events, upcoming hard constraints, budget and risk level. Pure computation — no LLM. Read-only.",
+    {
+      tripId: z.string(), asOf: z.string().optional(),
+    },
+    "get-trip-state",
+  ),
 };
 
 export function normalizeToolError(error: unknown) {

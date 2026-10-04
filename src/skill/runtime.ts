@@ -10,6 +10,8 @@ import { planActionsWithRules, resolveRequestedDay } from "@/services/ai/actions
 import { computeTripChangeSet } from "@/services/ai/diff";
 import { optimizeTripPlan } from "@/services/itinerary-optimizer";
 import { buildTodayContext } from "@/services/today/context";
+import { getTripState } from "@/services/trip-state/engine";
+import { collectActiveEvents } from "@/services/trip-state/engine";
 import { haversineMeters, estimateTransit, uid } from "@/lib/utils";
 import { createTripId } from "@/services/planning/rule-planner";
 import { planOutline } from "@/services/planning/outline-planner";
@@ -77,6 +79,7 @@ import {
   getConstraintsInputSchema,
   recordTravelEventInputSchema,
   getActiveEventsInputSchema,
+  getTripStateInputSchema,
   successEnvelope,
   type ProviderLevel,
   type ProviderStatus,
@@ -1836,17 +1839,24 @@ export class VoyageSkillRuntime {
     const stored = await this.repository.getTrip(input.tripId);
     if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
     const asOfMs = Date.parse(input.asOf ?? new Date().toISOString());
-    const active = (stored.trip.travelEvents ?? []).filter((event) => {
-      if (!input.includeAcknowledged && event.acknowledgedAt) return false;
-      const fromMs = Date.parse(event.effectiveFrom ?? event.occurredAt);
-      if (Number.isFinite(fromMs) && fromMs > asOfMs) return false;
-      const untilMs = event.effectiveUntil ? Date.parse(event.effectiveUntil) : undefined;
-      if (untilMs !== undefined && Number.isFinite(untilMs) && untilMs < asOfMs) return false;
-      return true;
-    });
+    // Same window predicate the TripState engine uses — one definition only.
+    const active = collectActiveEvents(stored.trip.travelEvents ?? [], asOfMs, input.includeAcknowledged);
     return successEnvelope(
       { tripId: input.tripId, asOf: input.asOf ?? new Date().toISOString(), events: active, total: active.length },
       status("UNKNOWN", "UNKNOWN", "UNKNOWN"),
+    );
+  }
+
+  /** Phase 6.4: deterministic execution state — no LLM, no providers. */
+  async getTripStateView(raw: unknown) {
+    const input = getTripStateInputSchema.parse(raw);
+    const stored = await this.repository.getTrip(input.tripId);
+    if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+    const state = getTripState(stored.trip, input.asOf ? { asOf: input.asOf } : {});
+    return successEnvelope(
+      { tripId: input.tripId, state },
+      status("UNKNOWN", "UNKNOWN", "UNKNOWN"),
+      state.constraintViolations,
     );
   }
 
@@ -1991,6 +2001,7 @@ export class VoyageSkillRuntime {
       case "get-constraints": return this.getConstraints(input);
       case "record-travel-event": return this.recordTravelEvent(input);
       case "get-active-events": return this.getActiveEvents(input);
+      case "get-trip-state": return this.getTripStateView(input);
       case "import-reservations": return this.importReservations(input);
       case "search-social": return this.searchSocial(input);
       case "get-social-trending": return this.getSocialTrending(input);
