@@ -71,7 +71,7 @@ export const weatherEventProvider: WeatherEventProvider = {
     void trip;
     return [];
   },
-  normalize(observation, _trip) {
+  normalize(observation) {
     const classified = classifyWeatherCondition(observation.condition);
     const changed = observation.previousCondition !== undefined && observation.previousCondition !== observation.condition;
     return {
@@ -147,7 +147,7 @@ export class MockTravelEventProvider {
   readonly kind = "mock";
 
   flightDelay(flightNo: string, delayMinutes: number, reservationId?: string): TravelEventInput {
-    return flightEventProvider.normalize({
+    const normalized = flightEventProvider.normalize({
       flightNo,
       status: "delayed",
       delayMinutes,
@@ -155,6 +155,8 @@ export class MockTravelEventProvider {
       fetchedAt: new Date().toISOString(),
       confidence: 1,
     }, undefined as never, reservationId);
+    // A simulated incident can never present itself as provider data.
+    return { ...normalized, source: "simulation" as const };
   }
 
   heavyRain(date: string, untilHHmm = "18:00"): TravelEventInput {
@@ -220,7 +222,7 @@ export class MockTravelEventProvider {
 export function eventInputFromSimulation(input: TravelEventInput): TravelEventInput {
   // The simulation provider is authoritative about its own nature: force the
   // source so a simulated storm can never be presented as a real forecast.
-  return { ...input, source: "simulation" };
+  return { ...input, source: "simulation" as const };
 }
 
 export type { TravelEvent };
