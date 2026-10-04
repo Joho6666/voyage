@@ -1804,7 +1804,9 @@ export class VoyageSkillRuntime {
     const now = new Date().toISOString();
     // confidence/estimated are provenance hints, not event fields — strip
     // them before the strict event schema validates the payload.
-    const { confidence: _confidence, estimated: _estimated, ...eventFields } = input.event;
+    const eventFields: Record<string, unknown> = { ...input.event };
+    delete eventFields.confidence;
+    delete eventFields.estimated;
     const event = travelEventSchema.parse({
       ...eventFields,
       id: uid("evt"),
