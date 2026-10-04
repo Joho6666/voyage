@@ -20,7 +20,9 @@ import {
   summarizeRouteMatrix,
 } from "@/services/brain/route-matrix";
 import {
+  evaluateDayConstraints,
   evaluateOutline,
+  evaluateTripConstraints,
   placeMatchesTerm as brainPlaceMatchesTerm,
   repairOutline,
 } from "@/services/brain/constraints";
@@ -71,6 +73,7 @@ import {
   removeReservationInputSchema,
   getReservationsInputSchema,
   importReservationsInputSchema,
+  getConstraintsInputSchema,
   successEnvelope,
   type ProviderLevel,
   type ProviderStatus,
@@ -1771,6 +1774,21 @@ export class VoyageSkillRuntime {
     );
   }
 
+  /** Phase 6.2: the constraint engine's deterministic view of the trip. */
+  async getConstraints(raw: unknown) {
+    const input = getConstraintsInputSchema.parse(raw);
+    const stored = await this.repository.getTrip(input.tripId);
+    if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+    const evaluation = input.dayId
+      ? evaluateDayConstraints(stored.trip, input.dayId)
+      : evaluateTripConstraints(stored.trip);
+    return successEnvelope(
+      { tripId: input.tripId, ...(input.dayId ? { dayId: input.dayId } : {}), ...evaluation },
+      status("UNKNOWN", "UNKNOWN", "UNKNOWN"),
+      evaluation.warnings,
+    );
+  }
+
   async importReservations(raw: unknown) {
     const input = importReservationsInputSchema.parse(raw);
     const stored = await this.loadTripForWrite(input.tripId, input.expectedTripRevision);
@@ -1909,6 +1927,7 @@ export class VoyageSkillRuntime {
       case "update-reservation": return this.updateReservation(input);
       case "remove-reservation": return this.removeReservation(input);
       case "get-reservations": return this.getReservations(input);
+      case "get-constraints": return this.getConstraints(input);
       case "import-reservations": return this.importReservations(input);
       case "search-social": return this.searchSocial(input);
       case "get-social-trending": return this.getSocialTrending(input);

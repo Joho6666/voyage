@@ -1,9 +1,10 @@
 import { haversineMeters } from "@/lib/utils";
 import { estimateCost } from "@/services/transport/options";
 import type { PlanningProfile } from "@/schemas/planning";
-import type { ConstraintEvaluation, RepairHint, RouteMatrix } from "@/schemas/brain";
+import type { ConstraintEvaluation, ConstraintViolation, RepairHint, RouteMatrix, SoftPenalty } from "@/schemas/brain";
 import type { Outline } from "@/services/planning/outline-planner";
-import type { Place } from "@/types/travel";
+import type { Place, Trip } from "@/types/travel";
+import type { Reservation, ReservationStatus } from "@/schemas/reservation";
 
 /**
  * ConstraintEngine v1 (Travel Brain Phase 4.1).
@@ -501,4 +502,331 @@ export function repairOutline(outline: Outline, evaluation: ConstraintEvaluation
   }
 
   return { outline: { ...outline, dayPlans }, applied };
+}
+
+// ---------------------------------------------------------------------------
+// Trip-level constraint engine (Phase 6.2)
+//
+// The outline gate above runs once at trip creation. This section exposes the
+// same constraint vocabulary over a live Trip so the Itinerary Optimizer,
+// replan paths, Today Mode and the planning agent all share ONE engine:
+//
+//   evaluateTripConstraints(trip)   whole-trip scan (violations + score)
+//   evaluateDayConstraints(trip, dayId)   day-scoped scan
+//   evaluateCandidateMove(trip, move)   "what if we move this item?" gate
+//
+// Hard constraints come from CONFIRMED reservations only — a tentative booking
+// is a warning, a cancelled one is ignored. Unknown data lands in
+// `unresolvedConstraints`; nothing is ever assumed.
+// ---------------------------------------------------------------------------
+
+/** Item times are naive "HH:mm" on the trip's dates; trips are China-based. */
+const TRIP_TZ_SUFFIX = "+08:00";
+
+export function tripItemStartMs(date: string, hhmm: string): number {
+  return Date.parse(`${date}T${hhmm}:00${TRIP_TZ_SUFFIX}`);
+}
+
+export function tripDayEndMs(date: string): number {
+  return Date.parse(`${date}T23:59:59${TRIP_TZ_SUFFIX}`);
+}
+
+export type TripHardConstraintKind =
+  | "flightDeparture"
+  | "trainDeparture"
+  | "hotelCheckinWindow"
+  | "ticketEntryTime"
+  | "reservationTime";
+
+export interface TripHardConstraint {
+  id: string;
+  kind: TripHardConstraintKind;
+  reservationId: string;
+  title: string;
+  startMs: number;
+  endMs?: number;
+  origin?: string;
+  destination?: string;
+  location?: string;
+  flexibility: "fixed" | "semiFlexible" | "flexible";
+  type: Reservation["type"];
+}
+
+export interface ConstraintEvidence {
+  constraintId: string;
+  source: string;
+  detail: string;
+}
+
+const HARD_KIND_BY_TYPE: Record<Reservation["type"], TripHardConstraintKind> = {
+  flight: "flightDeparture",
+  train: "trainDeparture",
+  hotel: "hotelCheckinWindow",
+  attraction: "ticketEntryTime",
+  activity: "ticketEntryTime",
+  restaurant: "reservationTime",
+  car: "reservationTime",
+  transfer: "reservationTime",
+  other: "reservationTime",
+};
+
+function constraintStatuses(): ReservationStatus[] {
+  return ["confirmed", "completed"];
+}
+
+/** Confirmed reservations → the hard constraints every scheduler must obey. */
+export function buildTripConstraints(trip: Trip): TripHardConstraint[] {
+  const constraints: TripHardConstraint[] = [];
+  for (const reservation of trip.reservations ?? []) {
+    if (!constraintStatuses().includes(reservation.status)) continue;
+    const startMs = Date.parse(reservation.startAt);
+    if (!Number.isFinite(startMs)) continue;
+    const endMs = reservation.endAt ? Date.parse(reservation.endAt) : undefined;
+    constraints.push({
+      id: `reservation:${reservation.id}`,
+      kind: HARD_KIND_BY_TYPE[reservation.type],
+      reservationId: reservation.id,
+      title: reservation.title,
+      startMs,
+      ...(Number.isFinite(endMs) ? { endMs } : {}),
+      ...(reservation.origin ? { origin: reservation.origin } : {}),
+      ...(reservation.destination ? { destination: reservation.destination } : {}),
+      ...(reservation.location ? { location: reservation.location } : {}),
+      flexibility: reservation.flexibility,
+      type: reservation.type,
+    });
+  }
+  return constraints.sort((a, b) => a.startMs - b.startMs);
+}
+
+export interface TripConstraintEvaluation {
+  hardConstraints: TripHardConstraint[];
+  hardViolations: ConstraintViolation[];
+  softPenalties: SoftPenalty[];
+  score: number;
+  warnings: string[];
+  unresolvedConstraints: string[];
+  evidence: ConstraintEvidence[];
+}
+
+function tripDateSpan(trip: Trip): { startMs: number; endMs: number } | undefined {
+  if (!trip.startDate || !trip.endDate) return undefined;
+  const startMs = Date.parse(`${trip.startDate}T00:00:00${TRIP_TZ_SUFFIX}`);
+  const endMs = tripDayEndMs(trip.endDate);
+  return Number.isFinite(startMs) && Number.isFinite(endMs) ? { startMs, endMs } : undefined;
+}
+
+const WALKING_TOLERANCE_WALK_MIN: Record<NonNullable<PlanningProfile["walkingTolerance"]>, number> = {
+  low: 90,
+  medium: 150,
+  high: 240,
+};
+
+/** Whole-trip deterministic scan: reservations vs itinerary vs itself. */
+export function evaluateTripConstraints(
+  trip: Trip,
+  options: { profile?: PlanningProfile } = {},
+): TripConstraintEvaluation {
+  const profile = options.profile ?? trip.planningMetadata?.planningProfile;
+  const hardConstraints = buildTripConstraints(trip);
+  const hardViolations: ConstraintViolation[] = [];
+  const softPenalties: SoftPenalty[] = [];
+  const warnings: string[] = [];
+  const unresolvedConstraints: string[] = [];
+  const evidence: ConstraintEvidence[] = [];
+  const span = tripDateSpan(trip);
+
+  // 1. Reservations that fall outside the trip's dates are unsatisfiable.
+  for (const constraint of hardConstraints) {
+    if (!span) {
+      unresolvedConstraints.push(`行程缺少日期范围，无法校验「${constraint.title}」的时间窗`);
+      continue;
+    }
+    evidence.push({ constraintId: constraint.id, source: `reservation:${constraint.reservationId}`, detail: `${constraint.title} @ ${new Date(constraint.startMs).toISOString()}` });
+    if (constraint.startMs < span.startMs || constraint.startMs > span.endMs) {
+      hardViolations.push({
+        constraintId: constraint.id,
+        detail: `已确认预订「${constraint.title}」的时间不在行程日期 ${trip.startDate}~${trip.endDate} 内`,
+        severity: "error",
+      });
+    }
+  }
+
+  // 2. Tentative reservations are surfaced, never treated as facts.
+  for (const reservation of trip.reservations ?? []) {
+    if (reservation.status === "tentative") {
+      warnings.push(`预订「${reservation.title}」尚未确认（tentative），暂不作为硬约束`);
+      unresolvedConstraints.push(`reservation:${reservation.id} 未确认`);
+    }
+  }
+
+  // 3. Overlapping confirmed transit reservations are impossible to attend.
+  for (let i = 0; i < hardConstraints.length; i += 1) {
+    for (let j = i + 1; j < hardConstraints.length; j += 1) {
+      const a = hardConstraints[i];
+      const b = hardConstraints[j];
+      if (a.reservationId === b.reservationId) continue;
+      if (a.type !== "flight" && a.type !== "train") continue;
+      if (b.type !== "flight" && b.type !== "train") continue;
+      const aEnd = a.endMs ?? a.startMs + 60 * 60_000;
+      const bEnd = b.endMs ?? b.startMs + 60 * 60_000;
+      if (a.startMs < bEnd && b.startMs < aEnd) {
+        hardViolations.push({
+          constraintId: `${a.id}~${b.id}`,
+          detail: `两段已确认交通时间重叠：「${a.title}」与「${b.title}」，无法同时满足`,
+          severity: "error",
+        });
+      }
+    }
+  }
+
+  // 4. Linked items must sit inside their reservation's window.
+  const itemById = new Map(trip.items.map((item) => [item.id, item]));
+  const dayById = new Map(trip.days.map((day) => [day.id, day]));
+  for (const reservation of trip.reservations ?? []) {
+    if (!reservation.linkedItemId) continue;
+    if (!constraintStatuses().includes(reservation.status)) continue;
+    const item = itemById.get(reservation.linkedItemId);
+    if (!item) {
+      hardViolations.push({
+        constraintId: `reservation:${reservation.id}`,
+        detail: `预订「${reservation.title}」关联的行程条目不存在`,
+        severity: "error",
+      });
+      continue;
+    }
+    const day = dayById.get(item.dayId);
+    if (!day) continue;
+    const itemStart = tripItemStartMs(day.date, item.startTime);
+    const startMs = Date.parse(reservation.startAt);
+    const endMs = reservation.endAt ? Date.parse(reservation.endAt) : undefined;
+    const afterStart = itemStart >= startMs - 30 * 60_000;
+    const beforeEnd = endMs === undefined ? itemStart <= startMs + 60 * 60_000 : itemStart <= endMs;
+    if (!afterStart || !beforeEnd) {
+      hardViolations.push({
+        constraintId: `reservation:${reservation.id}`,
+        detail: `「${reservation.title}」相关行程安排在 ${day.date} ${item.startTime}，超出预订时间窗`,
+        severity: "error",
+      });
+    }
+  }
+
+  // 5. Soft: planned walking per day vs the confirmed tolerance.
+  const tolerance = WALKING_TOLERANCE_WALK_MIN[profile?.walkingTolerance ?? "medium"];
+  for (const day of trip.days) {
+    const walkMin = trip.segments
+      .filter((segment) => segment.dayId === day.id && segment.mode === "walk")
+      .reduce((sum, segment) => sum + (segment.minutes ?? 0), 0);
+    if (walkMin > tolerance) {
+      softPenalties.push({
+        constraintId: `walking:day${day.index + 1}`,
+        penalty: Math.min(30, Math.round((walkMin - tolerance) / 3)),
+        detail: `Day ${day.index + 1} 步行约 ${walkMin} 分钟，超出「${profile?.walkingTolerance ?? "medium"}」偏好（约 ${tolerance} 分钟）`,
+      });
+    }
+  }
+
+  for (const violation of hardViolations) warnings.push(violation.detail);
+  for (const penalty of softPenalties) warnings.push(penalty.detail);
+  const score = Math.max(0, 100 - hardViolations.filter((violation) => violation.severity === "error").length * 30 - softPenalties.reduce((sum, penalty) => sum + penalty.penalty, 0));
+  return { hardConstraints, hardViolations, softPenalties, score, warnings, unresolvedConstraints, evidence };
+}
+
+/** Day-scoped view of the same engine (Today Mode / day replans). */
+export function evaluateDayConstraints(trip: Trip, dayId: string): TripConstraintEvaluation {
+  const day = trip.days.find((candidate) => candidate.id === dayId);
+  if (!day) {
+    return { hardConstraints: [], hardViolations: [], softPenalties: [], score: 100, warnings: [], unresolvedConstraints: [], evidence: [] };
+  }
+  const dayStart = Date.parse(`${day.date}T00:00:00${TRIP_TZ_SUFFIX}`);
+  const dayEnd = tripDayEndMs(day.date);
+  const scoped: Trip = {
+    ...trip,
+    days: [day],
+    items: trip.items.filter((item) => item.dayId === dayId),
+    segments: trip.segments.filter((segment) => segment.dayId === dayId),
+    reservations: (trip.reservations ?? []).filter((reservation) => {
+      const startMs = Date.parse(reservation.startAt);
+      return Number.isFinite(startMs) && startMs >= dayStart && startMs <= dayEnd;
+    }),
+  };
+  return evaluateTripConstraints(scoped);
+}
+
+export interface CandidateMove {
+  itemId: string;
+  toDayId: string;
+  /** Optional new start time; defaults to keeping the current clock time. */
+  toStartTime?: string;
+}
+
+export interface CandidateMoveEvaluation {
+  allowed: boolean;
+  violations: string[];
+  warnings: string[];
+  /** 0-100; 100 = the move is constraint-neutral. */
+  score: number;
+}
+
+/**
+ * "What if we moved this item?" — the gate the optimizer, replan candidates
+ * and the agent's proposals must pass before a Diff is even shown. Locked
+ * (done/current) items can never move; confirmed reservation windows can
+ * never be crossed by a non-linked item, and a linked item cannot be moved
+ * out of its own window while the reservation is fixed.
+ */
+export function evaluateCandidateMove(trip: Trip, move: CandidateMove): CandidateMoveEvaluation {
+  const violations: string[] = [];
+  const warnings: string[] = [];
+  const item = trip.items.find((candidate) => candidate.id === move.itemId);
+  if (!item) {
+    return { allowed: false, violations: [`行程条目 ${move.itemId} 不存在`], warnings, score: 0 };
+  }
+  const targetDay = trip.days.find((day) => day.id === move.toDayId);
+  if (!targetDay) {
+    return { allowed: false, violations: [`目标日期 ${move.toDayId} 不存在`], warnings, score: 0 };
+  }
+  if (item.status === "done" || item.status === "current") {
+    violations.push(`「${item.placeId}」当前状态为 ${item.status}，不可移动`);
+    return { allowed: false, violations, warnings, score: 0 };
+  }
+
+  const dayById = new Map(trip.days.map((day) => [day.id, day]));
+  const newStartHhmm = move.toStartTime ?? item.startTime;
+  const newStartMs = tripItemStartMs(targetDay.date, newStartHhmm);
+  const newEndMs = newStartMs + item.duration * 60_000;
+
+  for (const constraint of buildTripConstraints(trip)) {
+    const isOwn = constraint.reservationId === trip.reservations?.find((reservation) => reservation.linkedItemId === item.id)?.id;
+    const windowStart = constraint.startMs;
+    const windowEnd = constraint.endMs ?? constraint.startMs + 60 * 60_000;
+    if (isOwn) {
+      if (newStartMs < windowStart - 30 * 60_000 || newStartMs > (constraint.endMs ?? constraint.startMs + 60 * 60_000)) {
+        if (constraint.flexibility === "fixed") {
+          violations.push(`与已确认预订「${constraint.title}」的时间窗冲突`);
+        } else {
+          warnings.push(`预订「${constraint.title}」为 ${constraint.flexibility}，移动后需人工确认`);
+        }
+      }
+      continue;
+    }
+    const overlaps = newStartMs < windowEnd && windowStart < newEndMs;
+    if (overlaps && constraint.flexibility === "fixed") {
+      violations.push(`目标时段与已确认预订「${constraint.title}」（${constraint.kind}）重叠`);
+    } else if (overlaps) {
+      warnings.push(`目标时段贴近预订「${constraint.title}」，建议保留缓冲`);
+    }
+  }
+
+  const sourceDay = dayById.get(item.dayId);
+  if (sourceDay && targetDay.date < sourceDay.date) {
+    warnings.push(`该移动会把行程提前到更早的一天，请确认已完成项不受影响`);
+  }
+
+  return {
+    allowed: violations.length === 0,
+    violations,
+    warnings,
+    score: Math.max(0, 100 - violations.length * 50 - warnings.length * 10),
+  };
 }

@@ -346,6 +346,12 @@ export const importReservationsInputSchema = z.object({
   reservations: z.array(reservationImportItemSchema).min(1).max(20),
 });
 
+/** Phase 6.2: read the constraint engine's view of a trip (or one day). */
+export const getConstraintsInputSchema = z.object({
+  tripId: z.string().min(1),
+  dayId: z.string().min(1).optional(),
+});
+
 export const searchSocialInputSchema = z.object({
   city: z.string().min(1).max(80),
   query: z.string().max(120).optional(),
@@ -404,6 +410,7 @@ export const commandSchemas = {
   "remove-reservation": removeReservationInputSchema,
   "get-reservations": getReservationsInputSchema,
   "import-reservations": importReservationsInputSchema,
+  "get-constraints": getConstraintsInputSchema,
 } as const;
 
 export type SkillCommand = keyof typeof commandSchemas;
