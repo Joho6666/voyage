@@ -98,11 +98,11 @@ describe("reservation domain (Phase 6.1)", () => {
       tripId, expectedTripRevision: revision + 5, reservation: FLIGHT,
     })).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
 
-    const response = await runtime.execute("add-reservation", {
-      tripId, expectedTripRevision: revision,
-      reservation: { ...FLIGHT, id: "forged-id" },
-    }) as { data: { reservation: { id: string } } };
-    expect(response.data.reservation.id).not.toBe("forged-id");
+    // The strict input schema rejects a caller-supplied id outright — ids are
+    // runtime-generated, never client-asserted.
+    await expect(runtime.execute("add-reservation", {
+      tripId, expectedTripRevision: revision, reservation: { ...FLIGHT, id: "forged-id" },
+    })).rejects.toThrow();
   });
 
   it("updates status through the patch path and preserves provenance source", async () => {
