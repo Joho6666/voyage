@@ -28,6 +28,7 @@ import {
 } from "@/services/brain/constraints";
 import type { BrainMetadata, RouteMatrix } from "@/schemas/brain";
 import { reservationSchema, type Reservation } from "@/schemas/reservation";
+import { MAX_TRIP_EVENTS, travelEventSchema, type TravelEvent } from "@/schemas/travel-event";
 import {
   alignPlanningDays,
   filterPlanningCandidates,
@@ -74,6 +75,8 @@ import {
   getReservationsInputSchema,
   importReservationsInputSchema,
   getConstraintsInputSchema,
+  recordTravelEventInputSchema,
+  getActiveEventsInputSchema,
   successEnvelope,
   type ProviderLevel,
   type ProviderStatus,
@@ -1789,6 +1792,62 @@ export class VoyageSkillRuntime {
     );
   }
 
+  // ---------------------------------------------------------------------
+  // TravelEvent domain (Phase 6.3): normalized real-world changes. Provider
+  // responses are normalized BEFORE reaching this boundary; the runtime
+  // labels provenance truthfully (simulation stays simulation).
+  // ---------------------------------------------------------------------
+
+  async recordTravelEvent(raw: unknown) {
+    const input = recordTravelEventInputSchema.parse(raw);
+    const stored = await this.loadTripForWrite(input.tripId, input.expectedTripRevision);
+    const now = new Date().toISOString();
+    // confidence/estimated are provenance hints, not event fields — strip
+    // them before the strict event schema validates the payload.
+    const { confidence, estimated, ...eventFields } = input.event;
+    const event = travelEventSchema.parse({
+      ...eventFields,
+      id: uid("evt"),
+      tripId: input.tripId,
+      occurredAt: input.event.effectiveFrom ?? now,
+      provenance: {
+        source: input.event.source ?? "system",
+        fetchedAt: now,
+        confidence: input.event.confidence ?? 0.5,
+        estimated: input.event.estimated ?? false,
+      },
+    });
+    const events = [...(stored.trip.travelEvents ?? []), event];
+    // Bounded log: once the cap is hit, the oldest acknowledged/unacknowledged
+    // facts fall off first — history beyond the cap is not retained.
+    const trimmed = events.slice(Math.max(0, events.length - MAX_TRIP_EVENTS));
+    const trip: Trip = { ...stored.trip, travelEvents: trimmed, updatedAt: now };
+    const saved = await this.repository.updateTrip({ tripId: input.tripId, expectedRevision: stored.revision, trip });
+    return successEnvelope(
+      { tripId: input.tripId, event, total: (saved.trip.travelEvents ?? []).length, revision: saved.revision, tripHash: saved.hash },
+      status("UNKNOWN", "UNKNOWN", "UNKNOWN"),
+    );
+  }
+
+  async getActiveEvents(raw: unknown) {
+    const input = getActiveEventsInputSchema.parse(raw);
+    const stored = await this.repository.getTrip(input.tripId);
+    if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+    const asOfMs = Date.parse(input.asOf ?? new Date().toISOString());
+    const active = (stored.trip.travelEvents ?? []).filter((event) => {
+      if (!input.includeAcknowledged && event.acknowledgedAt) return false;
+      const fromMs = Date.parse(event.effectiveFrom ?? event.occurredAt);
+      if (Number.isFinite(fromMs) && fromMs > asOfMs) return false;
+      const untilMs = event.effectiveUntil ? Date.parse(event.effectiveUntil) : undefined;
+      if (untilMs !== undefined && Number.isFinite(untilMs) && untilMs < asOfMs) return false;
+      return true;
+    });
+    return successEnvelope(
+      { tripId: input.tripId, asOf: input.asOf ?? new Date().toISOString(), events: active, total: active.length },
+      status("UNKNOWN", "UNKNOWN", "UNKNOWN"),
+    );
+  }
+
   async importReservations(raw: unknown) {
     const input = importReservationsInputSchema.parse(raw);
     const stored = await this.loadTripForWrite(input.tripId, input.expectedTripRevision);
@@ -1928,6 +1987,8 @@ export class VoyageSkillRuntime {
       case "remove-reservation": return this.removeReservation(input);
       case "get-reservations": return this.getReservations(input);
       case "get-constraints": return this.getConstraints(input);
+      case "record-travel-event": return this.recordTravelEvent(input);
+      case "get-active-events": return this.getActiveEvents(input);
       case "import-reservations": return this.importReservations(input);
       case "search-social": return this.searchSocial(input);
       case "get-social-trending": return this.getSocialTrending(input);

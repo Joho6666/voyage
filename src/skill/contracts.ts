@@ -4,6 +4,7 @@ import { socialEvidenceSchema, socialPlatformStatusSchema, socialSignalSchema } 
 import { placeSchema, tripSchema } from "@/schemas/trip";
 import { planningProfileSchema } from "@/schemas/planning";
 import { reservationImportItemSchema, reservationInputSchema, reservationStatusSchema, reservationTypeSchema } from "@/schemas/reservation";
+import { travelEventInputSchema } from "@/schemas/travel-event";
 import { MAX_TRIP_DAYS } from "@/lib/trip-limits";
 
 export const SCHEMA_VERSION = "voyage.skill.v1" as const;
@@ -352,6 +353,25 @@ export const getConstraintsInputSchema = z.object({
   dayId: z.string().min(1).optional(),
 });
 
+/**
+ * Phase 6.3: record a normalized real-world change on the trip. The caller
+ * supplies the observation; the runtime owns id/tripId/occurredAt/provenance
+ * so simulated or manual events are always labeled with their true source.
+ */
+export const recordTravelEventInputSchema = z.object({
+  tripId: z.string().min(1),
+  expectedTripRevision: z.number().int().min(1),
+  event: travelEventInputSchema,
+});
+
+/** Phase 6.3: events active at a point in time (defaults to now). */
+export const getActiveEventsInputSchema = z.object({
+  tripId: z.string().min(1),
+  asOf: z.string().min(10).max(40).optional(),
+  /** Include events already acknowledged by the traveller. */
+  includeAcknowledged: z.boolean().default(false),
+});
+
 export const searchSocialInputSchema = z.object({
   city: z.string().min(1).max(80),
   query: z.string().max(120).optional(),
@@ -411,6 +431,8 @@ export const commandSchemas = {
   "get-reservations": getReservationsInputSchema,
   "import-reservations": importReservationsInputSchema,
   "get-constraints": getConstraintsInputSchema,
+  "record-travel-event": recordTravelEventInputSchema,
+  "get-active-events": getActiveEventsInputSchema,
 } as const;
 
 export type SkillCommand = keyof typeof commandSchemas;

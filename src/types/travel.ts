@@ -3,6 +3,7 @@ import type { SocialEvidence, SocialSignal } from "@/services/social/types";
 import type { PlanningProfile } from "@/schemas/planning";
 import type { BrainMetadata } from "@/schemas/brain";
 import type { Reservation } from "@/schemas/reservation";
+import type { TravelEvent } from "@/schemas/travel-event";
 
 export type PlaceCategory =
   | "attraction"
@@ -273,6 +274,7 @@ export interface Trip {
   socialSignals?: SocialSignal[];
   socialWarnings?: string[];
   reservations?: Reservation[];
+  travelEvents?: TravelEvent[];
   planningMetadata?: {
     source: "llm" | "rules";
     llm: "used" | "unavailable" | "failed" | "skipped";
