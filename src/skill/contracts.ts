@@ -391,6 +391,26 @@ export const analyzeEventImpactInputSchema = z.object({
   message: "provide exactly one of eventId or event",
 });
 
+/**
+ * Phase 6.6: event-driven replan. The chain is deterministic — TripState →
+ * Impact → strategy actions → Diff proposal — and ends in the SAME proposal/
+ * proposalToken/apply pipeline as every other change. The LLM never applies.
+ */
+export const replanStrategySchema = z.enum([
+  "auto", "shift", "skip", "indoorSwap", "replace", "release", "reduceWalking", "reduceBudget", "swapMode", "monitor",
+]);
+
+export const proposeEventReplanInputSchema = z.object({
+  tripId: z.string().min(1),
+  eventId: z.string().min(1).optional(),
+  event: travelEventInputSchema.optional(),
+  asOf: z.string().min(10).max(40).optional(),
+  strategy: replanStrategySchema.default("auto"),
+  fallbackPolicy: fallbackPolicySchema,
+}).refine((input) => Boolean(input.eventId) !== Boolean(input.event), {
+  message: "provide exactly one of eventId or event",
+});
+
 export const searchSocialInputSchema = z.object({
   city: z.string().min(1).max(80),
   query: z.string().max(120).optional(),
@@ -454,6 +474,7 @@ export const commandSchemas = {
   "get-active-events": getActiveEventsInputSchema,
   "get-trip-state": getTripStateInputSchema,
   "analyze-event-impact": analyzeEventImpactInputSchema,
+  "propose-event-replan": proposeEventReplanInputSchema,
 } as const;
 
 export type SkillCommand = keyof typeof commandSchemas;

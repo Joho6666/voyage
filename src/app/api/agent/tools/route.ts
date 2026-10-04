@@ -68,6 +68,12 @@ const tools: LlmTool[] = [
   { type: "function", function: { name: "search_travel_offers", description: "查询酒店、火车、机票、门票、美食或优惠；返回供应商提供的可验证结果", parameters: { type: "object", properties: { query: { type: "string" }, categories: { type: "array", items: { type: "string", enum: ["hotel", "train", "flight", "ticket", "restaurant", "coupon"] } } }, required: ["query"], additionalProperties: false } } },
   { type: "function", function: { name: "propose_change", description: "根据用户指令生成行程修改提案；只生成 Diff，不直接修改行程", parameters: { type: "object", properties: { instruction: { type: "string" }, dayId: { type: "string" } }, required: ["instruction"], additionalProperties: false } } },
   { type: "function", function: { name: "apply_change", description: "应用一个已生成的提案；必须由用户在 Diff 确认界面确认后由系统调用，LLM 不得自行调用", parameters: { type: "object", properties: { proposalId: { type: "string" } }, required: ["proposalId"], additionalProperties: false } } },
+  { type: "function", function: { name: "get_trip_state", description: "读取行程当前执行状态：阶段、当前/下一站、晚点分钟数、剩余步行、预计结束时间、进行中的预订与事件、风险等级", parameters: { type: "object", properties: { asOf: { type: "string" } }, additionalProperties: false } } },
+  { type: "function", function: { name: "get_reservations", description: "查询行程的预订列表（航班/高铁/酒店/餐厅/门票等）及其状态", parameters: { type: "object", properties: { status: { type: "string", enum: ["tentative", "confirmed", "cancelled", "completed"] }, type: { type: "string", enum: ["flight", "train", "hotel", "restaurant", "attraction", "activity", "car", "transfer", "other"] } }, additionalProperties: false } } },
+  { type: "function", function: { name: "get_active_events", description: "读取当前生效的旅行事件（天气变化、航班延误、景点关闭、用户晚点等）", parameters: { type: "object", properties: { asOf: { type: "string" } }, additionalProperties: false } } },
+  { type: "function", function: { name: "get_constraints", description: "读取约束引擎视图：已确认预订产生的硬约束、违规项与评分", parameters: { type: "object", properties: { dayId: { type: "string" } }, additionalProperties: false } } },
+  { type: "function", function: { name: "analyze_event_impact", description: "分析一个事件对行程的影响：受影响/有风险/无法完成的安排、时间与预算影响、可选策略（只读，不修改）", parameters: { type: "object", properties: { eventId: { type: "string" }, event: { type: "object", properties: { type: { type: "string" }, severity: { type: "string", enum: ["info", "warning", "critical"] }, effectiveFrom: { type: "string" }, effectiveUntil: { type: "string" }, summary: { type: "string" }, payload: { type: "object" } } }, asOf: { type: "string" } }, additionalProperties: false } } },
+  { type: "function", function: { name: "propose_event_replan", description: "事件驱动的重规划：基于事件影响生成整体重排提案（Diff），必须由用户确认后应用；已确认预订的安排会被自动保护", parameters: { type: "object", properties: { eventId: { type: "string" }, event: { type: "object", properties: { type: { type: "string" }, severity: { type: "string", enum: ["info", "warning", "critical"] }, effectiveFrom: { type: "string" }, effectiveUntil: { type: "string" }, summary: { type: "string" }, payload: { type: "object" } } }, asOf: { type: "string" }, strategy: { type: "string", enum: ["auto", "shift", "skip", "indoorSwap", "replace", "release", "reduceWalking", "reduceBudget", "swapMode", "monitor"] } }, additionalProperties: false } } },
 ];
 
 const allowedToolNames: Record<string, true> = Object.fromEntries(tools.map((tool) => [tool.function.name, true as const]));
@@ -152,9 +158,51 @@ function safeToolResult(name: string, value: unknown) {
     const route = data.data?.route as Record<string, unknown> | undefined;
     return JSON.stringify({ mode: route?.mode, distanceMeters: route?.distanceMeters, durationMinutes: route?.durationMinutes, estimated: route?.estimated, provider: route?.source, warnings: data.warnings });
   }
-  if (name === "replan_trip" || name === "propose_change" || name === "optimize_itinerary") {
+  if (name === "replan_trip" || name === "propose_change" || name === "optimize_itinerary" || name === "propose_event_replan") {
     const proposal = data.data as Record<string, unknown> | undefined;
-    return JSON.stringify({ proposalId: proposal?.proposalId, baseRevision: proposal?.baseRevision, summary: proposal?.summary, note: "提案已生成，必须由用户在 Diff 界面确认后才能应用" });
+    return JSON.stringify({ proposalId: proposal?.proposalId, baseRevision: proposal?.baseRevision, summary: proposal?.summary, strategy: proposal?.strategy, note: "提案已生成，必须由用户在 Diff 界面确认后才能应用" });
+  }
+  if (name === "get_trip_state") {
+    const state = data.data?.state as Record<string, unknown> | undefined;
+    return JSON.stringify({
+      phase: state?.phase,
+      currentDay: state?.currentDay,
+      lateByMinutes: state?.lateByMinutes,
+      riskLevel: state?.riskLevel,
+      estimatedFinishTime: state?.estimatedFinishTime,
+      activeEvents: state?.activeEvents,
+      upcomingHardConstraints: state?.upcomingHardConstraints,
+      suggestedActions: state?.suggestedActions,
+    });
+  }
+  if (name === "get_reservations") {
+    const reservations = data.data?.reservations as Array<Record<string, unknown>> | undefined;
+    return JSON.stringify({ reservations: reservations?.slice(0, 10).map((item) => ({ id: item.id, type: item.type, title: item.title, status: item.status, startAt: item.startAt, endAt: item.endAt ?? null, confirmationCode: item.confirmationCode ?? null })), total: data.data?.total });
+  }
+  if (name === "get_active_events") {
+    const events = data.data?.events as Array<Record<string, unknown>> | undefined;
+    return JSON.stringify({ events: events?.slice(0, 10).map((item) => ({ id: item.id, type: item.type, severity: item.severity, summary: item.summary ?? null })), total: data.data?.total });
+  }
+  if (name === "get_constraints") {
+    return JSON.stringify({
+      score: data.data?.score,
+      hardViolations: data.data?.hardViolations,
+      softPenaltyCount: Array.isArray(data.data?.softPenalties) ? (data.data?.softPenalties as unknown[]).length : 0,
+      unresolvedConstraints: data.data?.unresolvedConstraints,
+    });
+  }
+  if (name === "analyze-event-impact" || name === "analyze_event_impact") {
+    const impact = data.data?.impact as Record<string, unknown> | undefined;
+    return JSON.stringify({
+      eventType: impact?.eventType,
+      severity: impact?.severity,
+      summary: impact?.summary,
+      atRisk: impact?.atRiskItemIds,
+      impossible: impact?.impossibleItemIds,
+      recommendedStrategy: impact?.recommendedStrategy,
+      options: impact?.options,
+      unknowns: impact?.unknowns,
+    });
   }
   return JSON.stringify(value, (_key, item) => typeof item === "string" && item.length > 600 ? `${item.slice(0, 600)}…` : item);
 }
@@ -320,6 +368,7 @@ export async function POST(request: NextRequest) {
     "行程修改只能生成提案，必须让用户在 Diff 界面确认后才能应用；禁止自行调用 apply_change，用户问「能不能改」时用 propose_change 生成提案。",
     "工具使用要点：get_trip 先看行程全貌；get_weather 查天气；search_places 找或换地点；get_route_options / optimize_transport 做市内交通对比；search_travel_offers 查酒店、车票、门票报价；search_social_travel / get_social_evidence 看社交平台的实地反馈；propose_change 生成通用修改提案，replan_trip 专攻某一天的交通方式与顺序，optimize_itinerary 一键重排整趟行程（用户说「优化安排 / 少走回头路 / 重新排一下」时用）。",
     "用户消息中的 [dayId:xxx] 前缀表示用户当前聚焦的行程日，涉及「今天/这天」的操作优先用它。",
+    "现实变化场景（延误、下雨、景点关闭、晚点等）的决策序：先 get_trip_state 了解现状，再 get_active_events 看事件，然后 analyze_event_impact 评估影响，最后 propose_event_replan 生成方案提案；涉及预订（航班/高铁/酒店/餐厅/门票）的安排是硬约束，任何方案都必须保留其时间。",
     "主动牵引：回答末尾用一句话主动建议一个合理的下一步（信息不足就直接反问用户）；不要罗列工具名，不要复述用户已知的内容。",
     `当前行程：${trip.origin ?? ""} → ${trip.destination ?? ""}，${trip.startDate ?? ""} 至 ${trip.endDate ?? ""}，${trip.travelers ?? 1} 人，总预算 ${trip.budget ?? 0} 元。`,
     fullTrip ? phaseLine(fullTrip, todayIso) : "",
@@ -410,6 +459,37 @@ export async function POST(request: NextRequest) {
               // Confirmation discipline: the LLM may never apply a change. It
               // can only point the user to the Diff confirmation UI.
               result = { ok: false, error: { code: "CONFIRMATION_REQUIRED", message: "apply_change 必须由用户在 Diff 确认界面确认后由系统调用；请使用 propose_change 生成提案" } };
+              break;
+            case "get_trip_state":
+              result = await runtime.execute("get-trip-state", commandSchemas["get-trip-state"].parse({ tripId: parsed.data.tripId, ...(args.asOf ? { asOf: args.asOf } : {}) }));
+              break;
+            case "get_reservations":
+              result = await runtime.execute("get-reservations", commandSchemas["get-reservations"].parse({ tripId: parsed.data.tripId, ...(args.status ? { status: args.status } : {}), ...(args.type ? { type: args.type } : {}) }));
+              break;
+            case "get_active_events":
+              result = await runtime.execute("get-active-events", commandSchemas["get-active-events"].parse({ tripId: parsed.data.tripId, includeAcknowledged: true, ...(args.asOf ? { asOf: args.asOf } : {}) }));
+              break;
+            case "get_constraints":
+              result = await runtime.execute("get-constraints", commandSchemas["get-constraints"].parse({ tripId: parsed.data.tripId, ...(args.dayId ? { dayId: args.dayId } : {}) }));
+              break;
+            case "analyze_event_impact":
+              result = await runtime.execute("analyze-event-impact", commandSchemas["analyze-event-impact"].parse({
+                tripId: parsed.data.tripId,
+                ...(args.eventId ? { eventId: args.eventId } : {}),
+                ...(args.event ? { event: args.event } : {}),
+                ...(args.asOf ? { asOf: args.asOf } : {}),
+              }));
+              break;
+            case "propose_event_replan":
+              result = await runtime.execute("propose-event-replan", commandSchemas["propose-event-replan"].parse({
+                tripId: parsed.data.tripId,
+                ...(args.eventId ? { eventId: args.eventId } : {}),
+                ...(args.event ? { event: args.event } : {}),
+                ...(args.asOf ? { asOf: args.asOf } : {}),
+                ...(args.strategy ? { strategy: args.strategy } : {}),
+                fallbackPolicy: "estimated",
+              }));
+              proposal = result;
               break;
           }
           messages.push({ role: "tool", tool_call_id: call.id, content: safeToolResult(call.name, result) });

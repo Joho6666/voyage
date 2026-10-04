@@ -57,13 +57,14 @@ describe("voyage MCP adapter", () => {
     await rm(dataDir, { recursive: true, force: true });
   });
 
-  it("exposes exactly the 19 first-wave tools mapped to runtime commands", () => {
+  it("exposes exactly the 22 first-wave tools mapped to runtime commands", () => {
     expect(Object.keys(voyageTools).sort()).toEqual([
       "voyage_add_reservation", "voyage_analyze_event_impact", "voyage_apply_change", "voyage_create_trip",
-      "voyage_get_reservations", "voyage_get_route_options", "voyage_get_today_context", "voyage_get_trip",
-      "voyage_get_trip_state", "voyage_get_weather", "voyage_import_reservations", "voyage_optimize_itinerary",
-      "voyage_optimize_transport", "voyage_plan_route", "voyage_propose_change", "voyage_retrieve_knowledge",
-      "voyage_search_offers", "voyage_search_places", "voyage_search_social",
+      "voyage_get_active_events", "voyage_get_constraints", "voyage_get_reservations", "voyage_get_route_options",
+      "voyage_get_today_context", "voyage_get_trip", "voyage_get_trip_state", "voyage_get_weather",
+      "voyage_import_reservations", "voyage_optimize_itinerary", "voyage_optimize_transport", "voyage_plan_route",
+      "voyage_propose_change", "voyage_propose_event_replan", "voyage_retrieve_knowledge", "voyage_search_offers",
+      "voyage_search_places", "voyage_search_social",
     ]);
   });
 
@@ -149,7 +150,7 @@ describe("voyage MCP adapter", () => {
         continue;
       }
       if (name === "voyage_create_trip" || name === "voyage_propose_change" || name === "voyage_optimize_itinerary"
-        || name === "voyage_add_reservation" || name === "voyage_import_reservations") {
+        || name === "voyage_add_reservation" || name === "voyage_import_reservations" || name === "voyage_propose_event_replan") {
         expect(definition.annotations.readOnlyHint, name).toBe(false);
         expect(definition.annotations.destructiveHint, name).toBe(false);
         continue;

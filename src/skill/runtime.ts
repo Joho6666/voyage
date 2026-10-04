@@ -12,6 +12,7 @@ import { optimizeTripPlan } from "@/services/itinerary-optimizer";
 import { buildTodayContext } from "@/services/today/context";
 import { getTripState, collectActiveEvents } from "@/services/trip-state/engine";
 import { analyzeEventImpact } from "@/services/impact-engine";
+import { actionsFromImpact, type ReplanStrategy } from "@/services/replan/event-replan";
 import { haversineMeters, estimateTransit, uid } from "@/lib/utils";
 import { createTripId } from "@/services/planning/rule-planner";
 import { planOutline } from "@/services/planning/outline-planner";
@@ -81,6 +82,7 @@ import {
   getActiveEventsInputSchema,
   getTripStateInputSchema,
   analyzeEventImpactInputSchema,
+  proposeEventReplanInputSchema,
   successEnvelope,
   type ProviderLevel,
   type ProviderStatus,
@@ -1866,35 +1868,132 @@ export class VoyageSkillRuntime {
     const input = analyzeEventImpactInputSchema.parse(raw);
     const stored = await this.repository.getTrip(input.tripId);
     if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
-    let event: TravelEvent;
-    if (input.eventId) {
-      const recorded = (stored.trip.travelEvents ?? []).find((candidate) => candidate.id === input.eventId);
-      if (!recorded) throw new SkillError("INVALID_INPUT", "Event not found on this trip");
-      event = recorded;
-    } else if (input.event) {
-      const now = new Date().toISOString();
-      const { confidence, estimated, ...eventFields } = input.event;
-      event = travelEventSchema.parse({
-        ...eventFields,
-        id: "evt-analysis",
-        tripId: input.tripId,
-        occurredAt: input.event.effectiveFrom ?? input.asOf ?? now,
-        provenance: {
-          source: input.event.source ?? "system",
-          fetchedAt: now,
-          confidence: confidence ?? 0.5,
-          estimated: estimated ?? false,
-        },
-      });
-    } else {
-      throw new SkillError("INVALID_INPUT", "provide eventId or event");
-    }
+    const { event } = await this.resolveAnalysisEvent(stored, input.tripId, input.eventId, input.event, input.asOf);
     const state = getTripState(stored.trip, { asOf: input.asOf ?? event.occurredAt });
     const impact = analyzeEventImpact(event, stored.trip, state);
     return successEnvelope(
       { tripId: input.tripId, eventId: event.id, state, impact },
       status("UNKNOWN", "UNKNOWN", "UNKNOWN"),
       impact.unknowns,
+    );
+  }
+
+  /** Inline-or-recorded event normalization shared by analyze and replan. */
+  private async resolveAnalysisEvent(
+    stored: { trip: Trip },
+    tripId: string,
+    eventId: string | undefined,
+    inline: unknown,
+    asOf: string | undefined,
+  ): Promise<{ event: TravelEvent }> {
+    if (eventId) {
+      const recorded = (stored.trip.travelEvents ?? []).find((candidate) => candidate.id === eventId);
+      if (!recorded) throw new SkillError("INVALID_INPUT", "Event not found on this trip");
+      return { event: recorded };
+    }
+    if (inline) {
+      const now = new Date().toISOString();
+      const { confidence, estimated, ...eventFields } = inline as { confidence?: number; estimated?: boolean; source?: "provider" | "user" | "system" | "simulation" } & Record<string, unknown>;
+      const declaredSource = (inline as { source?: string }).source;
+      const event = travelEventSchema.parse({
+        ...eventFields,
+        id: "evt-analysis",
+        tripId,
+        occurredAt: (inline as { effectiveFrom?: string }).effectiveFrom ?? asOf ?? now,
+        provenance: {
+          source: declaredSource ?? "system",
+          fetchedAt: now,
+          confidence: confidence ?? 0.5,
+          estimated: estimated ?? false,
+        },
+      });
+      return { event };
+    }
+    throw new SkillError("INVALID_INPUT", "provide eventId or event");
+  }
+
+  /**
+   * Phase 6.6: event-driven replan. TripState → Impact → deterministic
+   * actions → the standard proposal pipeline. Nothing is applied here; the
+   * user confirms via the Diff.
+   */
+  async proposeEventReplan(raw: unknown) {
+    const input = proposeEventReplanInputSchema.parse(raw);
+    const stored = await this.repository.getTrip(input.tripId);
+    if (!stored) throw new SkillError("TRIP_NOT_FOUND", "Trip not found");
+    const { event } = await this.resolveAnalysisEvent(stored, input.tripId, input.eventId, input.event, input.asOf);
+    const state = getTripState(stored.trip, { asOf: input.asOf ?? event.occurredAt });
+    const impact = analyzeEventImpact(event, stored.trip, state);
+
+    const strategy: Exclude<ReplanStrategy, "auto"> =
+      input.strategy === "auto" ? impact.recommendedStrategy : input.strategy;
+    const plan = actionsFromImpact(impact, stored.trip, strategy, state);
+    const summary = [event.summary ?? event.type, impact.summary, ...plan.notes].filter(Boolean).join(" ");
+
+    if (!plan.actions.length) {
+      return successEnvelope(
+        { tripId: input.tripId, eventId: event.id, eventType: event.type, strategy, impact, proposalId: null, actions: [], summary, note: "未生成修改动作" },
+        status("UNKNOWN", "UNKNOWN", "UNKNOWN"),
+        [...impact.unknowns, ...plan.notes],
+      );
+    }
+
+    const provider = await this.providerFactory();
+    const original = stored.trip;
+    const locked = lockedItemIds(original);
+    const execution = executeActions(original, plan.actions);
+    if (!execution.applied.length) {
+      return successEnvelope(
+        { tripId: input.tripId, eventId: event.id, eventType: event.type, strategy, impact, proposalId: null, actions: [], summary, note: "没有可执行的动作", rejected: execution.rejected },
+        status("UNKNOWN", "UNKNOWN", "UNKNOWN"),
+        [...impact.unknowns, ...plan.notes, ...execution.rejected.map((entry) => `动作被拒绝：${entry.reason}`)],
+      );
+    }
+    const affectedDays = new Set<string>();
+    for (const action of execution.applied) {
+      const payload = action.payload as { dayId?: string };
+      const item = (action.payload as { itemId?: string }).itemId
+        ? original.items.find((candidate) => candidate.id === (action.payload as { itemId: string }).itemId)
+        : undefined;
+      const itemDay = item?.dayId ?? state.currentDay?.dayId;
+      if (payload.dayId) affectedDays.add(payload.dayId);
+      if (itemDay) affectedDays.add(itemDay);
+    }
+    let proposed = execution.trip;
+    let routeStatus: ProviderLevel = provider.kind === "amap" ? "REAL" : "MOCK";
+    const warnings: string[] = [];
+    for (const dayId of affectedDays) {
+      const routed = await enrichRoutes(proposed, provider, input.fallbackPolicy === "estimated", dayId);
+      proposed = routed.trip;
+      routeStatus = routed.level;
+      warnings.push(...routed.warnings);
+    }
+    proposed = restoreLockedItems(original, proposed, locked);
+    const changeSet = computeTripChangeSet(original, proposed, execution.applied, summary);
+    const { record: proposal, token } = await this.repository.saveProposal({
+      tripId: original.id,
+      baseRevision: stored.revision,
+      baseHash: stored.hash,
+      actions: execution.applied,
+      changeSet,
+      proposedTrip: proposed,
+    });
+    return successEnvelope(
+      {
+        tripId: original.id,
+        eventId: event.id,
+        eventType: event.type,
+        strategy,
+        impact,
+        proposalId: proposal.id,
+        proposalToken: token,
+        baseRevision: proposal.baseRevision,
+        actions: proposal.actions,
+        changes: proposal.changeSet,
+        summary,
+      },
+      status(placeLevel(provider), routeStatus, "UNKNOWN"),
+      [...impact.unknowns, ...plan.notes, ...warnings],
     );
   }
 
@@ -2041,6 +2140,7 @@ export class VoyageSkillRuntime {
       case "get-active-events": return this.getActiveEvents(input);
       case "get-trip-state": return this.getTripStateView(input);
       case "analyze-event-impact": return this.analyzeEventImpactView(input);
+      case "propose-event-replan": return this.proposeEventReplan(input);
       case "import-reservations": return this.importReservations(input);
       case "search-social": return this.searchSocial(input);
       case "get-social-trending": return this.getSocialTrending(input);
