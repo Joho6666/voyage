@@ -20,7 +20,7 @@
 | 6.8 Event providers（Weather/Flight 接口 + Mock + simulate 命令） | ✅ 完成 | adb1066, 42b057b |
 | 6.9 Traveler memory v1（4 命令 + 披露语 + agent prompt 接入） | ✅ 完成 | bdb4d7d |
 | 6.10 golden 用例（Case 1/4/6/14 整合 + 其余索引）+ 文档收尾 | ✅ 完成 | 69f8c77 |
-| 6.11 build + Playwright 终验 | ⏳ 进行中 | — |
+| 6.11 build + Playwright 终验 | ✅ 完成（build 通过，E2E 28/28） | 2b5e2f7 后 |
 
 测试规模：67 文件 / 392 用例全绿；typecheck + eslint 零错误。runtime 命令 46 个；MCP 工具 22 个；agent 工具 22 个。
 
