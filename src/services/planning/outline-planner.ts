@@ -35,6 +35,12 @@ export interface OutlinePlanningInput {
   travelers: number;
   vibes: string[];
   social?: { signals: SocialSignal[] };
+  /** Per-place route intel from the partial route matrix, e.g. nearest neighbour. */
+  candidateIntel?: Record<string, string>;
+  /** Global route section (near/far pairs, coverage caveat) built by the brain. */
+  routeSummary?: string;
+  /** Per-date weather lines so scheduling can respect rain/heat. */
+  weatherSummary?: string;
 }
 
 export interface OutlinePlanningResult {
@@ -49,9 +55,9 @@ const SYSTEM_PROMPT = [
   '输出严格 JSON：{"title": "...", "dayPlans": [{"title", "summary", "stops": [{"placeId", "startTime": "HH:mm", "durationMinutes", "meal"?}]}], "tasks": [{"title", "group": "before"|"day"}]}',
   "规则：",
   "1. placeId 只能来自候选列表；绝不发明地点、坐标、价格或库存。",
-  "2. 每天按地理就近排序，行程节奏参考用户偏好（轻松/特种兵）。",
-  "3. 一天安排 1-4 个 stops，并尽量包含正餐（meal: lunch/dinner）。",
-  "4. startTime 用 24 小时 HH:mm；不能安排超出当天合理时段的行程。",
+  "2. 结合路线情报按地理就近排序：同一天的 stops 移动时间应尽量短；情报中标注距离很远的地点不要与市区地点排在同一天相邻位置。",
+  "3. 一天安排 1-4 个 stops，并尽量包含正餐（meal: lunch/dinner）；尊重候选列表中的建议停留时长与营业时间，把时间敏感的地点排在开门后不久。",
+  "4. startTime 用 24 小时 HH:mm；不能安排超出当天合理时段的行程；雨天优先室内地点。",
   "5. 社交平台信号仅作攻略参考，不能替代高德地点事实或票务库存。",
 ].join("\n");
 
@@ -81,7 +87,17 @@ function safeErrorMessage(error: unknown) {
 
 async function llmOutline(input: OutlinePlanningInput): Promise<Outline> {
   const candidateLines = input.candidates
-    .map((place) => `${place.id} ${place.name} [${place.category}] (${place.district || place.address})`)
+    .map((place) => {
+      const intel = input.candidateIntel?.[place.id];
+      return [
+        `${place.id} ${place.name} [${place.category}] (${place.district || place.address})`,
+        `营业:${place.openingHours ?? "未知"}`,
+        `建议停留:${place.stayMinutes}分`,
+        `估价:¥${place.estimatedCost ?? place.priceLevel * 50}/人`,
+        `评分:${place.rating || "无"}`,
+        intel ?? "",
+      ].filter(Boolean).join(" ");
+    })
     .join("\n");
   const expectedDays = dayCount(input.startDate, input.endDate);
   const userMessage = [
@@ -91,6 +107,8 @@ async function llmOutline(input: OutlinePlanningInput): Promise<Outline> {
     "",
     "候选地点：",
     candidateLines,
+    ...(input.routeSummary ? ["", input.routeSummary] : []),
+    ...(input.weatherSummary ? ["", `行程期间天气：${input.weatherSummary}`] : []),
     input.social?.signals.length ? "\n社交平台信号（仅作参考，不得创建候选地点或替代实时事实）：" : "",
     ...(input.social?.signals ?? []).map((signal) => `${signal.signalType}=${JSON.stringify(signal.value)} confidence=${signal.confidence.toFixed(2)} sources=${signal.sources.length}`),
     "",

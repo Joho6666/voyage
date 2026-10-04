@@ -2,6 +2,7 @@ import { z } from "zod";
 import { offerProviderStatusSchema, offerSchema } from "./offers";
 import { socialEvidenceSchema, socialPlatformStatusSchema, socialSignalSchema } from "./social";
 import { planningProfileSchema } from "./planning";
+import { brainMetadataSchema } from "./brain";
 
 export const placeCategorySchema = z.enum([
   "attraction",
@@ -224,6 +225,7 @@ export const tripSchema = z
       social: z.enum(["not_requested", "used", "queried_not_used", "unavailable", "error"]).optional(),
       planningSessionId: z.string().min(1).optional(),
       planningProfile: planningProfileSchema.optional(),
+      brain: brainMetadataSchema.optional(),
     }).optional(),
   })
   .superRefine((trip, ctx) => {

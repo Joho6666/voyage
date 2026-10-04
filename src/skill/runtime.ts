@@ -12,6 +12,18 @@ import { haversineMeters, estimateTransit } from "@/lib/utils";
 import { createTripId } from "@/services/planning/rule-planner";
 import { planOutline } from "@/services/planning/outline-planner";
 import {
+  buildRouteMatrix,
+  findRealMatrixRoute,
+  routeIntelByPlace,
+  summarizeRouteMatrix,
+} from "@/services/brain/route-matrix";
+import {
+  evaluateOutline,
+  placeMatchesTerm as brainPlaceMatchesTerm,
+  repairOutline,
+} from "@/services/brain/constraints";
+import type { BrainMetadata, RouteMatrix } from "@/schemas/brain";
+import {
   alignPlanningDays,
   filterPlanningCandidates,
   planningProfileToPrompt,
@@ -208,6 +220,8 @@ async function enrichRoutes(
   allowEstimate: boolean,
   onlyDayId?: string,
   preferredMode?: "walk" | "metro" | "bus" | "taxi" | "drive",
+  /** Real routes measured earlier by the route matrix — reused instead of re-querying. */
+  matrixRouteLookup?: (fromPlaceId: string, toPlaceId: string) => ProviderRoute | undefined,
 ) {
   let next = onlyDayId ? recomputeDay(trip, onlyDayId) : recomputeTrip(trip);
   const dayIds = onlyDayId ? [onlyDayId] : next.days.map((day) => day.id);
@@ -228,7 +242,10 @@ async function enrichRoutes(
         ? "taxi"
         : preferredMode ?? baseline?.mode ?? "walk";
       try {
-        const route = await provider.planRoute({ origin: fromPlace, destination: toPlace, mode, city: next.destination });
+        const measured = matrixRouteLookup?.(fromPlace.id, toPlace.id);
+        const route = measured && measured.mode === mode
+          ? measured
+          : await provider.planRoute({ origin: fromPlace, destination: toPlace, mode, city: next.destination });
         resolved.push(routeSegment({ trip: next, dayId, from, to, fromPlace, toPlace, route, estimated: provider.kind !== "amap" }));
       } catch (error) {
         if (!allowEstimate) throw normalizeProviderError(error, "ROUTE_PROVIDER_UNAVAILABLE");
@@ -516,6 +533,51 @@ export class VoyageSkillRuntime {
     const socialBuilt = social
       ? buildSocialEvidence({ city: input.destination, observations: social.observations, places: candidates })
       : { evidence: [], signals: [] };
+
+    // Travel Brain (Phase 4.1): build the partial route matrix BEFORE the LLM
+    // orders stops, so the planner sees real A→B time instead of guessing.
+    // Off unless VOYAGE_BRAIN=1; any brain failure must never break trip creation.
+    const brainEnabled = process.env.VOYAGE_BRAIN === "1";
+    const count = daysBetween(input.startDate, finish);
+    const tripDates = Array.from({ length: count }, (_, index) => endDate(input.startDate, index + 1));
+    const brainTravelers = effectiveTravelers ?? input.people;
+    let matrix: RouteMatrix | undefined;
+    let matrixRoutes: Map<string, ProviderRoute> | undefined;
+    let candidateIntel: Record<string, string> | undefined;
+    let routeSummary: string | undefined;
+    if (brainEnabled) {
+      try {
+        const matrixMode = preferredRouteMode(alignedProfile) ?? "walk";
+        const matrixPlaces = candidates.slice(0, 24);
+        const built = await buildRouteMatrix({
+          city: input.destination,
+          places: matrixPlaces,
+          provider,
+          mode: matrixMode,
+          priorityPlaceIds: matrixPlaces
+            .filter((place) => (alignedProfile?.mustVisit ?? []).some((term) => brainPlaceMatchesTerm(place, term)))
+            .map((place) => place.id),
+          maxRealEdges: 8,
+          travelers: brainTravelers,
+        });
+        matrix = built.matrix;
+        matrixRoutes = built.realRoutes;
+        candidateIntel = routeIntelByPlace(matrixPlaces, matrix);
+        routeSummary = summarizeRouteMatrix(matrixPlaces, matrix);
+      } catch (error) {
+        logger.warn("brain.route_matrix_failed", { error });
+        routeSummary = undefined;
+      }
+    }
+    const weatherSummary = forecasts.length
+      ? tripDates
+          .map((date) => {
+            const weather = weatherForDate(forecasts, date);
+            return `${date} ${weather.condition} ${weather.tempC}°C${weather.condition.includes("雨") ? " [有雨]" : ""}`;
+          })
+          .join("；")
+      : undefined;
+
     const planResult = await planOutline({
       prompt: planningPrompt,
       destination: input.destination,
@@ -526,7 +588,54 @@ export class VoyageSkillRuntime {
       vibes: effectiveVibes,
       candidates,
       ...(socialBuilt.signals.length ? { social: { signals: socialBuilt.signals } } : {}),
+      ...(candidateIntel ? { candidateIntel } : {}),
+      ...(routeSummary ? { routeSummary } : {}),
+      ...(weatherSummary ? { weatherSummary } : {}),
     });
+
+    // Constraint gate: check the outline against the traveller's stated hard
+    // constraints, repair once deterministically, and keep whatever still
+    // violates as warnings. The LLM's choice is never silently trusted.
+    let outline = planResult.outline;
+    let brainMeta: BrainMetadata | undefined;
+    const brainWarnings: string[] = [];
+    if (brainEnabled) {
+      try {
+        const brainContext = {
+          candidates,
+          ...(alignedProfile ? { profile: alignedProfile } : {}),
+          ...(matrix ? { matrix } : {}),
+          expectedDays: count,
+          budget: effectiveBudget,
+          travelers: brainTravelers,
+        };
+        let evaluation = evaluateOutline(outline, brainContext);
+        let repairs: string[] = [];
+        if (evaluation.hardViolations.length) {
+          const repaired = repairOutline(outline, evaluation, brainContext);
+          outline = repaired.outline;
+          repairs = repaired.applied;
+          evaluation = evaluateOutline(outline, brainContext);
+        }
+        // The unmatched-must-visit data gap is already reported by
+        // planningConstraintWarnings below; don't say it twice.
+        brainWarnings.push(...evaluation.warnings.filter((warning) => !(warning.startsWith("必去「") && warning.includes("在候选地点中无匹配"))));
+        brainWarnings.push(...repairs.map((fix) => `Travel Brain 修复：${fix}`));
+        brainMeta = {
+          version: "4.1",
+          routeMatrix: {
+            realEdges: matrix?.edges.filter((edge) => edge.queried).length ?? 0,
+            estimatedEdges: (matrix?.edges.length ?? 0) - (matrix?.edges.filter((edge) => edge.queried).length ?? 0),
+            coverage: matrix?.coverage ?? 0,
+          },
+          constraintEvaluation: evaluation,
+          repairs,
+        };
+      } catch (error) {
+        logger.warn("brain.constraint_gate_failed", { error });
+      }
+    }
+
     const socialStatus = socialQueryStatus({
       requested: includeSocial,
       statuses: social?.platformStatus ?? {},
@@ -535,7 +644,6 @@ export class VoyageSkillRuntime {
     });
 
     const tripId = createTripId();
-    const count = daysBetween(input.startDate, finish);
     const days: Day[] = Array.from({ length: count }, (_, index) => {
       const date = endDate(input.startDate, index + 1);
       return {
@@ -543,13 +651,13 @@ export class VoyageSkillRuntime {
         tripId,
         index,
         date,
-        title: planResult.outline.dayPlans[index]?.title ?? `Day ${index + 1}`,
-        summary: planResult.outline.dayPlans[index]?.summary ?? "",
+        title: outline.dayPlans[index]?.title ?? `Day ${index + 1}`,
+        summary: outline.dayPlans[index]?.summary ?? "",
         weather: weatherForDate(forecasts, date),
       };
     });
     const items: ItineraryItem[] = [];
-    planResult.outline.dayPlans.forEach((dayPlan, dayIndex) => dayPlan.stops.forEach((stop, order) => {
+    outline.dayPlans.forEach((dayPlan, dayIndex) => dayPlan.stops.forEach((stop, order) => {
       const place = candidates.find((candidate) => candidate.id === stop.placeId);
       if (!place || !days[dayIndex]) return;
       items.push({
@@ -569,6 +677,7 @@ export class VoyageSkillRuntime {
         ...(planResult.fallbackReason ? { fallbackReason: planResult.fallbackReason } : {}),
         ...(input.planningSessionId ? { planningSessionId: input.planningSessionId } : {}),
         ...(alignedProfile ? { planningProfile: alignedProfile } : {}),
+        ...(brainMeta ? { brain: brainMeta } : {}),
         social: socialStatus,
       },
       socialQueryStatus: socialStatus,
@@ -589,6 +698,7 @@ export class VoyageSkillRuntime {
       input.fallbackPolicy === "estimated",
       undefined,
       preferredRouteMode(alignedProfile),
+      matrixRoutes ? (fromPlaceId: string, toPlaceId: string) => findRealMatrixRoute(matrixRoutes, fromPlaceId, toPlaceId) : undefined,
     );
     const offerPromise = includeOffers
       ? queryMeituan({
@@ -638,7 +748,7 @@ export class VoyageSkillRuntime {
     return successEnvelope(
       { tripId, trip: stored.trip, revision: stored.revision, tripHash: stored.hash },
       providerStatus,
-      [...constraintWarnings, ...routed.warnings, ...(social?.warnings ?? []), ...(planResult.fallbackReason ? [planResult.fallbackReason] : []), ...offerWarnings],
+      [...constraintWarnings, ...routed.warnings, ...brainWarnings, ...(social?.warnings ?? []), ...(planResult.fallbackReason ? [planResult.fallbackReason] : []), ...offerWarnings],
     );
   }
 

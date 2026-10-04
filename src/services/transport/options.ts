@@ -10,7 +10,8 @@ import { rankTransportOptions } from "./scoring";
 
 export const URBAN_TRANSPORT_MODES: UrbanTransportMode[] = ["walk", "metro", "bus", "taxi", "drive"];
 
-function estimateCost(mode: UrbanTransportMode, distanceMeters: number, travelers: number) {
+/** Shared fare heuristics for modes without a provider-reported price. */
+export function estimateCost(mode: UrbanTransportMode, distanceMeters: number, travelers: number) {
   const km = distanceMeters / 1000;
   if (mode === "walk") return { min: 0, max: 0, currency: "CNY" as const, estimated: false };
   if (mode === "bus") return { min: 2 * travelers, max: 4 * travelers, currency: "CNY" as const, estimated: true };
