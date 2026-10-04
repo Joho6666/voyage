@@ -7,15 +7,14 @@ import {
 } from "@/features/new-trip/planning-client";
 import { MAX_TRIP_DAYS } from "@/lib/trip-limits";
 
-/** Local-date string N days from now. Hardcoded dates turned this suite into
- * a time bomb: 2026-10-01 silently became yesterday and the "no warning"
- * assertions started failing on a calendar change, not a code change. */
+/** UTC-anchored date string N days from now. Hardcoded dates turned this
+ * suite into a time bomb: 2026-10-01 silently became yesterday and the "no
+ * warning" assertions started failing on a calendar change, not a code change.
+ * UTC (not local) matters: dateRangeWarning compares against toISOString, so a
+ * local-date helper re-introduces the failure west of UTC. UTC has no DST, so
+ * +N days can never drift across a date boundary. */
 function isoInDays(days: number): string {
-  const date = new Date();
-  date.setDate(date.getDate() + days);
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${date.getFullYear()}-${month}-${day}`;
+  return new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
 }
 
 function draft(overrides: Partial<Parameters<typeof generateBlockersFor>[0]> = {}) {
