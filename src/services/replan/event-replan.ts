@@ -1,4 +1,3 @@
-import type { TravelEvent } from "@/schemas/travel-event";
 import type { TripState } from "@/schemas/trip-state";
 import type { Trip } from "@/types/travel";
 import type { TravelAction } from "@/services/ai/actions/types";

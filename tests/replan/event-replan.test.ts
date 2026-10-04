@@ -4,7 +4,6 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Trip } from "@/types/travel";
-import type { Reservation } from "@/schemas/reservation";
 import type { ProviderForecast, ProviderRoute, TravelDataProvider } from "@/skill/providers";
 import { JsonSkillRepository } from "@/skill/repository";
 import { VoyageSkillRuntime } from "@/skill/runtime";
@@ -37,17 +36,6 @@ class RealFixtureProvider implements TravelDataProvider {
     this.routeCalls += 1;
     return { ...this.fixture.route, mode: input.mode, source: "amap" as const };
   }
-}
-
-function reservation(overrides: Partial<Reservation> & { id: string; type: Reservation["type"]; title: string; startAt: string }): Reservation {
-  return {
-    tripId: "trip-x",
-    status: "confirmed",
-    flexibility: "fixed",
-    currency: "CNY",
-    provenance: { source: "user", fetchedAt: "2030-04-01T00:00:00+08:00", estimated: false },
-    ...overrides,
-  } as Reservation;
 }
 
 const RAIN_EVENT = {
