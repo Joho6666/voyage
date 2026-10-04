@@ -27,6 +27,40 @@ Commands:
 - `get-social-trending`: `{city, platform?, limit?}` — engagement-ranked trending observations.
 - `get-social-evidence`: `{city, poi?, query?, tripId?, limit?}` — aggregated evidence plus crowd/trend context; with `tripId`, evidence is aligned to trip POIs (entity id or name containment; unmatched stays unknown).
 
+## Reservations (Phase 6.1) — real-world commitments
+
+Confirmed reservations are HARD constraints: replans and the optimizer schedule around them, never through them. Runtime owns `id`/`tripId`/`provenance` (callers cannot forge them); every write is revision-locked.
+
+- `add-reservation`: `{tripId, expectedTripRevision, reservation:{type, title, startAt, endAt?, origin?, destination?, location?, provider?, confirmationCode?, price?, currency?, cancellationPolicy?, flexibility?, status?, linkedItemId?, notes?}}` — `type` ∈ flight|train|hotel|restaurant|attraction|activity|car|transfer|other; `status` ∈ tentative|confirmed|cancelled|completed; `flexibility` ∈ fixed|semiFlexible|flexible.
+- `update-reservation`: `{tripId, expectedTripRevision, reservationId, patch}` — partial update; id/tripId/provenance.source are immutable.
+- `remove-reservation`: `{tripId, expectedTripRevision, reservationId}` — rejects unknown ids (`RESERVATION_NOT_FOUND`).
+- `get-reservations`: `{tripId, status?, type?}` — read-only list with filters.
+- `import-reservations`: `{tripId, expectedTripRevision, vendor?, reservations:[…≤20]}` — bulk import; dedupes by confirmation code (authoritative) else type+startAt.
+
+## Trip state & constraints (Phases 6.2/6.4) — deterministic, LLM-free
+
+- `get-constraints`: `{tripId, dayId?}` — `hardConstraints[]`, `hardViolations[]`, `softPenalties[]`, `score`, `unresolvedConstraints[]` (unknowns never guessed), `evidence[]`.
+- `get-trip-state`: `{tripId, asOf?}` — execution state at an instant: `phase`, `currentDay/currentItem/nextItem`, `lateByMinutes`/`aheadByMinutes`, `remainingWalkingMeters`, `estimatedFinishTime`, `activeReservations`, `upcomingHardConstraints`, `activeEvents`, `budgetState`, `riskLevel`, `constraintViolations`, `suggestedActions`, `stale` (>6h old snapshot).
+
+## Travel events (Phases 6.3/6.8) — reality changes, normalized
+
+Provider responses are NEVER propagated raw: everything normalizes into a TravelEvent first (17 types incl. FLIGHT_DELAYED / HEAVY_RAIN / POI_CLOSED / USER_LATE / WALKING_OVERLOAD).
+
+- `record-travel-event`: `{tripId, expectedTripRevision, event:{type, severity?, effectiveFrom?, effectiveUntil?, source?, summary?, payload?, relatedEntities?}}` — runtime stamps id/occurredAt/provenance; declared source kept truthfully.
+- `get-active-events`: `{tripId, asOf?, includeAcknowledged?}` — events covering the instant.
+- `simulate-travel-event`: `{tripId, expectedTripRevision, incident: flight_delay|heavy_rain|poi_closed|user_late|road_congested, …}` — DEMO only; recorded as `source:"simulation"`.
+
+## Event-driven replan (Phases 6.5/6.6)
+
+- `analyze-event-impact`: `{tripId, eventId | event, asOf?}` — read-only: `affectedEntities[]`, `atRiskItemIds[]`, `impossibleItemIds[]`, `recoverableItemIds[]`, `timeDeltaMinutes`, `recommendedStrategy`, `options[]`, `unknowns[]`. Deterministic rule matrix.
+- `propose-event-replan`: `{tripId, eventId | event, asOf?, strategy?: auto|shift|skip|indoorSwap|replace|release|reduceWalking|reduceBudget|swapMode|monitor, fallbackPolicy}` — returns the standard proposal (`proposalId` + one-time `proposalToken` + Diff). Reservation-linked items never dropped; `monitor` yields `proposalId: null` with analysis only.
+
+## Traveler memory (Phase 6.9) — conservative, explicit-first
+
+- `get-traveler-memory`: `{}` → `{memory, disclosure}`; `disclosure` is the 「根据你的旅行偏好…」 line consumers must show.
+- `update-traveler-memory`: `{entries:[{key, value, source?}]}` — key ∈ pace|walkingTolerance|transportPreference|mealPreference|wakeTime|hotelPreference|budgetStyle|travelStyle.
+- `delete-traveler-memory`: `{key}` / `disable-traveler-memory`: `{disabled}`.
+
 Successful output:
 
 ```json

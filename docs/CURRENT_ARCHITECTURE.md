@@ -1,6 +1,7 @@
 # Voyage — Current Architecture（Phase 6 审计基线）
 
 > 审计日期：2026-10-03 · main @ 9e915b4（含 Phase 4.1 brain + open-source-readiness 合并）
+> Phase 6 更新：见 §2b（新增域与命令）、§5b（新 domain models）。分支收敛后远端仅剩 main。
 > 本文档基于代码实况，不是 README 愿景。后续架构变更请同步更新此文件。
 
 ## 1. 分层架构图（实际调用关系）
@@ -46,7 +47,18 @@ Providers / Repositories
 生成/修改类：`create-trip` `propose-change` `replan-trip` `apply-change` `update-trip` `restore-trip` `refresh-travel-offers`
 行程直接编辑（UI 用，revision-locked）：`reorder-day` `add-place-item` `add-place` `import-route` `set-item-status` `set-task-status`
 
-安全链：`propose-change`/`replan-trip` → saveProposal（proposalToken，10 分钟 TTL，一次性）→ `apply-change` 必须 `confirmed:true + proposalToken + expectedTripRevision` → revision 自增。LLM 永远不能 apply（agent 路由硬拦截返回 `CONFIRMATION_REQUIRED`；MCP `voyage_apply_change` 标 destructive）。
+### 2b. Phase 6 新增（总计 46 命令）
+
+- Reservation 域（6.1）：`add-reservation` `update-reservation` `remove-reservation` `get-reservations` `import-reservations`
+- 约束/状态（6.2/6.4）：`get-constraints` `get-trip-state`
+- 事件（6.3/6.8）：`record-travel-event` `get-active-events` `simulate-travel-event`（DEMO）
+- 影响与重规划（6.5/6.6）：`analyze-event-impact` `propose-event-replan`
+- 旅行者记忆（6.9）：`get-traveler-memory` `update-traveler-memory` `delete-traveler-memory` `disable-traveler-memory`
+- open-source-readiness 并入：`remove-day` `remove-item` `optimize-itinerary`
+
+新域服务：`src/services/brain/route-matrix.ts`（部分路线矩阵）、`src/services/brain/constraints.ts`（局部约束门 + trip 级约束引擎 + candidate-move 门）、`src/services/trip-state/engine.ts`（纯函数状态引擎）、`src/services/impact-engine.ts`（规则矩阵影响分析）、`src/services/replan/event-replan.ts`（Impact→TravelAction 映射）、`src/services/memory/preferences.ts`（显式优先偏好记忆）、`src/skill/event-providers.ts`（Weather/Flight/Mock 事件 Provider 接口）。
+
+安全链：`propose-change`/`replan-trip`/`propose-event-replan` → saveProposal（proposalToken，10 分钟 TTL，一次性）→ `apply-change` 必须 `confirmed:true + proposalToken + expectedTripRevision` → revision 自增。LLM 永远不能 apply（agent 路由硬拦截返回 `CONFIRMATION_REQUIRED`；MCP `voyage_apply_change` 标 destructive）。
 
 ## 3. Agent 工具（/api/agent/tools，15 个）
 
@@ -61,11 +73,14 @@ MCP 是 runtime 的纯适配层（无业务逻辑）；skill CLI 文档（runtim
 
 ## 5. 核心 Domain Models（src/types/travel.ts + src/schemas/trip.ts）
 
-- **Trip**：days/items/segments/places/budgetItems/tasks/offers/socialEvidence/socialSignals + planningMetadata（source/llm/planningProfile/brain）。存储为 Supabase payload jsonb + JsonSkillRepository 本地 JSON（schema 同一份 zod tripSchema）。
-- **Place**：AMap POI + openingHours/openingStatus/stayMinutes/estimatedCost/vertical（爬坡）——已采集，规划侧消费程度随 Phase 4.1 增长。
-- **ItineraryItem**：`reservationId` 字段已预留（Phase 6 Reservation 域将使用）；status: planned/current/done/skipped（done 即锁定）。
-- **RouteSegment**：mode/distance/duration/polyline/estimated/provider/provenance（REAL vs haversine 估算全程可追溯）。
-- **provenance 体系**：DataProvenance（amap/haversine/demo/unavailable）+ ProviderLevel 10 级（REAL/CACHED/ESTIMATED/SOCIAL/CURATED/MOCK/UNSTRUCTURED/PERMISSION_REQUIRED/UNAVAILABLE/UNKNOWN）+ confidence。原则：REAL 数据永远优先于 LLM 推断；LLM 禁止发明地点/坐标/价格/库存/天气。
+- **Trip**：days/items/segments/places/budgetItems/tasks/offers/socialEvidence/socialSignals + **reservations**（6.1，payload jsonb）+ **travelEvents**（6.3，有界日志 200 条）+ planningMetadata（source/llm/planningProfile/brain）。存储为 Supabase payload jsonb + JsonSkillRepository 本地 JSON（schema 同一份 zod tripSchema）。
+- **Reservation**（src/schemas/reservation.ts）：type（flight/train/hotel/restaurant/attraction/activity/car/transfer/other）、status（tentative/confirmed/cancelled/completed）、flexibility（fixed/semiFlexible/flexible）、startAt/endAt、confirmationCode、price、provenance（source:user|import|provider）。confirmed → HARD 约束。
+- **TravelEvent**（src/schemas/travel-event.ts）：17 种 type、severity、effectiveFrom/Until、source（provider/user/system/simulation）、provenance（confidence/estimated）、payload、relatedEntities、acknowledgedAt。Provider 响应绝不直接进 Runtime——一律先 normalize。
+- **TripState**（src/schemas/trip-state.ts）：phase/late/remaining/risk/constraints 等 20+ 字段，由 getTripState 纯函数计算，Asia/Shanghai 时区，stale 标记离线快照。
+- **Place**：AMap POI + openingHours/openingStatus/stayMinutes/estimatedCost/vertical（爬坡）。
+- **ItineraryItem**：`reservationId` 链接字段已启用；status: planned/current/done/skipped（done 即锁定）。
+- **RouteSegment**：mode/distance/duration/polyline/estimated/provider/provenance。
+- **provenance 体系**：DataProvenance + ProviderLevel 10 级 + confidence。原则：REAL 数据永远优先于 LLM 推断；LLM 禁止发明地点/坐标/价格/库存/天气。
 
 ## 6. Planner / Optimizer 架构
 

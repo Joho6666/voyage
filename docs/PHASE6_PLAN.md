@@ -3,6 +3,29 @@
 > 2026-10-03 立项 · 基于 docs/CURRENT_ARCHITECTURE.md 审计基线
 > 原则：复用现有 Runtime，不建第二套；事实来自 Provider；AI 修改必经 Proposal→Diff→proposalToken→Apply。
 
+## 0. 实施状态（2026-10-03 更新）
+
+| 阶段 | 状态 | commit |
+|---|---|---|
+| 0a Phase 4.1 brain | ✅ 完成 | 45668f0 |
+| 0b 分支收敛（7 分支归档/删除，merge open-source-readiness） | ✅ 完成 | 2f37067, 9e915b4 |
+| 0c 审计文档（本文 + CURRENT_ARCHITECTURE.md） | ✅ 完成 | be705b5 |
+| 6.1 Reservation domain（5 命令 + 3 MCP 工具） | ✅ 完成 | 8a25141, c8003ff |
+| 6.2 Constraint engine（预订硬约束 + trip/day/candidate 评估 + get-constraints） | ✅ 完成 | 823e09d |
+| 6.3 TravelEvent model（record/get-active-events） | ✅ 完成 | 9b39358, 5552789, b0017ab |
+| 6.4 TripState engine（get-trip-state + MCP + perf 断言） | ✅ 完成 | ef80297, bdeae37 |
+| 6.5 Impact engine（analyze-event-impact + MCP） | ✅ 完成 | 62c9f22 |
+| 6.6 Event replan（propose-event-replan + 6 agent 工具 + prompt 决策序） | ✅ 完成 | 3c69763, aaaa868 |
+| 6.7 Today execution console（TripStateConsole + 主动卡片） | ✅ 完成 | c3fa14d |
+| 6.8 Event providers（Weather/Flight 接口 + Mock + simulate 命令） | ✅ 完成 | adb1066, 42b057b |
+| 6.9 Traveler memory v1（4 命令 + 披露语 + agent prompt 接入） | ✅ 完成 | bdb4d7d |
+| 6.10 golden 用例（Case 1/4/6/14 整合 + 其余索引）+ 文档收尾 | ✅ 完成 | 69f8c77 |
+| 6.11 build + Playwright 终验 | ⏳ 进行中 | — |
+
+测试规模：67 文件 / 392 用例全绿；typecheck + eslint 零错误。runtime 命令 46 个；MCP 工具 22 个；agent 工具 22 个。
+
+Phase 6 之后的建议（不在本次范围）：FlightAware 等真实航班 Provider 接入（接口已就绪）、Webhook 事件入口、reservations/events 独立表（当前为 payload jsonb，零迁移）、跨 trip 事件聚合分析。
+
 ## 1. 目标
 
 把 Voyage 从「生成与修改旅行计划」升级为「持续理解旅行状态、感知现实变化、判断影响、主动提出重规划、经确认后安全更新」的 AI Travel OS。核心新域：
