@@ -107,8 +107,9 @@ describe("travel event model (Phase 6.3)", () => {
 
   it("rejects forged ids and stale revisions", async () => {
     await expect(runtime.execute("record-travel-event", {
-      tripId, expectedTripRevision: revision + 9, event: { ...RAIN, id: "forged" },
+      tripId, expectedTripRevision: revision + 9, event: RAIN,
     })).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+    // The strict input schema rejects runtime-owned fields outright.
     await expect(runtime.execute("record-travel-event", {
       tripId, expectedTripRevision: revision, event: { ...RAIN, id: "forged" },
     })).rejects.toThrow();

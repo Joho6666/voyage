@@ -28,7 +28,7 @@ import {
 } from "@/services/brain/constraints";
 import type { BrainMetadata, RouteMatrix } from "@/schemas/brain";
 import { reservationSchema, type Reservation } from "@/schemas/reservation";
-import { MAX_TRIP_EVENTS, travelEventSchema, type TravelEvent } from "@/schemas/travel-event";
+import { MAX_TRIP_EVENTS, travelEventSchema } from "@/schemas/travel-event";
 import {
   alignPlanningDays,
   filterPlanningCandidates,
@@ -1804,7 +1804,7 @@ export class VoyageSkillRuntime {
     const now = new Date().toISOString();
     // confidence/estimated are provenance hints, not event fields — strip
     // them before the strict event schema validates the payload.
-    const { confidence, estimated, ...eventFields } = input.event;
+    const { confidence: _confidence, estimated: _estimated, ...eventFields } = input.event;
     const event = travelEventSchema.parse({
       ...eventFields,
       id: uid("evt"),
