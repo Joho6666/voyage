@@ -1,11 +1,9 @@
 import { chongqingTrip, DEMO_TRIP_ID } from "@/data/demo/chongqing";
 import type { Trip, TripSummary } from "@/types/travel";
 import type { SupabaseTripRepository } from "./supabase";
-
-/** Duplicated from ./supabase so importing it does not pull the supabase-js bundle. */
-function isSupabaseConfigured(): boolean {
-  return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
-}
+// Shared presence check — lib/supabase-config imports no supabase-js, so
+// this file still loads without the bundle.
+import { isSupabaseEnvConfigured } from "@/lib/supabase-config";
 
 export interface TripRepository {
   list(): Promise<TripSummary[]>;
@@ -95,7 +93,7 @@ export class MemoryTripRepository implements TripRepository {
 }
 
 function createRepository(): TripRepository {
-  if (isSupabaseConfigured()) {
+  if (isSupabaseEnvConfigured()) {
     const local = new MemoryTripRepository();
     // The remote repository — and the supabase-js bundle it pulls in — loads
     // on first data call, not at module import, so guest mode never pays for

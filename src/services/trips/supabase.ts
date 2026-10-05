@@ -1,10 +1,9 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { isSupabaseEnvConfigured } from "@/lib/supabase-config";
 import type { Trip, TripSummary } from "@/types/travel";
 import type { TripRepository } from "./repository";
 
-export function isSupabaseConfigured() {
-  return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
-}
+export const isSupabaseConfigured = isSupabaseEnvConfigured;
 
 export interface SupabaseTripRepositoryOptions {
   supabaseUrl?: string;

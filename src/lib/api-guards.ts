@@ -1,6 +1,7 @@
 import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
+import { readRequestCookie } from "@/lib/cookie";
 
 /**
  * In-memory sliding-window rate limiting for routes that spend paid provider
@@ -28,15 +29,6 @@ const buckets = new Map<string, number[]>();
 const MAX_BUCKETS = 10_000;
 const GUEST_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function cookieValue(request: Request | NextRequest, name: string) {
-  if ("cookies" in request && request.cookies) return request.cookies.get(name)?.value;
-  const header = request.headers.get("cookie") ?? "";
-  return header
-    .split(";")
-    .map((part) => part.trim().split("="))
-    .find(([key]) => key === name)?.[1];
-}
-
 function clientKey(request: Request | NextRequest) {
   // The guest cookie identifies a browser — but only if it is a real workspace
   // id. Everything malformed collapses into the shared anonymous bucket.
@@ -44,7 +36,7 @@ function clientKey(request: Request | NextRequest) {
   // direct deployment the client fully controls that header, so including it
   // let anyone mint fresh buckets per request and void every limit. A reverse
   // proxy deployment can reintroduce a trusted IP component here.
-  const rawGuest = cookieValue(request, "voyage_guest_workspace");
+  const rawGuest = readRequestCookie(request, "voyage_guest_workspace");
   const guest = rawGuest && GUEST_ID_PATTERN.test(rawGuest) ? rawGuest : "no-guest";
   return guest;
 }
