@@ -1,0 +1,285 @@
+{
+  "cases": [
+    {
+      "id": "rain-keyword",
+      "instruction": "第二天下雨了怎么办",
+      "expectedActions": [
+        {
+          "type": "RAIN_PLAN",
+          "dayId": "day-2"
+        }
+      ],
+      "diff": {
+        "summaryNonEmpty": true
+      }
+    },
+    {
+      "id": "indoor-keyword",
+      "instruction": "帮我安排点室内的活动",
+      "expectedActions": [
+        {
+          "type": "RAIN_PLAN",
+          "dayId": "day-1"
+        }
+      ],
+      "diff": {}
+    },
+    {
+      "id": "delay-keyword",
+      "instruction": "火车晚点了，帮我把第二天往后推",
+      "expectedActions": [
+        {
+          "type": "DELAY_DAY",
+          "dayId": "day-2"
+        }
+      ],
+      "diff": {}
+    },
+    {
+      "id": "earlier-keyword",
+      "instruction": "第三天想早点出发",
+      "expectedActions": [
+        {
+          "type": "START_EARLIER",
+          "dayId": "day-3"
+        }
+      ],
+      "diff": {}
+    },
+    {
+      "id": "skip-keyword",
+      "instruction": "第二天那个地方跳过吧",
+      "expectedActions": [
+        {
+          "type": "SKIP_NEXT",
+          "dayId": "day-2"
+        }
+      ],
+      "diff": {}
+    },
+    {
+      "id": "save-amount",
+      "instruction": "第二天帮我省200元",
+      "expectedActions": [
+        {
+          "type": "REDUCE_TODAY_BUDGET",
+          "dayId": "day-2"
+        }
+      ],
+      "diff": {
+        "costDeltaSign": "negative"
+      }
+    },
+    {
+      "id": "save-default-amount",
+      "instruction": "第二天帮我省点钱",
+      "expectedActions": [
+        {
+          "type": "REDUCE_TODAY_BUDGET",
+          "dayId": "day-2"
+        }
+      ],
+      "diff": {
+        "costDeltaSign": "negative"
+      },
+      "note": "没有金额时 amountFrom 兜底 300 元"
+    },
+    {
+      "id": "walking-two-actions",
+      "instruction": "第二天太累了少走点",
+      "expectedActions": [
+        {
+          "type": "OPTIMIZE_DAY",
+          "dayId": "day-2"
+        },
+        {
+          "type": "REDUCE_WALKING",
+          "dayId": "day-2"
+        }
+      ],
+      "diff": {}
+    },
+    {
+      "id": "change-place",
+      "instruction": "第二天换个地方",
+      "expectedActions": [
+        {
+          "type": "CHANGE_NEXT_PLACE",
+          "dayId": "day-2"
+        }
+      ],
+      "diff": {}
+    },
+    {
+      "id": "food-keyword",
+      "instruction": "第二天找点好吃的",
+      "expectedActions": [
+        {
+          "type": "FIND_NEARBY_FOOD",
+          "dayId": "day-2"
+        }
+      ],
+      "diff": {}
+    },
+    {
+      "id": "vague-falls-back-to-optimize",
+      "instruction": "帮我看看第二天安排得怎么样",
+      "expectedActions": [
+        {
+          "type": "OPTIMIZE_DAY",
+          "dayId": "day-2"
+        }
+      ],
+      "diff": {}
+    },
+    {
+      "id": "day-explicit-id",
+      "instruction": "[dayId:day-3]下雨了",
+      "expectedActions": [
+        {
+          "type": "RAIN_PLAN",
+          "dayId": "day-3"
+        }
+      ],
+      "diff": {}
+    },
+    {
+      "id": "day-defaults-to-first",
+      "instruction": "下雨了",
+      "expectedActions": [
+        {
+          "type": "RAIN_PLAN",
+          "dayId": "day-1"
+        }
+      ],
+      "diff": {},
+      "note": "无天数指代且无 fallback 时落到第一天"
+    },
+    {
+      "id": "day-fallback",
+      "instruction": "换个地方",
+      "dayId": "day-3",
+      "expectedActions": [
+        {
+          "type": "CHANGE_NEXT_PLACE",
+          "dayId": "day-3"
+        }
+      ],
+      "diff": {}
+    },
+    {
+      "id": "adversarial-unknown-day-token",
+      "instruction": "[dayId:day-99]下雨了",
+      "expectedActions": [
+        {
+          "type": "RAIN_PLAN",
+          "dayId": "day-1"
+        }
+      ],
+      "diff": {},
+      "note": "不存在的显式 dayId 应被忽略并回落"
+    },
+    {
+      "id": "adversarial-day-out-of-range",
+      "instruction": "第九天下雨",
+      "expectedActions": [
+        {
+          "type": "RAIN_PLAN",
+          "dayId": "day-1"
+        }
+      ],
+      "diff": {},
+      "note": "第9天超出天数解析上限(1-7)，回落第一天"
+    },
+    {
+      "id": "adversarial-rain-beats-delay",
+      "instruction": "第二天又下雨又晚点怎么办",
+      "expectedActions": [
+        {
+          "type": "RAIN_PLAN",
+          "dayId": "day-2"
+        }
+      ],
+      "diff": {},
+      "note": "关键词分支有优先级：雨最先命中，单命中设计"
+    },
+    {
+      "id": "diff-delay-moves-times",
+      "instruction": "第二天晚点了，推迟一下",
+      "expectedActions": [
+        {
+          "type": "DELAY_DAY",
+          "dayId": "day-2"
+        }
+      ],
+      "diff": {
+        "walkDeltaSign": "zero",
+        "minItemChanges": 1
+      }
+    },
+    {
+      "id": "diff-save-reduces-cost",
+      "instruction": "预算超了，第三天省150",
+      "expectedActions": [
+        {
+          "type": "REDUCE_TODAY_BUDGET",
+          "dayId": "day-3"
+        }
+      ],
+      "diff": {
+        "costDeltaSign": "negative"
+      }
+    },
+    {
+      "id": "diff-reorder-items",
+      "instruction": "第二天帮我重新排一下，少走回头路",
+      "expectedActions": [
+        {
+          "type": "OPTIMIZE_DAY",
+          "dayId": "day-2"
+        },
+        {
+          "type": "REDUCE_WALKING",
+          "dayId": "day-2"
+        }
+      ],
+      "diff": {}
+    },
+    {
+      "id": "english-ignored",
+      "instruction": "change my second day please",
+      "expectedActions": [
+        {
+          "type": "OPTIMIZE_DAY",
+          "dayId": "day-1"
+        }
+      ],
+      "diff": {},
+      "note": "规则NLU只认中文关键词，英文落入兜底 OPTIMIZE_DAY"
+    },
+    {
+      "id": "empty-instruction",
+      "instruction": "",
+      "expectedActions": [
+        {
+          "type": "OPTIMIZE_DAY",
+          "dayId": "day-1"
+        }
+      ],
+      "diff": {},
+      "note": "空指令仍然兜底到重排（运行时另有守卫）"
+    },
+    {
+      "id": "design-single-hit-intent",
+      "instruction": "先去吃碗小面再逛",
+      "expectedActions": [
+        {
+          "type": "FIND_NEARBY_FOOD",
+          "dayId": "day-1"
+        }
+      ],
+      "diff": {},
+      "note": "设计确认：关键词单命中——「吃」优先，「逛」不叠加 OPTIMIZE_DAY；多意图需 LLM 路径"
+    }
+  ]
+}

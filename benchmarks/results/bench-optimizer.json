@@ -1,0 +1,77 @@
+{
+  "generatedAt": "2026-10-05T11:24:18.014Z",
+  "results": [
+    {
+      "id": "s3d-10p-nohotel",
+      "optimizerWalking": 21885,
+      "baselineWalking": 28077,
+      "improvementRatio": 0.779,
+      "daysUsed": 3,
+      "decisions": 7,
+      "warnings": 0,
+      "unresolvedConstraints": 4,
+      "deterministic": true,
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    },
+    {
+      "id": "s3d-10p-hotel",
+      "optimizerWalking": 28301,
+      "baselineWalking": 36153,
+      "improvementRatio": 0.783,
+      "daysUsed": 3,
+      "decisions": 8,
+      "warnings": 0,
+      "unresolvedConstraints": 4,
+      "deterministic": true,
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    },
+    {
+      "id": "s2d-6p-hotel",
+      "optimizerWalking": 33454,
+      "baselineWalking": 23064,
+      "improvementRatio": 1.45,
+      "daysUsed": 2,
+      "decisions": 4,
+      "warnings": 0,
+      "unresolvedConstraints": 3,
+      "deterministic": true,
+      "passed": false,
+      "knownFailure": true,
+      "failures": [
+        "optimizer walking 33454m is worse than naive order 23064m"
+      ]
+    },
+    {
+      "id": "s1d-5p",
+      "optimizerWalking": 33511,
+      "baselineWalking": 33511,
+      "improvementRatio": 1,
+      "daysUsed": 1,
+      "decisions": 2,
+      "warnings": 0,
+      "unresolvedConstraints": 2,
+      "deterministic": true,
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    },
+    {
+      "id": "s3d-10p-avoid-museum",
+      "optimizerWalking": 27059,
+      "baselineWalking": 36153,
+      "improvementRatio": 0.748,
+      "daysUsed": 3,
+      "decisions": 6,
+      "warnings": 1,
+      "unresolvedConstraints": 4,
+      "deterministic": true,
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    }
+  ]
+}

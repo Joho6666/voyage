@@ -19,7 +19,9 @@
     "bench": "tsx benchmarks/run.ts",
     "bench:compare": "tsx benchmarks/run.ts --compare",
     "bench:baseline": "tsx benchmarks/run.ts --update-baseline",
-    "eval:profile": "tsx benchmarks/eval/planning-profile/run.ts"
+    "eval:profile": "tsx benchmarks/eval/planning-profile/run.ts",
+    "eval:nlu": "tsx benchmarks/eval/nlu-diff/run.ts",
+    "bench:optimizer": "tsx benchmarks/eval/optimizer/run.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -1,0 +1,148 @@
+{
+  "generatedAt": "2026-10-05T11:24:17.886Z",
+  "dataset": 23,
+  "realPassed": 23,
+  "realFailed": 0,
+  "stillBroken": 0,
+  "fixed": 0,
+  "results": [
+    {
+      "id": "rain-keyword",
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    },
+    {
+      "id": "indoor-keyword",
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    },
+    {
+      "id": "delay-keyword",
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    },
+    {
+      "id": "earlier-keyword",
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    },
+    {
+      "id": "skip-keyword",
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    },
+    {
+      "id": "save-amount",
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    },
+    {
+      "id": "save-default-amount",
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    },
+    {
+      "id": "walking-two-actions",
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    },
+    {
+      "id": "change-place",
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    },
+    {
+      "id": "food-keyword",
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    },
+    {
+      "id": "vague-falls-back-to-optimize",
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    },
+    {
+      "id": "day-explicit-id",
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    },
+    {
+      "id": "day-defaults-to-first",
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    },
+    {
+      "id": "day-fallback",
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    },
+    {
+      "id": "adversarial-unknown-day-token",
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    },
+    {
+      "id": "adversarial-day-out-of-range",
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    },
+    {
+      "id": "adversarial-rain-beats-delay",
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    },
+    {
+      "id": "diff-delay-moves-times",
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    },
+    {
+      "id": "diff-save-reduces-cost",
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    },
+    {
+      "id": "diff-reorder-items",
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    },
+    {
+      "id": "english-ignored",
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    },
+    {
+      "id": "empty-instruction",
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    },
+    {
+      "id": "design-single-hit-intent",
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
+    }
+  ]
+}
