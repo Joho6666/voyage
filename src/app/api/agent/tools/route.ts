@@ -403,6 +403,13 @@ export async function POST(request: NextRequest) {
       if (answer.content) lastContent = answer.content;
       if (!answer.toolCalls.length) return setGuestCookie(NextResponse.json({ ok: true, content: answer.content, toolsUsed: toolTrace, toolCalls, proposal }), workspace);
       messages.push({ role: "assistant", content: answer.content || null, tool_calls: answer.toolCalls.map((call) => ({ id: call.id, type: "function", function: { name: call.name, arguments: JSON.stringify(call.arguments) } })) });
+      // Un-parseable tool arguments must reach the model as a tool message —
+      // silently dropping them meant the model never learned its call failed.
+      for (const malformed of answer.malformedToolCalls ?? []) {
+        toolCalls.push({ name: malformed.name, argsSummary: "", resultSummary: "参数不是有效 JSON，已要求模型修正", ok: false });
+        messages.push({ role: "assistant", content: null, tool_calls: [{ id: malformed.id, type: "function", function: { name: malformed.name, arguments: "" } }] });
+        messages.push({ role: "tool", tool_call_id: malformed.id, content: JSON.stringify({ error: malformed.error }) });
+      }
       for (const call of answer.toolCalls) {
         const argsSummary = summarizeArgs(call.arguments as Record<string, unknown>);
         if (!(call.name in allowedToolNames)) {
