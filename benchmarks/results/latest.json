@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-05T12:04:43.589Z",
+  "generatedAt": "2026-10-05T16:21:25.999Z",
   "cases": [
     {
       "id": "adversarial-apply-without-confirmation",
@@ -7,7 +7,7 @@
       "ok": true,
       "deterministic": true,
       "digest": "9fdca2fb",
-      "ms": 9,
+      "ms": 22,
       "failures": []
     },
     {
@@ -16,7 +16,7 @@
       "ok": true,
       "deterministic": true,
       "digest": "2dbe7c83",
-      "ms": 4,
+      "ms": 9,
       "failures": []
     },
     {
@@ -25,7 +25,7 @@
       "ok": true,
       "deterministic": true,
       "digest": "9fdca2fb",
-      "ms": 2,
+      "ms": 6,
       "failures": []
     },
     {
@@ -34,7 +34,7 @@
       "ok": true,
       "deterministic": true,
       "digest": "9fdca2fb",
-      "ms": 2,
+      "ms": 5,
       "failures": []
     },
     {
@@ -61,7 +61,7 @@
       "ok": true,
       "deterministic": true,
       "digest": "18ebf0e2",
-      "ms": 1,
+      "ms": 2,
       "failures": []
     },
     {
@@ -88,7 +88,7 @@
       "ok": true,
       "deterministic": true,
       "digest": "4e2db5fd",
-      "ms": 1,
+      "ms": 2,
       "failures": []
     },
     {
@@ -97,7 +97,7 @@
       "ok": true,
       "deterministic": true,
       "digest": "d3ea5bd4",
-      "ms": 2,
+      "ms": 3,
       "failures": []
     },
     {
@@ -114,7 +114,7 @@
       "category": "golden",
       "ok": true,
       "deterministic": true,
-      "digest": "ce0b0110",
+      "digest": "3192a15e",
       "ms": 2,
       "failures": []
     },

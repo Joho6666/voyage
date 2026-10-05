@@ -112,10 +112,11 @@ function main() {
     { id: "s3d-10p-avoid-museum", input: { places: places.slice(0, 10), days: [day("d1"), day("d2"), day("d3")], hotel, profile: avoidProfile } },
   ];
 
-  // Documented quality gap (see docs/autonomous-backlog.md): with a spread
-  // POI set on few days the geo-clustering day split can lose to naive
-  // original-order chunking on estimated walking.
-  const KNOWN_FAILURES = new Set(["s2d-6p-hotel"]);
+  // Note: the optimizer now compares the clustered assignment against the
+  // original-order chunking and adopts whichever walks less, so no scenario
+  // regresses below the naive baseline. If a future change reintroduces a
+  // gap, mark the scenario with the knownFailure flag (still reported).
+  const KNOWN_FAILURES = new Set<string>();
   const results = scenarios.map((scenario) => runScenario(scenario.id, scenario.input, KNOWN_FAILURES.has(scenario.id)));
   for (const result of results) {
     const flag = result.passed ? "PASS" : result.knownFailure ? "KNOWN-FAIL" : "FAIL";

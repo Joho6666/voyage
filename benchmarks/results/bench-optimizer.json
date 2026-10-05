@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-05T11:24:18.014Z",
+  "generatedAt": "2026-10-05T16:20:58.434Z",
   "results": [
     {
       "id": "s3d-10p-nohotel",
@@ -7,7 +7,7 @@
       "baselineWalking": 28077,
       "improvementRatio": 0.779,
       "daysUsed": 3,
-      "decisions": 7,
+      "decisions": 9,
       "warnings": 0,
       "unresolvedConstraints": 4,
       "deterministic": true,
@@ -21,7 +21,7 @@
       "baselineWalking": 36153,
       "improvementRatio": 0.783,
       "daysUsed": 3,
-      "decisions": 8,
+      "decisions": 10,
       "warnings": 0,
       "unresolvedConstraints": 4,
       "deterministic": true,
@@ -31,19 +31,17 @@
     },
     {
       "id": "s2d-6p-hotel",
-      "optimizerWalking": 33454,
+      "optimizerWalking": 23064,
       "baselineWalking": 23064,
-      "improvementRatio": 1.45,
+      "improvementRatio": 1,
       "daysUsed": 2,
-      "decisions": 4,
+      "decisions": 1,
       "warnings": 0,
       "unresolvedConstraints": 3,
       "deterministic": true,
-      "passed": false,
-      "knownFailure": true,
-      "failures": [
-        "optimizer walking 33454m is worse than naive order 23064m"
-      ]
+      "passed": true,
+      "knownFailure": false,
+      "failures": []
     },
     {
       "id": "s1d-5p",
@@ -65,7 +63,7 @@
       "baselineWalking": 36153,
       "improvementRatio": 0.748,
       "daysUsed": 3,
-      "decisions": 6,
+      "decisions": 8,
       "warnings": 1,
       "unresolvedConstraints": 4,
       "deterministic": true,

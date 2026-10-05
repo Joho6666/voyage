@@ -19,7 +19,7 @@ export function optimizeGuideDayAssignment(input: OptimizerInput): OptimizerOutp
   const weights = { ...DEFAULT_WEIGHTS, ...input.weights };
   const profile = input.profile ?? null;
   const decisions: OptimizerDecision[] = [];
-  const warnings: string[] = [];
+  const warnings: OptimizerOutput["warnings"] = [];
 
   const avoidTerms = profile?.avoid?.map((term) => term.trim()).filter(Boolean) ?? [];
   const kept = input.places.filter((place) => {
@@ -31,29 +31,52 @@ export function optimizeGuideDayAssignment(input: OptimizerInput): OptimizerOutp
   });
   const profiles = kept.map((place, index) => describePlace(place, index));
 
+  const evaluate = (clusters: PlaceScheduleProfile[][]) => {
+    const { plans, decisions: scheduleDecisions, warnings: scheduleWarnings } = buildDayPlans(clusters, {
+      days: input.days,
+      hotel: input.hotel ?? null,
+      profile,
+      weights,
+    });
+    const total = plans.reduce((sum, plan) => sum + estimateDayWalking(plan, input.hotel ?? null), 0);
+    return { plans, scheduleDecisions, scheduleWarnings, total };
+  };
+
+  // Two candidate day-assignments, same within-day scheduling:
+  //  1. geographic clustering — wins when POIs group naturally;
+  //  2. original guide order, chunked evenly — wins on spread POI sets with
+  //     few days, where clustering can split a compact guide sweep into
+  //     longer cross-town chains.
   const clusters = clusterByGeography(profiles, Math.max(1, input.days.length));
-  clusters.forEach((cluster, index) => {
-    if (cluster.length > 1) {
-      const span = Math.round(
-        Math.max(...cluster.map((member) => distanceToClusterCenter(member, cluster))),
-      );
-      decisions.push({
-        dayId: input.days[index]?.dayId ?? `day-${index}`,
-        kind: "geo_cluster",
-        reason: `Day ${index + 1} 聚类 ${cluster.length} 个地理相近地点（${cluster.map((member) => member.place.name).slice(0, 3).join("、")}${cluster.length > 3 ? " 等" : ""}），最远相距约 ${span} m`,
-      });
-    }
-  });
+  const clustered = evaluate(clusters);
+  const naiveChunks = chunkEvenly(profiles, Math.max(1, input.days.length));
+  const originalOrder = naiveChunks.length ? evaluate(naiveChunks) : null;
+  const chosen = originalOrder && originalOrder.total < clustered.total ? originalOrder : clustered;
 
-  const { plans, decisions: scheduleDecisions, warnings: scheduleWarnings } = buildDayPlans(clusters, {
-    days: input.days,
-    hotel: input.hotel ?? null,
-    profile,
-    weights,
-  });
-  decisions.push(...scheduleDecisions);
-  warnings.push(...scheduleWarnings);
+  if (chosen === clustered) {
+    clusters.forEach((cluster, index) => {
+      if (cluster.length > 1) {
+        const span = Math.round(
+          Math.max(...cluster.map((member) => distanceToClusterCenter(member, cluster))),
+        );
+        decisions.push({
+          dayId: input.days[index]?.dayId ?? `day-${index}`,
+          kind: "geo_cluster",
+          reason: `Day ${index + 1} 聚类 ${cluster.length} 个地理相近地点（${cluster.map((member) => member.place.name).slice(0, 3).join("、")}${cluster.length > 3 ? " 等" : ""}），最远相距约 ${span} m`,
+        });
+      }
+    });
+  } else {
+    decisions.push({
+      dayId: chosen.plans[0]?.dayId ?? input.days[0]?.dayId ?? "day-1",
+      kind: "order",
+      reason: `攻略原始顺序的每日步行比地理聚类少约 ${Math.round(clustered.total - originalOrder!.total)} 米，已按原始顺序分配`,
+    });
+  }
+  decisions.push(...chosen.scheduleDecisions);
+  warnings.push(...chosen.scheduleWarnings);
 
+  const plans = chosen.plans;
   const assignments = plans.map((plan) => ({
     dayId: plan.dayId,
     places: plan.members.map((member) => member.place),
@@ -71,6 +94,18 @@ export function optimizeGuideDayAssignment(input: OptimizerInput): OptimizerOutp
     totalEstimatedWalkingMeters: Object.values(estimatedWalkingMetersByDay).reduce((sum, value) => sum + value, 0),
   };
   return { assignments, decisions, warnings, unresolvedConstraints, metrics };
+}
+
+/** Original-order chunks, one per day at most (benchmark baseline rubric). */
+function chunkEvenly(profiles: PlaceScheduleProfile[], dayCount: number): PlaceScheduleProfile[][] {
+  if (dayCount <= 0 || !profiles.length) return [];
+  const per = Math.ceil(profiles.length / dayCount);
+  const chunks: PlaceScheduleProfile[][] = [];
+  for (let index = 0; index < profiles.length; index += per) {
+    const chunk = profiles.slice(index, index + per);
+    if (chunk.length) chunks.push(chunk);
+  }
+  return chunks;
 }
 
 function distanceToClusterCenter(member: PlaceScheduleProfile, cluster: PlaceScheduleProfile[]): number {
