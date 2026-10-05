@@ -110,6 +110,10 @@ export class SupabaseTripRepository implements TripRepository {
    * Normalized child tables are the query surface; trips.payload is the
    * round-trip source of truth. Children are deleted then re-inserted on save
    * (client-side supabase-js has no multi-statement transaction; documented).
+   * Failure window: a crash or error mid-replaceChildren leaves the trips row
+   * and already-processed children written while later tables stay stale —
+   * the error names the failing table, and the next successful save() restores
+   * consistency. Contract-tested in tests/supabase-persistence.test.ts.
    */
   private async replaceChildren(trip: Trip) {
     const days = trip.days.map((day) => ({
