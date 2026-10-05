@@ -57,7 +57,6 @@
       "expected": {
         "startDate": "2030-05-01"
       },
-      "knownFailure": true,
       "note": "缺陷：日期「5月1日」的「1日」被误读为 days=1"
     },
     {
@@ -73,10 +72,10 @@
       "utterance": "2030年5月1日到2030年5月3日去南京",
       "expected": {
         "startDate": "2030-05-01",
-        "endDate": "2030-05-03"
+        "endDate": "2030-05-03",
+        "destination": "南京"
       },
-      "knownFailure": true,
-      "note": "缺陷：days=1 误提取，且目的地兜底捕获「2030年5月3日去南京」"
+      "note": "日期区间连接词已被跳过，去南京正确落为目的地"
     },
     {
       "id": "days-digit",
@@ -114,7 +113,6 @@
       "expected": {
         "travelers": 2
       },
-      "knownFailure": true,
       "note": "缺陷：「去吃火锅」被当作 destination（活动污染目的地）"
     },
     {
@@ -226,7 +224,6 @@
       "expected": {
         "walkingTolerance": "medium"
       },
-      "knownFailure": true,
       "note": "缺陷：「步行适中」中的「适中」误触发全局 pace=balanced"
     },
     {
@@ -303,7 +300,6 @@
           "洪崖洞"
         ]
       },
-      "knownFailure": true,
       "note": "缺陷：兜底目的地正则把必去 POI「洪崖洞」当成了 destination"
     },
     {
@@ -315,7 +311,6 @@
           "磁器口"
         ]
       },
-      "knownFailure": true,
       "note": "缺陷：目的地兜底捕获「解放碑和磁器口」，POI 列表污染 destination"
     },
     {
@@ -344,7 +339,6 @@
           "磁器口"
         ]
       },
-      "knownFailure": true,
       "note": "缺陷：「不要去磁器口」的 POI 被当成 destination"
     },
     {
@@ -370,11 +364,10 @@
       "utterance": "吃素",
       "expected": {
         "dietary": [
-          "素食"
+          "吃素"
         ]
       },
-      "knownFailure": true,
-      "note": "缺陷：词表只有「素食」没有「吃素」，漏提取"
+      "note": "词表已补「吃素」，按 verbatim 词记录"
     },
     {
       "id": "dietary-allergy",
@@ -440,7 +433,6 @@
       "expected": {
         "socialOptIn": false
       },
-      "knownFailure": true,
       "note": "缺陷：肯定式正则先命中「参考…社交媒体」，否定语义被吞"
     },
     {
@@ -461,7 +453,6 @@
           "夜景"
         ]
       },
-      "knownFailure": true,
       "note": "缺陷：必去子句吞掉后续整句（「不想爬山」等混入 mustVisit）"
     },
     {
@@ -480,7 +471,6 @@
           "轻松"
         ]
       },
-      "knownFailure": true,
       "note": "缺陷：日期「5月1日」的「1日」被日数正则误读为 days=1"
     },
     {

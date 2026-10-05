@@ -1,12 +1,12 @@
 {
-  "generatedAt": "2026-10-05T11:18:50.473Z",
+  "generatedAt": "2026-10-05T15:32:51.548Z",
   "dataset": 59,
-  "realPassed": 48,
+  "realPassed": 59,
   "realFailed": 0,
-  "stillBroken": 11,
+  "stillBroken": 0,
   "fixed": 0,
-  "avgRecall": 0.9639830508474576,
-  "avgPrecision": 0.9385593220338984,
+  "avgRecall": 1,
+  "avgPrecision": 1,
   "results": [
     {
       "id": "route-basic",
@@ -66,13 +66,11 @@
     },
     {
       "id": "date-chinese",
-      "passed": false,
-      "knownFailure": true,
+      "passed": true,
+      "knownFailure": false,
       "recall": 1,
-      "precision": 0.5,
-      "failures": [
-        "over-extracted days: 1"
-      ]
+      "precision": 1,
+      "failures": []
     },
     {
       "id": "date-slash",
@@ -84,14 +82,11 @@
     },
     {
       "id": "date-range",
-      "passed": false,
-      "knownFailure": true,
+      "passed": true,
+      "knownFailure": false,
       "recall": 1,
-      "precision": 0.5,
-      "failures": [
-        "over-extracted destination: \"2030年5月3日去南京\"",
-        "over-extracted days: 1"
-      ]
+      "precision": 1,
+      "failures": []
     },
     {
       "id": "days-digit",
@@ -127,13 +122,11 @@
     },
     {
       "id": "people-liang",
-      "passed": false,
-      "knownFailure": true,
+      "passed": true,
+      "knownFailure": false,
       "recall": 1,
-      "precision": 0.5,
-      "failures": [
-        "over-extracted destination: \"吃火锅\""
-      ]
+      "precision": 1,
+      "failures": []
     },
     {
       "id": "people-family",
@@ -241,13 +234,11 @@
     },
     {
       "id": "walk-medium",
-      "passed": false,
-      "knownFailure": true,
+      "passed": true,
+      "knownFailure": false,
       "recall": 1,
-      "precision": 0.5,
-      "failures": [
-        "over-extracted pace: \"balanced\""
-      ]
+      "precision": 1,
+      "failures": []
     },
     {
       "id": "transport-public",
@@ -315,23 +306,19 @@
     },
     {
       "id": "mustvisit-simple",
-      "passed": false,
-      "knownFailure": true,
+      "passed": true,
+      "knownFailure": false,
       "recall": 1,
-      "precision": 0.5,
-      "failures": [
-        "over-extracted destination: \"洪崖洞\""
-      ]
+      "precision": 1,
+      "failures": []
     },
     {
       "id": "mustvisit-multi",
-      "passed": false,
-      "knownFailure": true,
+      "passed": true,
+      "knownFailure": false,
       "recall": 1,
-      "precision": 0.5,
-      "failures": [
-        "over-extracted destination: \"解放碑和磁器口\""
-      ]
+      "precision": 1,
+      "failures": []
     },
     {
       "id": "mustvisit-prefix",
@@ -351,13 +338,11 @@
     },
     {
       "id": "avoid-simple",
-      "passed": false,
-      "knownFailure": true,
+      "passed": true,
+      "knownFailure": false,
       "recall": 1,
-      "precision": 0.5,
-      "failures": [
-        "over-extracted destination: \"磁器口\""
-      ]
+      "precision": 1,
+      "failures": []
     },
     {
       "id": "avoid-bikai",
@@ -377,13 +362,11 @@
     },
     {
       "id": "dietary-veg",
-      "passed": false,
-      "knownFailure": true,
-      "recall": 0,
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
       "precision": 1,
-      "failures": [
-        "dietary: expected [\"素食\"], got undefined"
-      ]
+      "failures": []
     },
     {
       "id": "dietary-allergy",
@@ -443,33 +426,27 @@
     },
     {
       "id": "social-no",
-      "passed": false,
-      "knownFailure": true,
-      "recall": 0,
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
       "precision": 1,
-      "failures": [
-        "socialOptIn: expected false, got true"
-      ]
+      "failures": []
     },
     {
       "id": "combo-rich",
-      "passed": false,
-      "knownFailure": true,
-      "recall": 0.875,
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
       "precision": 1,
-      "failures": [
-        "mustVisit: expected [\"洪崖洞\"], got [\"洪崖洞\",\"不想爬山\",\"坐地铁为主\",\"喜欢美食\",\"夜景\"]"
-      ]
+      "failures": []
     },
     {
       "id": "combo-family",
-      "passed": false,
-      "knownFailure": true,
+      "passed": true,
+      "knownFailure": false,
       "recall": 1,
-      "precision": 0.875,
-      "failures": [
-        "over-extracted days: 1"
-      ]
+      "precision": 1,
+      "failures": []
     },
     {
       "id": "empty",

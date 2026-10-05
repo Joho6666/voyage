@@ -133,7 +133,7 @@ const KNOWN_VIBES = [
   "美食", "夜景", "自然", "摄影", "城市漫游", "文化", "历史", "购物", "咖啡", "亲子",
   "情侣", "独自旅行", "周末游", "轻松", "慢节奏", "特种兵", "户外", "小众", "海边", "温泉",
 ];
-const DIETARY_TERMS = ["素食", "纯素", "清真", "不吃辣", "少辣", "不吃海鲜", "海鲜过敏", "过敏", "低糖", "无麸质"];
+const DIETARY_TERMS = ["素食", "吃素", "纯素", "清真", "不吃辣", "少辣", "不吃海鲜", "海鲜过敏", "过敏", "低糖", "无麸质"];
 
 /**
  * Deterministic extraction used both as the no-LLM planner and as a guardrail
@@ -145,6 +145,35 @@ export function extractPlanningProfile(message: string): PlanningProfilePatch {
   const patch: PlanningProfilePatch = {};
 
   const cleanDestination = (value: string) => value.replace(/(?:玩|旅游|旅行|看看|逛逛).*$/, "").trim();
+
+  // 必去/想打卡/避开 intents are collected first: their object phrases must
+  // never leak into the destination fallback ("必去洪崖洞" is not a trip to
+  // 洪崖洞). Captures stop at clause boundaries so a trailing preference list
+  // ("必去A，不想爬山，坐地铁为主") is not swallowed into mustVisit.
+  const intentSpans: Array<[number, number]> = [];
+  const markIntentSpan = (match: RegExpMatchArray) => {
+    intentSpans.push([match.index!, match.index! + match[0].length]);
+    return match[1];
+  };
+  const intentPrefix = String.raw`(?:一定要去|必去|必须去|想打卡|一定要打卡)`;
+  const mustVisit = [
+    ...[...text.matchAll(new RegExp(intentPrefix + String.raw`\s*([^。！？!?\n，,；;]+)`, "g"))].map(markIntentSpan),
+    ...[...text.matchAll(new RegExp(String.raw`([^，,。；;！？!?\n]{1,80}?)` + intentPrefix, "g"))]
+      .filter((match) => !/^第[一二三四五六七八九十\d]+天$/.test(match[1].trim()))
+      .map(markIntentSpan),
+  ]
+    .flatMap((value) => splitList(value))
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  const uniqueMustVisit = [...new Set(mustVisit)];
+
+  const avoid = extractAfter(text, /(?:不要去|不想去|避开|不去|不考虑)\s*([^。！？!?\n]+)/);
+  for (const match of text.matchAll(/(?:不要去|不想去|避开|不去|不考虑)\s*([^。！？!?\n]+)/g)) {
+    intentSpans.push([match.index!, match.index! + match[0].length]);
+  }
+
+  const overlapsIntent = (start: number, end: number) => intentSpans.some(([spanStart, spanEnd]) => start < spanEnd && end > spanStart);
+
   const route = text.match(/从\s*([^，,。；;!?！？\s]{1,40}?)(?:出发)?\s*(?:前往|去|到)\s*([^，,。；;!?！？\s]{1,40})/);
   if (route?.[1]) patch.origin = route[1].trim();
   if (route?.[2]) {
@@ -158,10 +187,23 @@ export function extractPlanningProfile(message: string): PlanningProfilePatch {
   }
 
   if (!patch.destination) {
-    const destination = text.match(/(?:目的地(?:是|为)?|想去|计划去|去往|前往|去|到)\s*([^，,。；;!?！？\s]{1,40})/);
-    if (destination?.[1] && !/哪里|时候|少走|走路/.test(destination[1])) {
-      const value = cleanDestination(destination[1]);
-      if (value) patch.destination = value;
+    // Scan every trigger instead of trusting the first: date-range connectors
+    // ("5月1日到5月3日去南京") and intent objects are skipped, and the next
+    // trigger still gets its chance.
+    for (const trigger of text.matchAll(/(?:目的地(?:是|为)?|想去|计划去|去往|前往|去|到)/g)) {
+      const triggerStart = trigger.index!;
+      const capture = text.slice(triggerStart + trigger[0].length).match(/^[^，,。；;!?！？\s]{1,40}/)?.[0];
+      if (!capture) continue;
+      if (/哪里|时候|少走|走路/.test(capture)) continue;
+      if (/^(?:吃|喝|玩|买)/.test(capture)) continue; // 活动短语不是目的地（"去吃火锅"）
+      if (/^\d{4}[-/年]/.test(capture) || /^\d{1,2}[-/月日]/.test(capture)) continue; // 日期区间连接词
+      const spanEnd = triggerStart + trigger[0].length + capture.length;
+      if (overlapsIntent(triggerStart, spanEnd)) continue;
+      const value = cleanDestination(capture);
+      if (value) {
+        patch.destination = value;
+        break;
+      }
     }
   }
 
@@ -169,7 +211,8 @@ export function extractPlanningProfile(message: string): PlanningProfilePatch {
   if (dates?.[0]) patch.startDate = dates[0];
   if (dates?.[1]) patch.endDate = dates[1];
 
-  const dayMatch = text.match(/(?<!\d)(\d+|[一二两三四五六七八九十]+)\s*(?:天|日)(?!后)/);
+  // (?<!月) keeps "5月1日" from being read as a one-day trip.
+  const dayMatch = text.match(/(?<!\d)(?<!月)(\d+|[一二两三四五六七八九十]+)\s*(?:天|日)(?!后)/);
   const dayValue = dayMatch?.[1] ? parseNumber(dayMatch[1]) : undefined;
   if (dayValue && dayValue >= 1 && dayValue <= 31) patch.days = dayValue;
 
@@ -191,7 +234,8 @@ export function extractPlanningProfile(message: string): PlanningProfilePatch {
 
   if (/(?:轻松|悠闲|慢节奏|不赶|佛系|休闲)/.test(text)) patch.pace = "relaxed";
   else if (/(?:特种兵|紧凑|赶行程|多安排|暴走)/.test(text)) patch.pace = "packed";
-  else if (/(?:适中|均衡|正常节奏)/.test(text)) patch.pace = "balanced";
+  // 步行适中/预算适中 are walking/budget statements, not the overall pace.
+  else if (/(?:(?<!步行)(?<!预算)适中|均衡|正常节奏)/.test(text)) patch.pace = "balanced";
 
   if (/(?:少走|少步行|不想走|不想多走|不想每天走|步行少|少爬坡|轮椅|走太多|走不动|走路太多)/.test(text)) patch.walkingTolerance = "low";
   else if (/(?:喜欢徒步|能走|多走|步行没问题|徒步)/.test(text)) patch.walkingTolerance = "high";
@@ -207,13 +251,7 @@ export function extractPlanningProfile(message: string): PlanningProfilePatch {
   const vibeMatches = KNOWN_VIBES.filter((vibe) => text.includes(vibe));
   if (vibeMatches.length) patch.vibes = vibeMatches;
 
-  const mustVisit = extractAfter(text, /(?:一定要去|必去|必须去|想打卡|一定要打卡)\s*([^。！？!?\n]+)/);
-  const mustVisitSuffix = [...text.matchAll(/([^，,。；;！？!?\n]{1,80}?)(?:一定要去|必去|必须去|想打卡|一定要打卡)/g)]
-    .map((match) => match[1]?.trim())
-    .filter((value): value is string => Boolean(value));
-  const mergedMustVisit = [...mustVisit, ...mustVisitSuffix];
-  if (mergedMustVisit.length) patch.mustVisit = mergedMustVisit;
-  const avoid = extractAfter(text, /(?:不要去|不想去|避开|不去|不考虑)\s*([^。！？!?\n]+)/);
+  if (uniqueMustVisit.length) patch.mustVisit = uniqueMustVisit;
   if (avoid.length) patch.avoid = avoid;
 
   const dietary = DIETARY_TERMS.filter((term) => text.includes(term));
@@ -227,10 +265,12 @@ export function extractPlanningProfile(message: string): PlanningProfilePatch {
   else if (/(?:舒适|不差钱|品质|宽松预算)/.test(text)) patch.budgetMode = "flexible";
   else if (/(?:性价比|预算适中|平衡预算)/.test(text)) patch.budgetMode = "balanced";
 
-  if (/(?:参考|看看|结合).*(?:小红书|抖音|攻略|社交媒体|网友推荐)|(?:小红书|抖音|社交媒体).*(?:可以|同意|参考)/.test(text)) {
-    patch.socialOptIn = true;
-  } else if (/(?:不要|不想|不需要|关闭).*(?:小红书|抖音|社交媒体|社交攻略)/.test(text)) {
+  // Negation is checked first: "不要参考社交媒体" must not satisfy the
+  // affirmative "参考…社交媒体" pattern.
+  if (/(?:不要|不想|不需要|关闭|别看).*(?:小红书|抖音|社交媒体|社交攻略)/.test(text)) {
     patch.socialOptIn = false;
+  } else if (/(?:参考|看看|结合).*(?:小红书|抖音|攻略|社交媒体|网友推荐)|(?:小红书|抖音|社交媒体).*(?:可以|同意|参考)/.test(text)) {
+    patch.socialOptIn = true;
   }
 
   return planningProfilePatchSchema.parse(patch);
