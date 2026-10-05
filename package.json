@@ -15,7 +15,10 @@
     "test:e2e": "playwright test",
     "knowledge:ingest": "tsx scripts/knowledge-ingest.ts",
     "knowledge:reindex": "tsx scripts/knowledge-ingest.ts --force",
-    "mcp": "tsx packages/voyage-mcp/server.ts"
+    "mcp": "tsx packages/voyage-mcp/server.ts",
+    "bench": "tsx benchmarks/run.ts",
+    "bench:compare": "tsx benchmarks/run.ts --compare",
+    "bench:baseline": "tsx benchmarks/run.ts --update-baseline"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

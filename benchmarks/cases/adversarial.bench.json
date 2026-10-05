@@ -1,0 +1,45 @@
+{
+  "cases": [
+    {
+      "id": "adversarial-apply-without-confirmation",
+      "category": "adversarial",
+      "description": "未确认的 apply：必须被 CONFIRMATION_REQUIRED 挡下",
+      "steps": [
+        { "command": "create-trip", "input": { "origin": "桂林", "destination": "重庆", "startDate": "2030-05-01", "days": 3, "people": 2, "budget": 2500, "fallbackPolicy": "estimated" } },
+        { "command": "propose-change", "input": { "tripId": "{{steps.0.data.tripId}}", "instruction": "第二天少走一点", "fallbackPolicy": "estimated" } },
+        { "command": "apply-change", "input": { "tripId": "{{steps.0.data.tripId}}", "proposalId": "{{steps.1.data.proposalId}}", "expectedTripRevision": 1, "confirmed": false }, "expectError": "CONFIRMATION_REQUIRED" }
+      ]
+    },
+    {
+      "id": "adversarial-replay-consumed-token",
+      "category": "adversarial",
+      "description": "令牌重放：应用后提案记录删除，重放必须 PROPOSAL_NOT_FOUND",
+      "steps": [
+        { "command": "create-trip", "input": { "origin": "桂林", "destination": "重庆", "startDate": "2030-05-01", "days": 3, "people": 2, "budget": 2500, "fallbackPolicy": "estimated" } },
+        { "command": "propose-change", "input": { "tripId": "{{steps.0.data.tripId}}", "instruction": "第二天少走一点", "fallbackPolicy": "estimated" } },
+        { "command": "apply-change", "input": { "tripId": "{{steps.0.data.tripId}}", "proposalId": "{{steps.1.data.proposalId}}", "expectedTripRevision": 1, "confirmed": true, "proposalToken": "{{steps.1.data.proposalToken}}" } },
+        { "command": "apply-change", "input": { "tripId": "{{steps.0.data.tripId}}", "proposalId": "{{steps.1.data.proposalId}}", "expectedTripRevision": 1, "confirmed": true, "proposalToken": "{{steps.1.data.proposalToken}}" }, "expectError": "PROPOSAL_NOT_FOUND" }
+      ]
+    },
+    {
+      "id": "adversarial-stale-revision",
+      "category": "adversarial",
+      "description": "过期 revision：乐观锁必须拒绝（运行时以 PROPOSAL_STALE 拒绝修订不匹配的提案）",
+      "steps": [
+        { "command": "create-trip", "input": { "origin": "桂林", "destination": "重庆", "startDate": "2030-05-01", "days": 3, "people": 2, "budget": 2500, "fallbackPolicy": "estimated" } },
+        { "command": "propose-change", "input": { "tripId": "{{steps.0.data.tripId}}", "instruction": "第二天少走一点", "fallbackPolicy": "estimated" } },
+        { "command": "apply-change", "input": { "tripId": "{{steps.0.data.tripId}}", "proposalId": "{{steps.1.data.proposalId}}", "expectedTripRevision": 999, "confirmed": true, "proposalToken": "{{steps.1.data.proposalToken}}" }, "expectError": "PROPOSAL_STALE" }
+      ]
+    },
+    {
+      "id": "adversarial-forged-token",
+      "category": "adversarial",
+      "description": "伪造令牌：哈希绑定校验必须以 PROPOSAL_TOKEN_INVALID 拒绝",
+      "steps": [
+        { "command": "create-trip", "input": { "origin": "桂林", "destination": "重庆", "startDate": "2030-05-01", "days": 3, "people": 2, "budget": 2500, "fallbackPolicy": "estimated" } },
+        { "command": "propose-change", "input": { "tripId": "{{steps.0.data.tripId}}", "instruction": "第二天少走一点", "fallbackPolicy": "estimated" } },
+        { "command": "apply-change", "input": { "tripId": "{{steps.0.data.tripId}}", "proposalId": "{{steps.1.data.proposalId}}", "expectedTripRevision": 1, "confirmed": true, "proposalToken": "00000000-0000-4000-8000-000000000000" }, "expectError": "PROPOSAL_TOKEN_INVALID" }
+      ]
+    }
+  ]
+}

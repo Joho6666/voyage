@@ -1,0 +1,42 @@
+{
+  "cases": [
+    {
+      "id": "edge-empty-trip-id",
+      "category": "edge",
+      "description": "空 tripId：schema 拒绝并归一化为 INVALID_INPUT",
+      "steps": [
+        { "command": "get-trip", "input": { "tripId": "" }, "expectError": "INVALID_INPUT" }
+      ]
+    },
+    {
+      "id": "edge-missing-trip",
+      "category": "edge",
+      "description": "不存在的行程：TRIP_NOT_FOUND 而非崩溃",
+      "steps": [
+        { "command": "get-trip", "input": { "tripId": "bench-no-such-trip" }, "expectError": "TRIP_NOT_FOUND" }
+      ]
+    },
+    {
+      "id": "edge-max-scale-input",
+      "category": "edge",
+      "description": "合法但极端的输入规模：20 人 / ¥1000000 / 7 天仍可创建",
+      "steps": [
+        {
+          "command": "create-trip",
+          "input": { "origin": "桂林", "destination": "重庆", "startDate": "2030-05-01", "days": 7, "people": 20, "budget": 1000000, "fallbackPolicy": "estimated" },
+          "assert": [
+            { "path": "data.trip.days", "op": "lengthEquals", "value": 7 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "edge-day-count-overflow",
+      "category": "edge",
+      "description": "超出 MAX_TRIP_DAYS 的天数：schema 拒绝",
+      "steps": [
+        { "command": "create-trip", "input": { "origin": "桂林", "destination": "重庆", "startDate": "2030-05-01", "days": 60, "people": 2, "fallbackPolicy": "estimated" }, "expectError": "INVALID_INPUT" }
+      ]
+    }
+  ]
+}

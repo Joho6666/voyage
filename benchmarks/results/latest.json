@@ -1,0 +1,131 @@
+{
+  "generatedAt": "2026-10-05T11:14:02.670Z",
+  "cases": [
+    {
+      "id": "adversarial-apply-without-confirmation",
+      "category": "adversarial",
+      "ok": true,
+      "deterministic": true,
+      "ms": 10,
+      "failures": []
+    },
+    {
+      "id": "adversarial-replay-consumed-token",
+      "category": "adversarial",
+      "ok": true,
+      "deterministic": true,
+      "ms": 4,
+      "failures": []
+    },
+    {
+      "id": "adversarial-stale-revision",
+      "category": "adversarial",
+      "ok": true,
+      "deterministic": true,
+      "ms": 3,
+      "failures": []
+    },
+    {
+      "id": "adversarial-forged-token",
+      "category": "adversarial",
+      "ok": true,
+      "deterministic": true,
+      "ms": 2,
+      "failures": []
+    },
+    {
+      "id": "edge-empty-trip-id",
+      "category": "edge",
+      "ok": true,
+      "deterministic": true,
+      "ms": 0,
+      "failures": []
+    },
+    {
+      "id": "edge-missing-trip",
+      "category": "edge",
+      "ok": true,
+      "deterministic": true,
+      "ms": 0,
+      "failures": []
+    },
+    {
+      "id": "edge-max-scale-input",
+      "category": "edge",
+      "ok": true,
+      "deterministic": true,
+      "ms": 1,
+      "failures": []
+    },
+    {
+      "id": "edge-day-count-overflow",
+      "category": "edge",
+      "ok": true,
+      "deterministic": true,
+      "ms": 0,
+      "failures": []
+    },
+    {
+      "id": "golden-create-guilin-chongqing",
+      "category": "golden",
+      "ok": true,
+      "deterministic": true,
+      "ms": 1,
+      "failures": []
+    },
+    {
+      "id": "golden-get-trip-roundtrip",
+      "category": "golden",
+      "ok": true,
+      "deterministic": true,
+      "ms": 1,
+      "failures": []
+    },
+    {
+      "id": "golden-propose-walk-reduction",
+      "category": "golden",
+      "ok": true,
+      "deterministic": true,
+      "ms": 2,
+      "failures": []
+    },
+    {
+      "id": "golden-propose-apply-token-chain",
+      "category": "golden",
+      "ok": true,
+      "deterministic": true,
+      "ms": 3,
+      "failures": []
+    },
+    {
+      "id": "golden-optimize-itinerary",
+      "category": "golden",
+      "ok": true,
+      "deterministic": true,
+      "ms": 2,
+      "failures": []
+    },
+    {
+      "id": "golden-trip-state-and-constraints",
+      "category": "golden",
+      "ok": true,
+      "deterministic": true,
+      "ms": 1,
+      "failures": []
+    },
+    {
+      "id": "golden-search-places-fixture",
+      "category": "golden",
+      "ok": true,
+      "deterministic": true,
+      "ms": 0,
+      "failures": []
+    }
+  ],
+  "summary": {
+    "total": 15,
+    "passed": 15,
+    "failed": 0,
+    "nondeterministic": 0
+  }
+}

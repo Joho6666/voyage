@@ -1,0 +1,109 @@
+{
+  "cases": [
+    {
+      "id": "golden-create-guilin-chongqing",
+      "category": "golden",
+      "description": "基线行程创建：桂林→重庆 3 天 2 人 ¥2500，fixture provider 下全程确定",
+      "steps": [
+        {
+          "command": "create-trip",
+          "input": { "origin": "桂林", "destination": "重庆", "startDate": "2030-05-01", "days": 3, "people": 2, "budget": 2500, "preferences": ["美食"], "fallbackPolicy": "estimated" },
+          "assert": [
+            { "path": "ok", "op": "equals", "value": true },
+            { "path": "data.trip.days", "op": "lengthEquals", "value": 3 },
+            { "path": "data.trip.destination", "op": "equals", "value": "重庆" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "golden-get-trip-roundtrip",
+      "category": "golden",
+      "description": "创建后读取：revision ≥ 1，往返数据一致",
+      "steps": [
+        { "command": "create-trip", "input": { "origin": "桂林", "destination": "重庆", "startDate": "2030-05-01", "days": 3, "people": 2, "budget": 2500, "fallbackPolicy": "estimated" } },
+        {
+          "command": "get-trip",
+          "input": { "tripId": "{{steps.0.data.tripId}}" },
+          "assert": [
+            { "path": "data.revision", "op": "gte", "value": 1 },
+            { "path": "data.trip.destination", "op": "equals", "value": "重庆" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "golden-propose-walk-reduction",
+      "category": "golden",
+      "description": "自然语言修改走规则规划器：必须产出提案与量化 diff",
+      "steps": [
+        { "command": "create-trip", "input": { "origin": "桂林", "destination": "重庆", "startDate": "2030-05-01", "days": 3, "people": 2, "budget": 2500, "fallbackPolicy": "estimated" } },
+        {
+          "command": "propose-change",
+          "input": { "tripId": "{{steps.0.data.tripId}}", "instruction": "第二天少走一点", "fallbackPolicy": "estimated" },
+          "assert": [
+            { "path": "data.proposalId", "op": "exists", "value": null },
+            { "path": "data.changes", "op": "exists", "value": null }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "golden-propose-apply-token-chain",
+      "category": "golden",
+      "description": "提案→令牌→确认应用全链：revision 推进到 2",
+      "steps": [
+        { "command": "create-trip", "input": { "origin": "桂林", "destination": "重庆", "startDate": "2030-05-01", "days": 3, "people": 2, "budget": 2500, "fallbackPolicy": "estimated" } },
+        { "command": "propose-change", "input": { "tripId": "{{steps.0.data.tripId}}", "instruction": "第二天少走一点", "fallbackPolicy": "estimated" } },
+        {
+          "command": "apply-change",
+          "input": { "tripId": "{{steps.0.data.tripId}}", "proposalId": "{{steps.1.data.proposalId}}", "expectedTripRevision": 1, "confirmed": true, "proposalToken": "{{steps.1.data.proposalToken}}" },
+          "assert": [
+            { "path": "data.revision", "op": "equals", "value": 2 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "golden-optimize-itinerary",
+      "category": "golden",
+      "description": "一键重排：确定性优化器产出提案",
+      "steps": [
+        { "command": "create-trip", "input": { "origin": "桂林", "destination": "重庆", "startDate": "2030-05-01", "days": 3, "people": 2, "budget": 2500, "fallbackPolicy": "estimated" } },
+        { "command": "get-trip", "input": { "tripId": "{{steps.0.data.tripId}}" } },
+        {
+          "command": "optimize-itinerary",
+          "input": { "tripId": "{{steps.0.data.tripId}}", "expectedTripRevision": "{{steps.1.data.revision}}", "strategy": "balanced", "fallbackPolicy": "estimated" },
+          "assert": [
+            { "path": "data.proposalId", "op": "exists", "value": null }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "golden-trip-state-and-constraints",
+      "category": "golden",
+      "description": "Phase 6 状态面：get-trip-state 与 get-constraints 可用",
+      "steps": [
+        { "command": "create-trip", "input": { "origin": "桂林", "destination": "重庆", "startDate": "2030-05-01", "days": 3, "people": 2, "budget": 2500, "fallbackPolicy": "estimated" } },
+        { "command": "get-trip-state", "input": { "tripId": "{{steps.0.data.tripId}}" }, "assert": [{ "path": "ok", "op": "equals", "value": true }] },
+        { "command": "get-constraints", "input": { "tripId": "{{steps.0.data.tripId}}" }, "assert": [{ "path": "ok", "op": "equals", "value": true }] }
+      ]
+    },
+    {
+      "id": "golden-search-places-fixture",
+      "category": "golden",
+      "description": "fixture POI 检索：结果必带 estimated:true 来源标注（诚实降级）",
+      "steps": [
+        {
+          "command": "search-places",
+          "input": { "destination": "重庆", "query": "景点", "limit": 3 },
+          "assert": [
+            { "path": "data.places", "op": "lengthEquals", "value": 3 },
+            { "path": "data.places.0.provenance.estimated", "op": "equals", "value": true }
+          ]
+        }
+      ]
+    }
+  ]
+}
