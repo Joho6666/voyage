@@ -66,7 +66,8 @@ export async function GET(request: Request) {
     if (share.expiresAt < Date.now()) return NextResponse.json({ ok: false, error: "SHARE_EXPIRED" }, { status: 410 });
     return NextResponse.json({ ok: true, trip: share.trip });
   } catch {
-    logger.debug("share.read_miss_or_invalid", { token });
+    // The token grants read access to the share; never log it in full.
+    logger.debug("share.read_miss_or_invalid", { tokenPrefix: token.slice(0, 6) });
     return NextResponse.json({ ok: false, error: "SHARE_NOT_FOUND" }, { status: 404 });
   }
 }
