@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-05T11:56:49.133Z",
+  "generatedAt": "2026-10-05T12:04:43.589Z",
   "cases": [
     {
       "id": "adversarial-apply-without-confirmation",
@@ -7,7 +7,7 @@
       "ok": true,
       "deterministic": true,
       "digest": "9fdca2fb",
-      "ms": 10,
+      "ms": 9,
       "failures": []
     },
     {
@@ -25,7 +25,7 @@
       "ok": true,
       "deterministic": true,
       "digest": "9fdca2fb",
-      "ms": 3,
+      "ms": 2,
       "failures": []
     },
     {
