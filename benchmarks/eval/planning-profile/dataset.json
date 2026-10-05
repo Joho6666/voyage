@@ -1,0 +1,507 @@
+{
+  "cases": [
+    {
+      "id": "route-basic",
+      "utterance": "从桂林去重庆玩",
+      "expected": {
+        "origin": "桂林",
+        "destination": "重庆"
+      }
+    },
+    {
+      "id": "route-qianwang",
+      "utterance": "我打算从成都前往西安看看古城",
+      "expected": {
+        "origin": "成都",
+        "destination": "西安"
+      }
+    },
+    {
+      "id": "route-chufadi",
+      "utterance": "出发地是广州，目的地厦门",
+      "expected": {
+        "origin": "广州",
+        "destination": "厦门"
+      }
+    },
+    {
+      "id": "route-destination-only",
+      "utterance": "想去大理",
+      "expected": {
+        "destination": "大理"
+      }
+    },
+    {
+      "id": "route-destination-trap",
+      "utterance": "去哪里玩都行",
+      "expected": {}
+    },
+    {
+      "id": "route-clean-suffix",
+      "utterance": "去杭州旅游",
+      "expected": {
+        "destination": "杭州"
+      }
+    },
+    {
+      "id": "date-iso",
+      "utterance": "2030-05-01出发去重庆",
+      "expected": {
+        "startDate": "2030-05-01",
+        "destination": "重庆"
+      }
+    },
+    {
+      "id": "date-chinese",
+      "utterance": "2030年5月1日从桂林出发",
+      "expected": {
+        "startDate": "2030-05-01"
+      },
+      "knownFailure": true,
+      "note": "缺陷：日期「5月1日」的「1日」被误读为 days=1"
+    },
+    {
+      "id": "date-slash",
+      "utterance": "2030/10/01去北京",
+      "expected": {
+        "startDate": "2030-10-01",
+        "destination": "北京"
+      }
+    },
+    {
+      "id": "date-range",
+      "utterance": "2030年5月1日到2030年5月3日去南京",
+      "expected": {
+        "startDate": "2030-05-01",
+        "endDate": "2030-05-03"
+      },
+      "knownFailure": true,
+      "note": "缺陷：days=1 误提取，且目的地兜底捕获「2030年5月3日去南京」"
+    },
+    {
+      "id": "days-digit",
+      "utterance": "去重庆玩3天",
+      "expected": {
+        "days": 3,
+        "destination": "重庆"
+      }
+    },
+    {
+      "id": "days-chinese",
+      "utterance": "重庆玩五天",
+      "expected": {
+        "days": 5
+      }
+    },
+    {
+      "id": "days-liang",
+      "utterance": "成都两日游",
+      "expected": {
+        "days": 2
+      }
+    },
+    {
+      "id": "people-digit",
+      "utterance": "4个人去重庆",
+      "expected": {
+        "travelers": 4,
+        "destination": "重庆"
+      }
+    },
+    {
+      "id": "people-liang",
+      "utterance": "两个人去吃火锅",
+      "expected": {
+        "travelers": 2
+      },
+      "knownFailure": true,
+      "note": "缺陷：「去吃火锅」被当作 destination（活动污染目的地）"
+    },
+    {
+      "id": "people-family",
+      "utterance": "一家五口去三亚",
+      "expected": {
+        "travelers": 5,
+        "destination": "三亚"
+      }
+    },
+    {
+      "id": "people-chinese",
+      "utterance": "我们有六个人同行",
+      "expected": {
+        "travelers": 6
+      }
+    },
+    {
+      "id": "budget-plain",
+      "utterance": "预算3000去重庆",
+      "expected": {
+        "budget": 3000,
+        "destination": "重庆"
+      },
+      "note": "「去重庆」同时给出目的地，属正确提取"
+    },
+    {
+      "id": "budget-yen",
+      "utterance": "预算¥2500",
+      "expected": {
+        "budget": 2500
+      }
+    },
+    {
+      "id": "budget-wan",
+      "utterance": "预算大概1万去马尔代夫",
+      "expected": {
+        "budget": 10000,
+        "destination": "马尔代夫"
+      }
+    },
+    {
+      "id": "budget-qian",
+      "utterance": "预算2千穷游",
+      "expected": {
+        "budget": 2000,
+        "budgetMode": "tight"
+      }
+    },
+    {
+      "id": "budget-dash",
+      "utterance": "预算是3,000元",
+      "expected": {
+        "budget": 3000
+      }
+    },
+    {
+      "id": "pace-relaxed",
+      "utterance": "想玩得轻松一点",
+      "expected": {
+        "pace": "relaxed",
+        "vibes": [
+          "轻松"
+        ]
+      },
+      "note": "节奏词同时登记为 vibe 是设计内双重信号"
+    },
+    {
+      "id": "pace-packed",
+      "utterance": "我喜欢特种兵式旅行",
+      "expected": {
+        "pace": "packed",
+        "vibes": [
+          "特种兵"
+        ]
+      }
+    },
+    {
+      "id": "pace-balanced",
+      "utterance": "节奏适中就行",
+      "expected": {
+        "pace": "balanced"
+      }
+    },
+    {
+      "id": "walk-low",
+      "utterance": "希望少走一点路",
+      "expected": {
+        "walkingTolerance": "low"
+      }
+    },
+    {
+      "id": "walk-low-variant",
+      "utterance": "老人家走不动",
+      "expected": {
+        "walkingTolerance": "low"
+      }
+    },
+    {
+      "id": "walk-high",
+      "utterance": "我们喜欢徒步",
+      "expected": {
+        "walkingTolerance": "high"
+      }
+    },
+    {
+      "id": "walk-medium",
+      "utterance": "步行适中就可以",
+      "expected": {
+        "walkingTolerance": "medium"
+      },
+      "knownFailure": true,
+      "note": "缺陷：「步行适中」中的「适中」误触发全局 pace=balanced"
+    },
+    {
+      "id": "transport-public",
+      "utterance": "市内以公共交通为主",
+      "expected": {
+        "transportPreference": "public"
+      }
+    },
+    {
+      "id": "transport-metro",
+      "utterance": "想坐地铁逛",
+      "expected": {
+        "transportPreference": "public"
+      },
+      "note": "「坐地铁」被公共出行分支按设计优先命中"
+    },
+    {
+      "id": "transport-taxi",
+      "utterance": "尽量打车",
+      "expected": {
+        "transportPreference": "taxi"
+      }
+    },
+    {
+      "id": "transport-drive",
+      "utterance": "打算自驾过去",
+      "expected": {
+        "transportPreference": "drive"
+      }
+    },
+    {
+      "id": "transport-walk-trap",
+      "utterance": "走路太多可不行",
+      "expected": {
+        "walkingTolerance": "low"
+      }
+    },
+    {
+      "id": "vibe-order",
+      "utterance": "喜欢夜景和美食",
+      "expected": {
+        "vibes": [
+          "美食",
+          "夜景"
+        ]
+      }
+    },
+    {
+      "id": "vibe-multi",
+      "utterance": "对文化历史自然都感兴趣",
+      "expected": {
+        "vibes": [
+          "自然",
+          "文化",
+          "历史"
+        ]
+      }
+    },
+    {
+      "id": "vibe-single",
+      "utterance": "主打一个泡温泉",
+      "expected": {
+        "vibes": [
+          "温泉"
+        ]
+      }
+    },
+    {
+      "id": "mustvisit-simple",
+      "utterance": "必去洪崖洞",
+      "expected": {
+        "mustVisit": [
+          "洪崖洞"
+        ]
+      },
+      "knownFailure": true,
+      "note": "缺陷：兜底目的地正则把必去 POI「洪崖洞」当成了 destination"
+    },
+    {
+      "id": "mustvisit-multi",
+      "utterance": "一定要去解放碑和磁器口",
+      "expected": {
+        "mustVisit": [
+          "解放碑",
+          "磁器口"
+        ]
+      },
+      "knownFailure": true,
+      "note": "缺陷：目的地兜底捕获「解放碑和磁器口」，POI 列表污染 destination"
+    },
+    {
+      "id": "mustvisit-prefix",
+      "utterance": "三峡博物馆一定要去",
+      "expected": {
+        "mustVisit": [
+          "三峡博物馆"
+        ]
+      }
+    },
+    {
+      "id": "mustvisit-daka",
+      "utterance": "想打卡长江索道",
+      "expected": {
+        "mustVisit": [
+          "长江索道"
+        ]
+      }
+    },
+    {
+      "id": "avoid-simple",
+      "utterance": "不要去磁器口",
+      "expected": {
+        "avoid": [
+          "磁器口"
+        ]
+      },
+      "knownFailure": true,
+      "note": "缺陷：「不要去磁器口」的 POI 被当成 destination"
+    },
+    {
+      "id": "avoid-bikai",
+      "utterance": "避开人多网红店",
+      "expected": {
+        "avoid": [
+          "人多网红店"
+        ]
+      }
+    },
+    {
+      "id": "dietary-simple",
+      "utterance": "我不吃辣",
+      "expected": {
+        "dietary": [
+          "不吃辣"
+        ]
+      }
+    },
+    {
+      "id": "dietary-veg",
+      "utterance": "吃素",
+      "expected": {
+        "dietary": [
+          "素食"
+        ]
+      },
+      "knownFailure": true,
+      "note": "缺陷：词表只有「素食」没有「吃素」，漏提取"
+    },
+    {
+      "id": "dietary-allergy",
+      "utterance": "海鲜过敏",
+      "expected": {
+        "dietary": [
+          "海鲜过敏",
+          "过敏"
+        ]
+      }
+    },
+    {
+      "id": "children",
+      "utterance": "带孩子的亲子路线",
+      "expected": {
+        "children": true,
+        "vibes": [
+          "亲子"
+        ]
+      },
+      "note": "「亲子」同时是 KNOWN_VIBES，双重信号属设计内"
+    },
+    {
+      "id": "elderly",
+      "utterance": "有老人同行",
+      "expected": {
+        "elderly": true
+      }
+    },
+    {
+      "id": "accessibility",
+      "utterance": "需要无障碍设施",
+      "expected": {
+        "accessibility": [
+          "无障碍"
+        ]
+      }
+    },
+    {
+      "id": "budgetmode-flexible",
+      "utterance": "预算宽松不差钱",
+      "expected": {
+        "budgetMode": "flexible"
+      }
+    },
+    {
+      "id": "budgetmode-balanced",
+      "utterance": "讲究性价比",
+      "expected": {
+        "budgetMode": "balanced"
+      }
+    },
+    {
+      "id": "social-yes",
+      "utterance": "可以参考小红书的攻略",
+      "expected": {
+        "socialOptIn": true
+      }
+    },
+    {
+      "id": "social-no",
+      "utterance": "不要参考社交媒体",
+      "expected": {
+        "socialOptIn": false
+      },
+      "knownFailure": true,
+      "note": "缺陷：肯定式正则先命中「参考…社交媒体」，否定语义被吞"
+    },
+    {
+      "id": "combo-rich",
+      "utterance": "从广州去重庆玩4天，两个人预算5000，必去洪崖洞，不想爬山，坐地铁为主，喜欢美食和夜景",
+      "expected": {
+        "origin": "广州",
+        "destination": "重庆",
+        "days": 4,
+        "travelers": 2,
+        "budget": 5000,
+        "mustVisit": [
+          "洪崖洞"
+        ],
+        "transportPreference": "public",
+        "vibes": [
+          "美食",
+          "夜景"
+        ]
+      },
+      "knownFailure": true,
+      "note": "缺陷：必去子句吞掉后续整句（「不想爬山」等混入 mustVisit）"
+    },
+    {
+      "id": "combo-family",
+      "utterance": "2030年5月1日出发，一家三口去成都，带老人，行程轻松些，不要去网红店",
+      "expected": {
+        "startDate": "2030-05-01",
+        "travelers": 3,
+        "destination": "成都",
+        "elderly": true,
+        "pace": "relaxed",
+        "avoid": [
+          "网红店"
+        ],
+        "vibes": [
+          "轻松"
+        ]
+      },
+      "knownFailure": true,
+      "note": "缺陷：日期「5月1日」的「1日」被日数正则误读为 days=1"
+    },
+    {
+      "id": "empty",
+      "utterance": "",
+      "expected": {}
+    },
+    {
+      "id": "whitespace",
+      "utterance": "    ",
+      "expected": {}
+    },
+    {
+      "id": "chit-chat",
+      "utterance": "你好呀",
+      "expected": {}
+    },
+    {
+      "id": "question-only",
+      "utterance": "什么时候出发比较好？",
+      "expected": {}
+    }
+  ]
+}

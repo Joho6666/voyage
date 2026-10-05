@@ -1,4 +1,3 @@
-import "server-only";
 
 import { randomUUID } from "node:crypto";
 import { chatJson, getLlmConfig } from "@/services/ai/llm";

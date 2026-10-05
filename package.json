@@ -18,7 +18,8 @@
     "mcp": "tsx packages/voyage-mcp/server.ts",
     "bench": "tsx benchmarks/run.ts",
     "bench:compare": "tsx benchmarks/run.ts --compare",
-    "bench:baseline": "tsx benchmarks/run.ts --update-baseline"
+    "bench:baseline": "tsx benchmarks/run.ts --update-baseline",
+    "eval:profile": "tsx benchmarks/eval/planning-profile/run.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

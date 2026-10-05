@@ -1,0 +1,507 @@
+{
+  "generatedAt": "2026-10-05T11:18:50.473Z",
+  "dataset": 59,
+  "realPassed": 48,
+  "realFailed": 0,
+  "stillBroken": 11,
+  "fixed": 0,
+  "avgRecall": 0.9639830508474576,
+  "avgPrecision": 0.9385593220338984,
+  "results": [
+    {
+      "id": "route-basic",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "route-qianwang",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "route-chufadi",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "route-destination-only",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "route-destination-trap",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "route-clean-suffix",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "date-iso",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "date-chinese",
+      "passed": false,
+      "knownFailure": true,
+      "recall": 1,
+      "precision": 0.5,
+      "failures": [
+        "over-extracted days: 1"
+      ]
+    },
+    {
+      "id": "date-slash",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "date-range",
+      "passed": false,
+      "knownFailure": true,
+      "recall": 1,
+      "precision": 0.5,
+      "failures": [
+        "over-extracted destination: \"2030年5月3日去南京\"",
+        "over-extracted days: 1"
+      ]
+    },
+    {
+      "id": "days-digit",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "days-chinese",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "days-liang",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "people-digit",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "people-liang",
+      "passed": false,
+      "knownFailure": true,
+      "recall": 1,
+      "precision": 0.5,
+      "failures": [
+        "over-extracted destination: \"吃火锅\""
+      ]
+    },
+    {
+      "id": "people-family",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "people-chinese",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "budget-plain",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "budget-yen",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "budget-wan",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "budget-qian",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "budget-dash",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "pace-relaxed",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "pace-packed",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "pace-balanced",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "walk-low",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "walk-low-variant",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "walk-high",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "walk-medium",
+      "passed": false,
+      "knownFailure": true,
+      "recall": 1,
+      "precision": 0.5,
+      "failures": [
+        "over-extracted pace: \"balanced\""
+      ]
+    },
+    {
+      "id": "transport-public",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "transport-metro",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "transport-taxi",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "transport-drive",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "transport-walk-trap",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "vibe-order",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "vibe-multi",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "vibe-single",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "mustvisit-simple",
+      "passed": false,
+      "knownFailure": true,
+      "recall": 1,
+      "precision": 0.5,
+      "failures": [
+        "over-extracted destination: \"洪崖洞\""
+      ]
+    },
+    {
+      "id": "mustvisit-multi",
+      "passed": false,
+      "knownFailure": true,
+      "recall": 1,
+      "precision": 0.5,
+      "failures": [
+        "over-extracted destination: \"解放碑和磁器口\""
+      ]
+    },
+    {
+      "id": "mustvisit-prefix",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "mustvisit-daka",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "avoid-simple",
+      "passed": false,
+      "knownFailure": true,
+      "recall": 1,
+      "precision": 0.5,
+      "failures": [
+        "over-extracted destination: \"磁器口\""
+      ]
+    },
+    {
+      "id": "avoid-bikai",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "dietary-simple",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "dietary-veg",
+      "passed": false,
+      "knownFailure": true,
+      "recall": 0,
+      "precision": 1,
+      "failures": [
+        "dietary: expected [\"素食\"], got undefined"
+      ]
+    },
+    {
+      "id": "dietary-allergy",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "children",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "elderly",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "accessibility",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "budgetmode-flexible",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "budgetmode-balanced",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "social-yes",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "social-no",
+      "passed": false,
+      "knownFailure": true,
+      "recall": 0,
+      "precision": 1,
+      "failures": [
+        "socialOptIn: expected false, got true"
+      ]
+    },
+    {
+      "id": "combo-rich",
+      "passed": false,
+      "knownFailure": true,
+      "recall": 0.875,
+      "precision": 1,
+      "failures": [
+        "mustVisit: expected [\"洪崖洞\"], got [\"洪崖洞\",\"不想爬山\",\"坐地铁为主\",\"喜欢美食\",\"夜景\"]"
+      ]
+    },
+    {
+      "id": "combo-family",
+      "passed": false,
+      "knownFailure": true,
+      "recall": 1,
+      "precision": 0.875,
+      "failures": [
+        "over-extracted days: 1"
+      ]
+    },
+    {
+      "id": "empty",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "whitespace",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "chit-chat",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    },
+    {
+      "id": "question-only",
+      "passed": true,
+      "knownFailure": false,
+      "recall": 1,
+      "precision": 1,
+      "failures": []
+    }
+  ]
+}
