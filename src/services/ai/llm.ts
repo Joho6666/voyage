@@ -59,7 +59,9 @@ function envNumber(key: string, fallback: number): number {
 function retryDelayMs(retryAfterHeader: string | null, attempt: number): number {
   const base = envNumber("LLM_RETRY_BASE_MS", 400);
   const seconds = retryAfterHeader ? Number(retryAfterHeader) : NaN;
-  const headerMs = Number.isFinite(seconds) ? seconds * 1000 : 0;
+  // Ceiling: a buggy or hostile upstream Retry-After must not park a route
+  // handler for hours.
+  const headerMs = Math.min(Number.isFinite(seconds) ? seconds * 1000 : 0, 30_000);
   return Math.max(headerMs, base * 2 ** attempt);
 }
 
@@ -69,8 +71,10 @@ function sleep(ms: number): Promise<void> {
 
 async function postChatCompletions(config: LlmConfig, body: Record<string, unknown>, timeoutMs: number): Promise<unknown> {
   const base = assertPublicHttpUrl(config.baseUrl);
+  // Join on the full path: a documented base like "https://host/v1" must yield
+  // "/v1/chat/completions", not lose its last segment to `new URL(rel, base)`.
+  const url = new URL(`${base.href.replace(/\/?$/, "/")}chat/completions`);
   const retries = Math.min(5, envNumber("LLM_RETRIES", 2));
-  const url = new URL("chat/completions", base);
 
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     const controller = new AbortController();

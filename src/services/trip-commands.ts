@@ -15,13 +15,13 @@ interface TripCommandData {
   importedCount?: number;
 }
 
-async function mutateTrip(command: string, input: Record<string, unknown>, messages: { network: string; fallback: string }): Promise<AddPlaceResult & { importedCount?: number }> {
+async function mutateTrip(command: string, input: Record<string, unknown>, messages: { network: string; fallback: string }): Promise<AddPlaceResult & { importedCount: number }> {
   const data = await runCommand<TripCommandData>(command, input, { networkMessage: messages.network, fallbackMessage: messages.fallback });
   if (!data.trip) throw new TripCommandError(messages.fallback);
   return {
     trip: data.trip,
     revision: data.revision ?? (input.expectedTripRevision as number) + 1,
-    ...(data.importedCount !== undefined ? { importedCount: data.importedCount } : {}),
+    importedCount: data.importedCount ?? 0,
   };
 }
 

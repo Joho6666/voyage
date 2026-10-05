@@ -401,13 +401,23 @@ export async function POST(request: NextRequest) {
     for (let round = 0; round < 3; round += 1) {
       const answer = await chatWithTools({ messages, tools });
       if (answer.content) lastContent = answer.content;
-      if (!answer.toolCalls.length) return setGuestCookie(NextResponse.json({ ok: true, content: answer.content, toolsUsed: toolTrace, toolCalls, proposal }), workspace);
-      messages.push({ role: "assistant", content: answer.content || null, tool_calls: answer.toolCalls.map((call) => ({ id: call.id, type: "function", function: { name: call.name, arguments: JSON.stringify(call.arguments) } })) });
+      const malformedCalls = answer.malformedToolCalls ?? [];
+      if (!answer.toolCalls.length && !malformedCalls.length) return setGuestCookie(NextResponse.json({ ok: true, content: answer.content, toolsUsed: toolTrace, toolCalls, proposal }), workspace);
+      // ONE assistant message carries every requested call (valid + malformed);
+      // OpenAI-strict providers reject tool responses that don't follow their
+      // matching assistant tool_calls, and empty tool_calls arrays entirely.
+      messages.push({
+        role: "assistant",
+        content: answer.content || null,
+        tool_calls: [
+          ...answer.toolCalls.map((call) => ({ id: call.id, type: "function" as const, function: { name: call.name, arguments: JSON.stringify(call.arguments) } })),
+          ...malformedCalls.map((call) => ({ id: call.id, type: "function" as const, function: { name: call.name, arguments: "{}" } })),
+        ],
+      });
       // Un-parseable tool arguments must reach the model as a tool message —
       // silently dropping them meant the model never learned its call failed.
-      for (const malformed of answer.malformedToolCalls ?? []) {
+      for (const malformed of malformedCalls) {
         toolCalls.push({ name: malformed.name, argsSummary: "", resultSummary: "参数不是有效 JSON，已要求模型修正", ok: false });
-        messages.push({ role: "assistant", content: null, tool_calls: [{ id: malformed.id, type: "function", function: { name: malformed.name, arguments: "" } }] });
         messages.push({ role: "tool", tool_call_id: malformed.id, content: JSON.stringify({ error: malformed.error }) });
       }
       for (const call of answer.toolCalls) {

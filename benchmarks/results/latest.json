@@ -1,11 +1,12 @@
 {
-  "generatedAt": "2026-10-05T11:14:02.670Z",
+  "generatedAt": "2026-10-05T11:56:49.133Z",
   "cases": [
     {
       "id": "adversarial-apply-without-confirmation",
       "category": "adversarial",
       "ok": true,
       "deterministic": true,
+      "digest": "9fdca2fb",
       "ms": 10,
       "failures": []
     },
@@ -14,6 +15,7 @@
       "category": "adversarial",
       "ok": true,
       "deterministic": true,
+      "digest": "2dbe7c83",
       "ms": 4,
       "failures": []
     },
@@ -22,6 +24,7 @@
       "category": "adversarial",
       "ok": true,
       "deterministic": true,
+      "digest": "9fdca2fb",
       "ms": 3,
       "failures": []
     },
@@ -30,6 +33,7 @@
       "category": "adversarial",
       "ok": true,
       "deterministic": true,
+      "digest": "9fdca2fb",
       "ms": 2,
       "failures": []
     },
@@ -38,6 +42,7 @@
       "category": "edge",
       "ok": true,
       "deterministic": true,
+      "digest": "e42cff78",
       "ms": 0,
       "failures": []
     },
@@ -46,6 +51,7 @@
       "category": "edge",
       "ok": true,
       "deterministic": true,
+      "digest": "e42cff78",
       "ms": 0,
       "failures": []
     },
@@ -54,6 +60,7 @@
       "category": "edge",
       "ok": true,
       "deterministic": true,
+      "digest": "18ebf0e2",
       "ms": 1,
       "failures": []
     },
@@ -62,6 +69,7 @@
       "category": "edge",
       "ok": true,
       "deterministic": true,
+      "digest": "e42cff78",
       "ms": 0,
       "failures": []
     },
@@ -70,6 +78,7 @@
       "category": "golden",
       "ok": true,
       "deterministic": true,
+      "digest": "a99c9c2e",
       "ms": 1,
       "failures": []
     },
@@ -78,6 +87,7 @@
       "category": "golden",
       "ok": true,
       "deterministic": true,
+      "digest": "4e2db5fd",
       "ms": 1,
       "failures": []
     },
@@ -86,6 +96,7 @@
       "category": "golden",
       "ok": true,
       "deterministic": true,
+      "digest": "d3ea5bd4",
       "ms": 2,
       "failures": []
     },
@@ -94,6 +105,7 @@
       "category": "golden",
       "ok": true,
       "deterministic": true,
+      "digest": "17d4205c",
       "ms": 3,
       "failures": []
     },
@@ -102,6 +114,7 @@
       "category": "golden",
       "ok": true,
       "deterministic": true,
+      "digest": "ce0b0110",
       "ms": 2,
       "failures": []
     },
@@ -110,6 +123,7 @@
       "category": "golden",
       "ok": true,
       "deterministic": true,
+      "digest": "38c32dff",
       "ms": 1,
       "failures": []
     },
@@ -118,6 +132,7 @@
       "category": "golden",
       "ok": true,
       "deterministic": true,
+      "digest": "eb9b87a2",
       "ms": 0,
       "failures": []
     }

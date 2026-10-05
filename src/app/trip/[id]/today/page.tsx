@@ -172,15 +172,10 @@ export default function TodayPage() {
     void (async () => {
       setBusy(true);
       try {
-        const response = await fetch("/api/voyage/command", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            command: "optimize-itinerary",
-            input: { tripId: trip.id, expectedTripRevision: useTripStore.getState().revision, fallbackPolicy: "estimated" },
-          }),
+        const envelope = await postEnvelope<{ proposalId?: string; proposalToken?: string; baseRevision?: number; changes?: TripChangeSet; changed?: boolean; message?: string }>("/api/voyage/command", {
+          command: "optimize-itinerary",
+          input: { tripId: trip.id, expectedTripRevision: useTripStore.getState().revision, fallbackPolicy: "estimated" },
         });
-        const envelope = await response.json() as { ok?: boolean; data?: { proposalId?: string; proposalToken?: string; baseRevision?: number; changes?: TripChangeSet; changed?: boolean; message?: string }; error?: { code?: string; message?: string } };
         if (!envelope.ok || !envelope.data) throw new TripCommandError(envelope.error?.message ?? "优化失败，请重试", envelope.error?.code);
         if (envelope.data.changed === false) {
           toast.message(envelope.data.message ?? "当前安排已是优化器的最优解");

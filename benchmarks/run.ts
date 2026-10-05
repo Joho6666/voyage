@@ -86,8 +86,20 @@ interface CaseResult {
   category: string;
   ok: boolean;
   deterministic: boolean;
+  /** Stable digest of the normalized outputs — flags content drift that
+   * assertions don't cover (ranking order, computed metrics, summaries). */
+  digest: string;
   ms: number;
   failures: string[];
+}
+
+function digestOf(value: unknown): string {
+  const text = JSON.stringify(value);
+  let hash = 5381;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = ((hash << 5) + hash + text.charCodeAt(i)) | 0;
+  }
+  return (hash >>> 0).toString(16);
 }
 
 function setBenchEnv() {
@@ -209,6 +221,7 @@ async function runCase(spec: CaseSpec): Promise<CaseResult> {
     category: spec.category,
     ok: first.ok,
     deterministic,
+    digest: digestOf(first.normalized),
     ms: Math.round((first.ms + second.ms) / 2),
     failures,
   };
@@ -291,6 +304,12 @@ function compare() {
     } else if (before.deterministic && !result.deterministic) {
       console.log(`- ${result.id}: lost determinism`);
       regressions += 1;
+    } else if (before.digest && before.digest !== result.digest) {
+      // Not necessarily a regression — the case still passes — but the
+      // behavior moved, so say so instead of staying silent.
+      console.log(`~ ${result.id}: content changed (digest ${before.digest} -> ${result.digest})`);
+      const delta = result.ms - before.ms;
+      console.log(`  ${result.id}: ms ${delta >= 0 ? "+" : ""}${delta}`);
     } else {
       const delta = result.ms - before.ms;
       console.log(`  ${result.id}: ok (${delta >= 0 ? "+" : ""}${delta}ms)`);

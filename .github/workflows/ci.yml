@@ -51,6 +51,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run bench
       - run: npm run bench:compare
       - run: npm run eval:profile
       - run: npm run eval:nlu
