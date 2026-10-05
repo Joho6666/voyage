@@ -63,7 +63,7 @@ describe.sequential("trip store revision discipline", () => {
     resynced.title = "别处更新后的最新版本";
     fetchMock
       .mockResolvedValueOnce(envelope({ ok: false, error: { code: "REVISION_CONFLICT", message: "Trip revision does not match" } }))
-      .mockResolvedValueOnce(envelope({ data: { trip: resynced, revision: 9 } }));
+      .mockResolvedValueOnce(envelope({ ok: true, data: { trip: resynced, revision: 9 } }));
 
     useTripStore.getState().reorder(day1.id, [...day1Items].reverse());
     await vi.waitFor(() => {
@@ -90,12 +90,20 @@ describe.sequential("trip store revision discipline", () => {
   it("resyncTrip replaces the trip with the authoritative copy", async () => {
     const authoritative = structuredClone(chongqingTrip);
     authoritative.title = "服务器版本";
-    fetchMock.mockResolvedValueOnce(envelope({ data: { trip: authoritative, revision: 12 } }));
+    fetchMock.mockResolvedValueOnce(envelope({ ok: true, data: { trip: authoritative, revision: 12 } }));
     resyncTrip(chongqingTrip.id);
     await vi.waitFor(() => {
       expect(useTripStore.getState().trip.title).toBe("服务器版本");
       expect(useTripStore.getState().revision).toBe(12);
     });
+  });
+
+  it("resyncTrip ignores a failed envelope instead of clobbering local state", async () => {
+    fetchMock.mockResolvedValueOnce(envelope({ ok: false, error: { code: "TRIP_NOT_FOUND", message: "Trip not found" } }));
+    resyncTrip(chongqingTrip.id);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(useTripStore.getState().trip.id).toBe(chongqingTrip.id);
+    expect(useTripStore.getState().revision).toBe(3);
   });
 
   it("hydrateTrip resets the undo stack when switching trips", () => {

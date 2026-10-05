@@ -282,7 +282,6 @@ export async function POST(request: NextRequest) {
         },
         tripId: parsed.data.tripId,
         tripRevision: tripEnvelope.data?.revision,
-        tripEnvelope,
         runtime,
       };
       for (const call of answer.toolCalls) {

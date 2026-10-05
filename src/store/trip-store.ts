@@ -85,8 +85,9 @@ export function resyncTrip(tripId: string) {
     body: JSON.stringify({ command: "get-trip", input: { tripId } }),
   })
     .then((response) => response.json())
-    .then((envelope: { data?: { trip?: Trip; revision?: number } }) => {
-      if (envelope.data?.trip) useTripStore.setState({ trip: recomputeTrip(envelope.data.trip), revision: envelope.data.revision ?? 1 });
+    .then((envelope: { ok?: boolean; data?: { trip?: Trip; revision?: number } }) => {
+      // A failed envelope must never overwrite local state with nothing.
+      if (envelope.ok && envelope.data?.trip) useTripStore.setState({ trip: recomputeTrip(envelope.data.trip), revision: envelope.data.revision ?? 1 });
     })
     .catch(() => undefined);
 }

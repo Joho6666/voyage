@@ -26,8 +26,6 @@ export interface AgentToolContext {
   };
   tripId: string;
   tripRevision?: number;
-  /** Pre-fetched get-trip envelope so `get_trip` needs no second round-trip. */
-  tripEnvelope: unknown;
   runtime: VoyageSkillRuntime;
 }
 
@@ -98,8 +96,11 @@ export const agentTools: AgentTool[] = [
     description: "读取当前旅行的权威行程、地点（含坐标）和日期",
     parameters: { type: "object", properties: {}, additionalProperties: false },
     isProposal: false,
+    // Live read, not the pre-loop envelope: a proposal applied in an earlier
+    // round bumps the revision, and a cached snapshot would describe a trip
+    // that no longer exists.
     async execute(_args, ctx) {
-      return ctx.tripEnvelope;
+      return ctx.runtime.execute("get-trip", { tripId: ctx.tripId });
     },
     serialize(value) {
       const data = value as Envelope;
