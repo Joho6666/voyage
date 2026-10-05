@@ -5,17 +5,20 @@
 
 ## P0
 
-### EXTRACT-001 修复 planning 提取器 11 个 knownFailure
+### ✅ EXTRACT-001 修复 planning 提取器 11 个 knownFailure（2026-10-05，fd32db9）
+> 已完成：eval:profile 59/59 全绿（recall/precision 1.000），11 个缺陷全部修复——意图 span 守卫、目的地多触发扫描（日期连接词/活动动词跳过）、(?<!月) 天数断言、pace 步行/预算守卫、否定优先、吃素入词表、mustVisit 子句边界。
 - **问题**:`benchmarks/eval/planning-profile/dataset.json` 中 11 个 `knownFailure` 案例钉住的真实缺陷:必去/避开 POI 被目的地兜底正则当 destination;"5月1日"的"1日"被读成 days=1;"不要参考社交媒体"被肯定式正则抢先(socialOptIn 反转);"吃素"不在词表;mustVisit 子句吞掉整句;"步行适中"误触发 pace=balanced。
 - **方案**:逐条修 `extractPlanningProfile`(conversation-planner.ts):目的地兜底加"已识别 POI 信号词则不捕获"守卫;天数正则排除日期上下文(先行断言);否定语义统一预处理(把否定子句先剥出再跑肯定式);词表补"吃素/素食主义";mustVisit 的 extractAfter 捕获窗口缩到子句边界。**每修一个,数据集对应案例翻绿,并删除 knownFailure 标记**。
 - **验收**:`npm run eval:profile` 全绿;`tests/planning/*` 不回归。**测试**:数据集即测试。
 
-### OPT-001 修复 optimizer 聚类质量缺口
+### ✅ OPT-001 修复 optimizer 聚类质量缺口（2026-10-05，d8c7e2e）
+> 已完成：optimizeGuideDayAssignment 双候选取更优（聚类 vs 原始顺序分块，同一天内排程），s2d-6p-hotel 从劣化 45% 变为持平基线；bench:optimizer 5/5，knownFailure 退役。
 - **问题**:`bench:optimizer` 场景 s2d-6p-hotel:地理聚类的天分配比朴素顺序差 45%(步行米数)。
 - **方案**:day-assignment 评分引入 naive 分配对比(取更优者),或聚类后做一次 2-opt 交换改进;保持确定性(禁止时间/随机源)。
 - **验收**:`npm run bench:optimizer` 该场景翻绿且全部场景确定性。
 
-### AGENT-001 get_trip 新鲜度 + resyncTrip ok 检查
+### ✅ AGENT-001 get_trip 新鲜度 + resyncTrip ok 检查（2026-10-05，9e87c7c）
+> 已完成：get_trip 工具改为实时 runtime 读取（不再用循环前缓存的 envelope）；resyncTrip 尊重 envelope.ok（ok:false 不再覆盖本地状态），新增回归测试。
 - **问题**:agent 循环里 get_trip 工具返回循环前缓存的 tripEnvelope,提案应用后第二轮的 get_trip 是旧的(评审 L6);`store/trip-store.ts` resyncTrip 忽略 envelope.ok。
 - **方案**:get_trip 工具的 execute 改为实时 `ctx.runtime.execute("get-trip", …)`(ctx 已有 runtime);resyncTrip 检查 `envelope.ok` 后再 setState。
 - **验收**:agent-tools-context 测试补充断言;trip-store 测试补"ok:false 不写 store"。
@@ -62,4 +65,4 @@
 
 ## 执行顺序建议
 
-EXTRACT-001(有数据集直接量分)→ OPT-001 → AGENT-001 → CLIENT-001/HTTP-STATUS-001(合并一个 PR 粒度)→ AGENT-002 → TEST-005 → KNOWLEDGE-001 → CI-002 → P2 按需。
+~~EXTRACT-001 → OPT-001 → AGENT-001~~（P0 已于 2026-10-05 全部完成）→ 下一批:CLIENT-001/HTTP-STATUS-001（合并一个 PR 粒度）→ AGENT-002 → TEST-005 → KNOWLEDGE-001 → CI-002 → P2 按需。
