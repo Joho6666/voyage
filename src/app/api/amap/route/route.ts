@@ -8,6 +8,7 @@ import {
 import { haversineMeters, estimateTransit } from "@/lib/utils";
 import { enforceRateLimit } from "@/lib/api-guards";
 import { logger } from "@/lib/logger";
+import { BoundedTtlCache } from "@/lib/lru-cache";
 
 interface RouteQuery {
   origin: { lng: number; lat: number };
@@ -16,9 +17,13 @@ interface RouteQuery {
   city?: string;
 }
 
-// In-memory LRU-like cache for route responses to avoid burning AMap API quota
-const routeCache = new Map<string, { data: unknown; expiresAt: number }>();
+// Quota-protection cache for REAL AMap geometry only. Bounded because the key
+// space comes from request input (an unbounded Map here was a memory leak).
+// Estimated Haversine fallbacks are never cached: they are pure math to
+// recompute, and caching one would keep serving an estimate for TTL minutes
+// after AMap recovers from a transient failure.
 const CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutes
+const routeCache = new BoundedTtlCache<unknown>({ maxSize: 2_000, ttlMs: CACHE_TTL_MS });
 
 function getCacheKey(q: RouteQuery): string {
   const o = `${q.origin.lng.toFixed(5)},${q.origin.lat.toFixed(5)}`;
@@ -47,8 +52,8 @@ export async function POST(request: Request) {
 
     const cacheKey = getCacheKey({ origin, destination, mode, city });
     const cached = routeCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      return NextResponse.json(cached.data);
+    if (cached !== undefined) {
+      return NextResponse.json(cached);
     }
 
     if (isAmapConfigured()) {
@@ -79,14 +84,14 @@ export async function POST(request: Request) {
           taxiCostYuan: result.taxiCostYuan,
           trafficLevel: result.trafficLevel,
         };
-        routeCache.set(cacheKey, { data: payload, expiresAt: Date.now() + CACHE_TTL_MS });
+        routeCache.set(cacheKey, payload);
         return NextResponse.json(payload);
       } catch (err) {
         logger.warn("amap-route.fallback_haversine", { error: err });
       }
     }
 
-    // Fallback: Haversine estimation
+    // Fallback: Haversine estimation — deliberately NOT cached (see routeCache note).
     const meters = haversineMeters(origin, destination);
     const transit = estimateTransit(meters);
     const fallbackPayload = {
@@ -112,7 +117,6 @@ export async function POST(request: Request) {
       ],
     };
 
-    routeCache.set(cacheKey, { data: fallbackPayload, expiresAt: Date.now() + CACHE_TTL_MS });
     return NextResponse.json(fallbackPayload);
   } catch (error) {
     logger.error("amap-route.failed", { error });

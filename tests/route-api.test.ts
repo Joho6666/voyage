@@ -28,4 +28,24 @@ describe("AMap route boundary", () => {
     expect(result.source).toBe("haversine");
     expect(result.estimated).toBe(true);
   });
+
+  it("does not cache the estimated Haversine fallback", async () => {
+    const coords = { origin: { lng: 115, lat: 25 }, destination: { lng: 115.01, lat: 25.01 }, mode: "walk" };
+    vi.mocked(amapWalkingRoute).mockRejectedValueOnce(new Error("offline"));
+    const failed = await POST(new Request("http://local/api/amap/route", { method: "POST", body: JSON.stringify(coords) }));
+    expect((await failed.json()).estimated).toBe(true);
+    vi.mocked(amapWalkingRoute).mockResolvedValueOnce({ distanceMeters: 700, durationMinutes: 9, polyline: [[115, 25], [115.01, 25.01]], steps: [] });
+    const recovered = await POST(new Request("http://local/api/amap/route", { method: "POST", body: JSON.stringify(coords) }));
+    expect(await recovered.json()).toMatchObject({ source: "amap", estimated: false, distanceMeters: 700 });
+  });
+
+  it("caches real AMap responses to protect provider quota", async () => {
+    const coords = { origin: { lng: 116, lat: 26 }, destination: { lng: 116.01, lat: 26.01 }, mode: "walk" };
+    vi.mocked(amapWalkingRoute).mockResolvedValueOnce({ distanceMeters: 500, durationMinutes: 7, polyline: [[116, 26], [116.01, 26.01]], steps: [] });
+    const first = await POST(new Request("http://local/api/amap/route", { method: "POST", body: JSON.stringify(coords) }));
+    expect((await first.json()).source).toBe("amap");
+    const second = await POST(new Request("http://local/api/amap/route", { method: "POST", body: JSON.stringify(coords) }));
+    expect((await second.json()).source).toBe("amap");
+    expect(amapWalkingRoute).toHaveBeenCalledTimes(1);
+  });
 });
