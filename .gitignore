@@ -12,3 +12,6 @@ test-results/
 playwright-report/
 .voyage/
 ui-audit/
+
+# vitest coverage
+coverage/

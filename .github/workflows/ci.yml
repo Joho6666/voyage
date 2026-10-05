@@ -21,7 +21,13 @@ jobs:
       # Test code is part of the typed surface: fixtures drift silently
       # otherwise (tsc only checked src/ before this step existed).
       - run: npm run typecheck:test
-      - run: npm test
+      - run: npm test -- --coverage --coverage.reporter=text --coverage.reporter=json-summary
+      - name: Upload coverage summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-summary
+          path: coverage/coverage-summary.json
+          if-no-files-found: warn
       - run: npm run build
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps chromium
@@ -31,3 +37,21 @@ jobs:
           CI: "true"
           # Reuse the artifact from the build step above; one build per CI run.
           PLAYWRIGHT_REUSE_BUILD: "1"
+
+  # Deterministic, zero-secret behavioral baseline: fixture provider only.
+  # Catches "did this change make the product better or worse" at the coarse
+  # grain; per-case correctness lives in the vitest suites.
+  benchmarks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run bench:compare
+      - run: npm run eval:profile
+      - run: npm run eval:nlu
+      - run: npm run bench:optimizer
