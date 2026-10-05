@@ -24,7 +24,7 @@ import { travelAgent } from "@/services/ai";
 import type { AgentMessage, AgentTurn } from "@/services/ai/types";
 import { suggestTodayActions } from "@/features/today/suggestions";
 import { TripStateConsole } from "@/features/today/TripStateConsole";
-import { toggleItemDone } from "@/services/check-in";
+import { toggleItemDone } from "@/features/today/check-in";
 import { restoreTrip, TripCommandError } from "@/services/trip-commands";
 import { useHistoryStore } from "@/store/history-store";
 import { useTripStore, resyncTrip } from "@/store/trip-store";

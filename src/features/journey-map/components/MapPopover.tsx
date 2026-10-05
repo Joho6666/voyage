@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { TravelImage } from "@/components/travel/TravelImage";
 import { PLACE_CATEGORY_LABEL, type Place, type RouteSegment, type Trip } from "@/types/travel";
 import { addPlaceItemToDay, TripCommandError } from "@/services/trip-commands";
-import { toggleItemDone } from "@/services/check-in";
+import { toggleItemDone } from "@/features/today/check-in";
 import { useTripStore } from "@/store/trip-store";
 import { useUiStore } from "@/store/ui-store";
 import { toast } from "sonner";

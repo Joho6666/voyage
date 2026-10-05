@@ -20,7 +20,7 @@ import { JourneyOverview } from "./JourneyOverview";
 import { JourneyScrubber } from "./JourneyScrubber";
 import { JourneyMockMap } from "./JourneyMockMap";
 import { useUiStore } from "@/store/ui-store";
-import { toggleItemDone } from "@/services/check-in";
+import { toggleItemDone } from "@/features/today/check-in";
 import { useUserLocation } from "../hooks/useUserLocation";
 import { useOfflineJourney } from "../hooks/useOfflineJourney";
 
