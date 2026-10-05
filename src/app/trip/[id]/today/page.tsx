@@ -26,6 +26,7 @@ import { suggestTodayActions } from "@/features/today/suggestions";
 import { TripStateConsole } from "@/features/today/TripStateConsole";
 import { toggleItemDone } from "@/features/today/check-in";
 import { restoreTrip, TripCommandError } from "@/services/trip-commands";
+import { postEnvelope, ApiError } from "@/lib/api-client";
 import { useHistoryStore } from "@/store/history-store";
 import { useTripStore, resyncTrip } from "@/store/trip-store";
 import { useUiStore } from "@/store/ui-store";
@@ -153,11 +154,14 @@ export default function TodayPage() {
       // Every agent proposal carries a server-side remote record (the old
       // local-only apply path was removed with the mock agent surface).
       if (!activeRemote) { toast.error("方案已过期，请重新生成"); return; }
-      const response = await fetch("/api/voyage/command", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ command: "apply-change", input: { ...activeRemote, expectedTripRevision: activeRemote.baseRevision, confirmed: true } }) });
-      const envelope = await response.json() as { ok?: boolean; data?: { trip?: import("@/types/travel").Trip; revision?: number }; error?: { message?: string } };
-      if (!response.ok || !envelope.ok || !envelope.data?.trip) { toast.error(envelope.error?.message ?? "方案已过期，请重新生成"); return; }
+      const envelope = await postEnvelope<{ trip?: import("@/types/travel").Trip; revision?: number }>("/api/voyage/command", { command: "apply-change", input: { ...activeRemote, expectedTripRevision: activeRemote.baseRevision, confirmed: true } });
+      if (!envelope.ok || !envelope.data?.trip) { toast.error(envelope.error?.message ?? "方案已过期，请重新生成"); return; }
       pushHistory(trip); setTrip(envelope.data.trip, envelope.data.revision); toast.success(`已应用：${changeSet.summary}`);
-    })().catch(() => toast.error("应用修改失败，请重试"));
+    })().catch((cause) => {
+      // Preserve the root cause: a swallowed error here is unactionable.
+      console.warn("voyage: apply-diff failed", cause);
+      toast.error(cause instanceof ApiError || cause instanceof TripCommandError ? cause.message : "应用修改失败，请重试");
+    });
   };
 
   // Direct one-click reschedule: no LLM round-trip, so it works in rule mode

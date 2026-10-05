@@ -166,7 +166,7 @@ describe("SupabaseTripRepository contract", () => {
     const repo = new SupabaseTripRepository(REPO_OPTIONS);
     const summaries = await repo.list();
     expect(summaries).toHaveLength(1);
-    expect(summaries[0]).toMatchObject({ id: "sb-trip-1", title: "合同测试行程", startDate: "2030-05-01", endDate: "2030-05-02", budget: 2500, status: "confirmed", createdAt: "2030-01-01T00:00:00Z" });
+    expect(summaries[0]).toMatchObject({ id: "sb-trip-1", title: "合同测试行程", startDate: "2030-05-01", endDate: "2030-05-02", budget: 2500, status: "ready", createdAt: "2030-01-01T00:00:00Z" });
   });
 
   it("surfaces which child table failed — the non-transactional failure window", async () => {
