@@ -8,7 +8,8 @@ import type { ProviderForecast, ProviderRoute, TravelDataProvider } from "@/skil
 import { outputSchemas } from "@/skill/contracts";
 import { JsonSkillRepository } from "@/skill/repository";
 import { VoyageSkillRuntime } from "@/skill/runtime";
-import type { SocialObservation, SocialProvider } from "@/services/social/types";
+import type { SocialObservation } from "@/services/social/types";
+import type { SocialProvider } from "@/services/social/provider";
 import { SocialProviderRouter } from "@/services/social/router";
 
 interface Fixture {

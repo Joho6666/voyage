@@ -2,6 +2,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { z } from "zod";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Place } from "@/types/travel";
 import type { ProviderForecast, ProviderRoute, TravelDataProvider } from "@/skill/providers";
@@ -94,7 +95,8 @@ describe("voyage MCP adapter", () => {
   });
 
   it("normalizes zod validation failures into INVALID_INPUT", () => {
-    const normalized = normalizeThrown(() => voyageTools.voyage_apply_change.inputShape.confirmed.parse(false));
+    const confirmed = voyageTools.voyage_apply_change.inputShape.confirmed as z.ZodType;
+    const normalized = normalizeThrown(() => confirmed.parse(false));
     expect(normalized).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
   });
 

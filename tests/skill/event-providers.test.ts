@@ -130,8 +130,8 @@ describe("event providers (Phase 6.8)", () => {
     const mock = new MockTravelEventProvider();
     expect(mock.flightDelay("CA1468", 82).type).toBe("FLIGHT_DELAYED");
     expect(mock.heavyRain("2030-05-02").type).toBe("HEAVY_RAIN");
-    expect(mock.poiClosed("p-1", "2030-05-02").relatedEntities[0]).toEqual({ kind: "place", id: "p-1" });
-    expect(mock.userLate(45, "2030-05-02").payload.minutes).toBe(45);
+    expect(mock.poiClosed("p-1", "2030-05-02").relatedEntities?.[0]).toEqual({ kind: "place", id: "p-1" });
+    expect(mock.userLate(45, "2030-05-02").payload?.minutes).toBe(45);
     expect(mock.roadCongested("seg-1", "2030-05-02").type).toBe("ROAD_CONGESTED");
   });
 });

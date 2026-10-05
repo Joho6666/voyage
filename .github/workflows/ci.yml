@@ -18,6 +18,9 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
+      # Test code is part of the typed surface: fixtures drift silently
+      # otherwise (tsc only checked src/ before this step existed).
+      - run: npm run typecheck:test
       - run: npm test
       - run: npm run build
       - name: Install Playwright Browsers

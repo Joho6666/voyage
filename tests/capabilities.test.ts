@@ -14,7 +14,7 @@ import {
 
 describe("provider capability diagnostics", () => {
   it("reports personal-developer configuration without exposing secrets", () => {
-    const capabilities = getProviderCapabilities({ AMAP_SERVER_KEY: "private-amap-key-123", MEITUAN_HT_TOKEN: "private-meituan-key-456" });
+    const capabilities = getProviderCapabilities({ ...process.env, AMAP_SERVER_KEY: "private-amap-key-123", MEITUAN_HT_TOKEN: "private-meituan-key-456" });
     expect(capabilities.find((item) => item.provider === "amap" && item.capability === "weather")).toMatchObject({ status: "AVAILABLE" });
     expect(capabilities.find((item) => item.provider === "meituan" && item.capability === "train")).toMatchObject({ status: "AVAILABLE" });
     expect(capabilities.find((item) => item.provider === "fliggy" && item.capability === "flight")).toMatchObject({ status: "NOT_CONFIGURED" });
@@ -28,7 +28,7 @@ describe("provider capability diagnostics", () => {
   });
 
   it("builds an explicit no-provider state for transport capabilities", () => {
-    const capabilities = getProviderCapabilities({});
+    const capabilities = getProviderCapabilities({ ...process.env });
     const rows = buildTransportCapabilityRows(capabilities);
 
     expect(rows.find((row) => row.key === "train")).toMatchObject({
@@ -42,6 +42,7 @@ describe("provider capability diagnostics", () => {
 
   it("renders structured, text and permission states without calling them inventory", () => {
     const capabilities = getProviderCapabilities({
+      ...process.env,
       AMAP_SERVER_KEY: "amap-test-key",
       MEITUAN_HT_TOKEN: "meituan-test-token",
       FLIGGY_APP_KEY: "fliggy-test-key",
@@ -73,7 +74,7 @@ describe("provider capability diagnostics", () => {
   });
 
   it("models verification links as homepage entries without fake query parameters", () => {
-    const entries = getVerificationEntries(getProviderCapabilities({}), ["train", "flight"]);
+    const entries = getVerificationEntries(getProviderCapabilities({ ...process.env }), ["train", "flight"]);
     expect(entries.map((entry) => entry.actionLabel)).toEqual([
       "打开 12306 官网首页",
       "打开航班平台首页",

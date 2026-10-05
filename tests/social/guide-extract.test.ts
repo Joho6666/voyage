@@ -22,7 +22,8 @@ import {
   type GuidePlaceProvider,
 } from "@/services/planning/guide-extract";
 import { SocialProviderRouter } from "@/services/social/router";
-import type { SocialObservation, SocialProvider } from "@/services/social/types";
+import type { SocialObservation } from "@/services/social/types";
+import type { SocialProvider } from "@/services/social/provider";
 import type { Place } from "@/types/travel";
 
 function observation(partial: Partial<SocialObservation> & { sourceId: string; content: string }): SocialObservation {

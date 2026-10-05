@@ -11,7 +11,8 @@ import type { ProviderForecast, ProviderRoute, TravelDataProvider } from "@/skil
 import { JsonSkillRepository } from "@/skill/repository";
 import { VoyageSkillRuntime } from "@/skill/runtime";
 import { SocialProviderRouter } from "@/services/social/router";
-import type { SocialObservation, SocialProvider } from "@/services/social/types";
+import type { SocialObservation } from "@/services/social/types";
+import type { SocialProvider } from "@/services/social/provider";
 
 interface Fixture {
   places: Array<{ id: string; name: string; category: string; lat: number; lng: number }>;

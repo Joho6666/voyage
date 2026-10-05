@@ -26,9 +26,9 @@ function makeTrip(overrides: {
   endDate?: string;
 } = {}): Trip {
   const days = overrides.days ?? [
-    { id: "day-1", index: 0, date: "2030-05-01", title: "第一天" },
-    { id: "day-2", index: 1, date: "2030-05-02", title: "第二天" },
-    { id: "day-3", index: 2, date: "2030-05-03", title: "第三天" },
+    { id: "day-1", tripId: "trip-1", index: 0, date: "2030-05-01", title: "第一天", summary: "", weather: { tempC: 24, condition: "晴", icon: "sun" } },
+    { id: "day-2", tripId: "trip-1", index: 1, date: "2030-05-02", title: "第二天", summary: "", weather: { tempC: 22, condition: "多云", icon: "cloud" } },
+    { id: "day-3", tripId: "trip-1", index: 2, date: "2030-05-03", title: "第三天", summary: "", weather: { tempC: 22, condition: "多云", icon: "cloud" } },
   ];
   overrides.weather?.forEach((weather, index) => {
     if (weather && days[index]) days[index] = { ...days[index], weather };
@@ -68,9 +68,9 @@ describe("suggestTodayActions", () => {
   it("flags rainy upcoming days first, with a day-scoped message", () => {
     const trip = makeTrip({
       weather: [
-        { condition: "晴", tempC: 24, provenance: { source: "amap", estimated: false }, fetchedAt: TODAY },
-        { condition: "大雨", tempC: 20, provenance: { source: "amap", estimated: false }, fetchedAt: TODAY },
-        { condition: "多云", tempC: 22, provenance: { source: "amap", estimated: false }, fetchedAt: TODAY },
+        { condition: "晴", tempC: 24, icon: "sun", provenance: { source: "amap", estimated: false }, fetchedAt: TODAY },
+        { condition: "大雨", tempC: 20, icon: "rain", provenance: { source: "amap", estimated: false }, fetchedAt: TODAY },
+        { condition: "多云", tempC: 22, icon: "cloud", provenance: { source: "amap", estimated: false }, fetchedAt: TODAY },
       ],
     });
     const suggestions = suggestTodayActions(trip, "day-1", TODAY);
@@ -82,9 +82,9 @@ describe("suggestTodayActions", () => {
   it("ignores unknown-weather sentinels when suggesting rain plans", () => {
     const trip = makeTrip({
       weather: [
-        { condition: "天气未知", tempC: 0, provenance: { source: "unavailable" }, fetchedAt: TODAY },
-        { condition: "天气未知", tempC: 0, provenance: { source: "unavailable" }, fetchedAt: TODAY },
-        { condition: "天气未知", tempC: 0, provenance: { source: "unavailable" }, fetchedAt: TODAY },
+        { condition: "天气未知", tempC: 0, icon: "cloud", provenance: { source: "unavailable", estimated: true, reason: "no provider" }, fetchedAt: TODAY },
+        { condition: "天气未知", tempC: 0, icon: "cloud", provenance: { source: "unavailable", estimated: true, reason: "no provider" }, fetchedAt: TODAY },
+        { condition: "天气未知", tempC: 0, icon: "cloud", provenance: { source: "unavailable", estimated: true, reason: "no provider" }, fetchedAt: TODAY },
       ],
     });
     expect(ids(suggestTodayActions(trip, "day-1", TODAY))).not.toContain("rain-day-2");
@@ -117,8 +117,8 @@ describe("suggestTodayActions", () => {
 
   it("suggests pre-departure task triage only before the trip starts", () => {
     const tasks: Task[] = [
-      { id: "t-1", title: "买高铁票", group: "before", status: "todo" },
-      { id: "t-2", title: "订酒店", group: "before", status: "todo" },
+      { id: "t-1", tripId: "trip-1", title: "买高铁票", group: "before", status: "todo" },
+      { id: "t-2", tripId: "trip-1", title: "订酒店", group: "before", status: "todo" },
     ];
     const base = {
       items: [
@@ -128,14 +128,14 @@ describe("suggestTodayActions", () => {
         { id: "it-4", dayId: "day-2", type: "place", placeId: "p-1", startTime: "11:00", duration: 60, order: 1, status: "planned" },
         { id: "it-5", dayId: "day-3", type: "place", placeId: "p-1", startTime: "09:30", duration: 60, order: 0, status: "planned" },
         { id: "it-6", dayId: "day-3", type: "place", placeId: "p-1", startTime: "11:00", duration: 60, order: 1, status: "planned" },
-      ],
+      ] as Trip["items"],
       tasks,
       offers: [{ id: "offer-1", kind: "hotel", title: "测试酒店", provider: "meituan", fetchedAt: TODAY }] as Trip["offers"],
     };
     const before = makeTrip({ ...base, startDate: "2030-06-01", endDate: "2030-06-03", days: [
-      { id: "day-1", index: 0, date: "2030-06-01", title: "第一天" },
-      { id: "day-2", index: 1, date: "2030-06-02", title: "第二天" },
-      { id: "day-3", index: 2, date: "2030-06-03", title: "第三天" },
+      { id: "day-1", tripId: "trip-1", index: 0, date: "2030-06-01", title: "第一天", summary: "", weather: { tempC: 24, condition: "晴", icon: "sun" } },
+      { id: "day-2", tripId: "trip-1", index: 1, date: "2030-06-02", title: "第二天", summary: "", weather: { tempC: 22, condition: "多云", icon: "cloud" } },
+      { id: "day-3", tripId: "trip-1", index: 2, date: "2030-06-03", title: "第三天", summary: "", weather: { tempC: 22, condition: "多云", icon: "cloud" } },
     ] });
     expect(ids(suggestTodayActions(before, "day-1", TODAY))).toContain("tasks-pending");
 
@@ -147,9 +147,9 @@ describe("suggestTodayActions", () => {
     // Rain + empty day + budget overrun + never-fetched offers = 4 triggers.
     const trip = makeTrip({
       weather: [
-        { condition: "晴", tempC: 24, provenance: { source: "amap", estimated: false }, fetchedAt: TODAY },
-        { condition: "大雨", tempC: 20, provenance: { source: "amap", estimated: false }, fetchedAt: TODAY },
-        { condition: "多云", tempC: 22, provenance: { source: "amap", estimated: false }, fetchedAt: TODAY },
+        { condition: "晴", tempC: 24, icon: "sun", provenance: { source: "amap", estimated: false }, fetchedAt: TODAY },
+        { condition: "大雨", tempC: 20, icon: "rain", provenance: { source: "amap", estimated: false }, fetchedAt: TODAY },
+        { condition: "多云", tempC: 22, icon: "cloud", provenance: { source: "amap", estimated: false }, fetchedAt: TODAY },
       ],
       budget: 1000,
       estimatedSpend: 1500,

@@ -167,9 +167,10 @@ describe("Voyage Skill runtime", () => {
 
   it("normalizes provider authentication failures", async () => {
     const rejected = new VoyageSkillRuntime(repository, async () => ({
-      ...provider,
       kind: "amap" as const,
       searchPlaces: async () => { throw new Error("AMap search failed: INVALID_USER_KEY"); },
+      getWeather: () => provider.getWeather(),
+      planRoute: (input: Parameters<TravelDataProvider["planRoute"]>[0]) => provider.planRoute(input),
     }));
     await expect(rejected.searchPlaces({ destination: "重庆", query: "景点" })).rejects.toMatchObject({ code: "PROVIDER_AUTH_FAILED" });
   });

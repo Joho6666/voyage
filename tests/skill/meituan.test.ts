@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { mapJsonOffers, mapMarkdownOffers, queryMeituan } from "@/services/meituan/runner";
+import { mapJsonOffers, mapMarkdownOffers, queryMeituan, type MeituanQueryInput } from "@/services/meituan/runner";
 
-const input = { origin: "重庆", destination: "贵阳", startDate: "2030-05-01", query: "高铁酒店美食", city: "贵阳", categories: ["train", "hotel", "restaurant"] as const };
+const input: MeituanQueryInput = { origin: "重庆", destination: "贵阳", startDate: "2030-05-01", query: "高铁酒店美食", city: "贵阳", categories: ["train", "hotel", "restaurant"] };
 
 describe("Meituan travel adapter", () => {
   it("maps structured JSON offers without inventing facts", () => {

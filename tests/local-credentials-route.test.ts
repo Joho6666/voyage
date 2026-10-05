@@ -24,7 +24,7 @@ function setEnv(name: string, value: string | undefined) {
   else process.env[name] = value;
 }
 
-function request(url: string, options: { method?: string; origin?: string | null; body?: unknown } = {}) {
+function request(url: string, options: { method?: string; origin?: string; body?: unknown } = {}) {
   const headers = new Headers();
   if (options.body !== undefined) headers.set("content-type", "application/json");
   if (options.origin !== undefined) headers.set("origin", options.origin);

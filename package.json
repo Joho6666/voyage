@@ -8,6 +8,7 @@
     "start": "next start --port 3002",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "typecheck:test": "tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
     "test:skill": "vitest run tests/skill",
     "test:watch": "vitest",

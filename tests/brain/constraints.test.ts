@@ -35,6 +35,10 @@ const MUSEUM = place("p-museum", "三峡博物馆", { openingHours: "09:00-17:00
 const EXPENSIVE = place("p-expensive", "奢华观景台", { estimatedCost: 300, district: "南岸区", lat: 29.55, lng: 106.6 });
 const PARK = place("p-park", "南山植物园", { district: "南岸区", lat: 29.54, lng: 106.58, estimatedCost: 30 });
 
+function profile(overrides: Partial<PlanningProfile> = {}): PlanningProfile {
+  return { vibes: [], mustVisit: [], avoid: [], dietary: [], socialOptIn: false, includeExternalOffers: false, ...overrides };
+}
+
 const CANDIDATES = [HONGYA, CIQIKOU, MUSEUM, EXPENSIVE, PARK];
 
 function outlineOf(...days: Array<Array<{ placeId: string; startTime?: string; durationMinutes?: number; meal?: "lunch" | "dinner" }>>): Outline {
@@ -83,14 +87,14 @@ describe("evaluateOutline hard constraints", () => {
         { placeId: "p-park" },
       ],
     );
-    const evaluation = evaluateOutline(outline, { ...BASE_CTX, profile: { mustVisit: ["洪崖洞"], avoid: [], vibes: [] } as PlanningProfile });
+    const evaluation = evaluateOutline(outline, { ...BASE_CTX, profile: profile({ mustVisit: ["洪崖洞"] }) });
     expect(evaluation.hardViolations).toHaveLength(0);
     expect(evaluation.score).toBeGreaterThanOrEqual(90);
   });
 
   it("flags a missing must-visit and offers an insert hint", () => {
     const outline = outlineOf([{ placeId: "p-museum" }], [{ placeId: "p-park" }]);
-    const evaluation = evaluateOutline(outline, { ...BASE_CTX, profile: { mustVisit: ["洪崖洞"], avoid: [], vibes: [] } as PlanningProfile });
+    const evaluation = evaluateOutline(outline, { ...BASE_CTX, profile: profile({ mustVisit: ["洪崖洞"] }) });
     const violation = evaluation.hardViolations.find((candidate) => candidate.constraintId.startsWith("mustVisit"));
     expect(violation?.severity).toBe("error");
     expect(evaluation.repairHints.some((hint) => hint.kind === "insertPlace" && hint.target === "洪崖洞")).toBe(true);
@@ -98,14 +102,14 @@ describe("evaluateOutline hard constraints", () => {
 
   it("flags a must-visit with no candidate match as a warning, not a repairable error", () => {
     const outline = outlineOf([{ placeId: "p-museum" }], [{ placeId: "p-park" }]);
-    const evaluation = evaluateOutline(outline, { ...BASE_CTX, profile: { mustVisit: ["外星人遗迹"], avoid: [], vibes: [] } as PlanningProfile });
+    const evaluation = evaluateOutline(outline, { ...BASE_CTX, profile: profile({ mustVisit: ["外星人遗迹"] }) });
     expect(evaluation.hardViolations.some((candidate) => candidate.constraintId.startsWith("mustVisit"))).toBe(false);
     expect(evaluation.warnings.some((warning) => warning.includes("外星人遗迹"))).toBe(true);
   });
 
   it("flags avoid matches with a replace hint", () => {
     const outline = outlineOf([{ placeId: "p-ciqikou" }], [{ placeId: "p-park" }]);
-    const evaluation = evaluateOutline(outline, { ...BASE_CTX, profile: { mustVisit: [], avoid: ["磁器口"], vibes: [] } as PlanningProfile });
+    const evaluation = evaluateOutline(outline, { ...BASE_CTX, profile: profile({ avoid: ["磁器口"] }) });
     expect(evaluation.hardViolations.some((candidate) => candidate.constraintId.startsWith("avoid:"))).toBe(true);
     expect(evaluation.repairHints.some((hint) => hint.kind === "replacePlace" && hint.target === "p-ciqikou")).toBe(true);
   });
@@ -158,7 +162,7 @@ describe("evaluateOutline soft penalties", () => {
     );
     const evaluation = evaluateOutline(outline, {
       ...BASE_CTX,
-      profile: { pace: "relaxed", walkingTolerance: "low", vibes: [] } as PlanningProfile,
+      profile: profile({ pace: "relaxed", walkingTolerance: "low" }),
     });
     expect(evaluation.softPenalties.some((penalty) => penalty.constraintId.startsWith("pace:"))).toBe(true);
     expect(evaluation.softPenalties.some((penalty) => penalty.constraintId.startsWith("backtracking:"))).toBe(true);
@@ -170,7 +174,7 @@ describe("evaluateOutline soft penalties", () => {
 describe("repairOutline", () => {
   it("inserts a missing must-visit into the geographically closest day", () => {
     const outline = outlineOf([{ placeId: "p-hongya" }], [{ placeId: "p-park" }]);
-    const evaluation = evaluateOutline(outline, { ...BASE_CTX, profile: { mustVisit: ["三峡博物馆"], avoid: [], vibes: [] } as PlanningProfile });
+    const evaluation = evaluateOutline(outline, { ...BASE_CTX, profile: profile({ mustVisit: ["三峡博物馆"] }) });
     const repaired = repairOutline(outline, evaluation, BASE_CTX);
     expect(repaired.applied.some((fix) => fix.includes("三峡博物馆"))).toBe(true);
     const allStops = repaired.outline.dayPlans.flatMap((day) => day.stops.map((stop) => stop.placeId));
@@ -179,7 +183,7 @@ describe("repairOutline", () => {
 
   it("replaces avoided stops with a same-category candidate and removes duplicates", () => {
     const outline = outlineOf([{ placeId: "p-ciqikou", meal: "lunch" }], [{ placeId: "p-park" }]);
-    const evaluation = evaluateOutline(outline, { ...BASE_CTX, profile: { mustVisit: [], avoid: ["磁器口"], vibes: [] } as PlanningProfile });
+    const evaluation = evaluateOutline(outline, { ...BASE_CTX, profile: profile({ avoid: ["磁器口"] }) });
     const repaired = repairOutline(outline, evaluation, BASE_CTX);
     const ids = repaired.outline.dayPlans.flatMap((day) => day.stops.map((stop) => stop.placeId));
     expect(ids).not.toContain("p-ciqikou");
