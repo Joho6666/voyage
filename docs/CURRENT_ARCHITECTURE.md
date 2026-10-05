@@ -113,8 +113,8 @@ MCP 是 runtime 的纯适配层（无业务逻辑）；skill CLI 文档（runtim
 
 ## 10. 技术债清单
 
-1. `tsconfig.json` include 仅 src/**——tests 不进 tsc，类型错误只能在 vitest 运行时暴露。
-2. `src/services/ai/actions/planner.ts`（LLM 动作规划器）零调用方（死代码）；proposeChange 主路径是 planActionsWithRules 关键词 if-else（单命中、无联合推理）。mock.ts 存在第二套关键词链；agent 路由 demo regex 第三套。
+1. ~~`tsconfig.json` include 仅 src/**——tests 不进 tsc~~ 已修复：`tsconfig.test.json` + `npm run typecheck:test`（2026-10-05）。
+2. ~~`src/services/ai/actions/planner.ts`（LLM 动作规划器）零调用方（死代码）~~ 已删除（2026-10-05）。proposeChange 主路径仍是 planActionsWithRules 关键词 if-else（单命中、无联合推理）。mock.ts 存在第二套关键词链；agent 路由 demo regex 第三套。
 3. `docs/TRAVEL_OS_ARCHITECTURE.md` 过时（仍写 TanStack Query / React Hook Form，均已卸载）。
 4. skills/voyage/references/runtime-api.md 缺 6 个 UI 端命令。
 5. RLS：0001 全 `using(true)` 被 0002 修复，但 bookings 表仍只写不读；`itinerary_items.reservation_id` 列悬空（Phase 6 接管）。
