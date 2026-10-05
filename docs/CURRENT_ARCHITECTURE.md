@@ -20,7 +20,7 @@ Agent (OpenAITravelAgent, src/services/ai/openai.ts) → /api/agent/tools
 MCP (packages/voyage-mcp/server.ts, stdio)          → VoyageSkillRuntime
 Skill CLI (skills/voyage/scripts/voyage.mjs → src/skill/cli.ts) → VoyageSkillRuntime
         ↓ 全部入口收敛
-VoyageSkillRuntime（src/skill/runtime.ts，唯一业务编排层，execute() 26 命令）
+VoyageSkillRuntime（src/skill/runtime.ts，唯一业务编排层，execute() 契约命令 46 个（commandSchemas 计数，2026-10-05 校准））
         ↓
 Domain Services
   ├─ planning/    conversation-planner / outline-planner / profile / guide-extract / rule-planner
@@ -41,13 +41,13 @@ Providers / Repositories
   └─ src/services/map/      amap-rest（REST 细节，QPS 批控）
 ```
 
-## 2. Runtime 命令清单（execute() 全表，26 个）
+## 2. Runtime 命令清单（基线 27 个）
 
 查询类：`get-trip` `search-places` `get-place` `plan-route` `get-route-options` `optimize-transport` `get-weather` `retrieve-travel-knowledge` `search-social` `get-social-trending` `get-social-evidence` `search-flights` `search-travel-offers` `get-today-context`
 生成/修改类：`create-trip` `propose-change` `replan-trip` `apply-change` `update-trip` `restore-trip` `refresh-travel-offers`
 行程直接编辑（UI 用，revision-locked）：`reorder-day` `add-place-item` `add-place` `import-route` `set-item-status` `set-task-status`
 
-### 2b. Phase 6 新增（总计 46 命令）
+### 2b. Phase 6 新增（合计 46 命令 = 27 + 19）
 
 - Reservation 域（6.1）：`add-reservation` `update-reservation` `remove-reservation` `get-reservations` `import-reservations`
 - 约束/状态（6.2/6.4）：`get-constraints` `get-trip-state`
@@ -60,15 +60,15 @@ Providers / Repositories
 
 安全链：`propose-change`/`replan-trip`/`propose-event-replan` → saveProposal（proposalToken，10 分钟 TTL，一次性）→ `apply-change` 必须 `confirmed:true + proposalToken + expectedTripRevision` → revision 自增。LLM 永远不能 apply（agent 路由硬拦截返回 `CONFIRMATION_REQUIRED`；MCP `voyage_apply_change` 标 destructive）。
 
-## 3. Agent 工具（/api/agent/tools，15 个）
+## 3. Agent 工具（/api/agent/tools，22 个）
 
-get_trip · search_places · get_place · plan_route · get_route_options · optimize_transport · replan_trip · get_weather · retrieve_travel_knowledge · search_social_travel · find_trending_places · get_social_evidence · search_travel_offers · propose_change · apply_change（白名单内但硬拦截）
+get_trip · search_places · get_place · plan_route · get_route_options · optimize_transport · replan_trip · optimize_itinerary · get_weather · retrieve_travel_knowledge · search_social_travel · find_trending_places · get_social_evidence · search_travel_offers · propose_change · apply_change（白名单内但硬拦截） · get_trip_state · get_reservations · get_active_events · get_constraints · analyze_event_impact · propose_event_replan
 
 已知问题（Phase 6 6.6 处理）：replan_trip / propose_change / optimize_transport 边界模糊；无 get_trip_state 类高层工具；demo 模式关键词短路 regex（route.ts:296-313）是规则旁路。
 
-## 4. MCP 工具（packages/voyage-mcp，14 个）
+## 4. MCP 工具（packages/voyage-mcp，22 个）
 
-voyage_create_trip / get_trip / search_places / plan_route / get_route_options / optimize_transport / get_weather / retrieve_knowledge / search_social / search_offers / propose_change（WRITE，附 Diff 文本渲染）/ apply_change（DESTRUCTIVE）/ optimize_itinerary / today_context
+voyage_create_trip / get_trip / search_places / plan_route / get_route_options / optimize_transport / get_weather / retrieve_knowledge / search_social / search_offers / propose_change（WRITE，附 Diff 文本渲染）/ apply_change（DESTRUCTIVE）/ optimize_itinerary / today_context / get_reservations / add_reservation / import_reservations / get_trip_state / analyze_event_impact / get_active_events / get_constraints / propose_event_replan
 MCP 是 runtime 的纯适配层（无业务逻辑）；skill CLI 文档（runtime-api.md）覆盖 20 命令，未列 6 个 UI 端命令（add-place/add-place-item/import-route/set-item-status/set-task-status/restore-trip）。
 
 ## 5. 核心 Domain Models（src/types/travel.ts + src/schemas/trip.ts）
@@ -85,7 +85,7 @@ MCP 是 runtime 的纯适配层（无业务逻辑）；skill CLI 文档（runtim
 ## 6. Planner / Optimizer 架构
 
 **生成**（createTrip，runtime.ts）：collectCandidates（AMap 6 类搜索，QPS 批控+重试）→ filterPlanningCandidates（确定性约束过滤）→ 天气+社交（socialOptIn）→ planOutline（LLM 严格 JSON + 候选白名单校验 + 天数纠错重试；rules fallback）→ [VOYAGE_BRAIN=1] 路线矩阵喂给 LLM + 排程后硬约束校验+一次修复+元数据落库 → estimateBudgetItems → enrichRoutes（QPS worker pool，并发 3）→ 美团报价并行 → 落库。
-**修改**（proposeChange）：交通关键词门 → replanTrip（逐段多模式评分→CHANGE_ROUTE_MODE）；否则 planActionsWithRules 关键词 if-else（LLM 版 planActions 存在但未接入——Phase 6 后续接入）→ executeActions（24 种确定性 action）→ restoreLockedItems → 提案。
+**修改**（proposeChange）：交通关键词门 → replanTrip（逐段多模式评分→CHANGE_ROUTE_MODE）；否则 planActionsWithRules 关键词 if-else（LLM 版 planActions 已删除，2026-10-05 死代码清理）→ executeActions（24 种确定性 action）→ restoreLockedItems → 提案。
 **评分**：transport/scoring.ts 7 维（time/cost/walking/transfers/weather/fatigue/risk）上下文自适应权重 + reasons。
 **Optimizer**（itinerary-optimizer/，本次合并引入）：cluster/schedule/time-windows/validate，经 optimize-itinerary 命令与 MCP 工具暴露。
 
@@ -115,7 +115,7 @@ MCP 是 runtime 的纯适配层（无业务逻辑）；skill CLI 文档（runtim
 
 1. ~~`tsconfig.json` include 仅 src/**——tests 不进 tsc~~ 已修复：`tsconfig.test.json` + `npm run typecheck:test`（2026-10-05）。
 2. ~~`src/services/ai/actions/planner.ts`（LLM 动作规划器）零调用方（死代码）~~ 已删除（2026-10-05）。proposeChange 主路径仍是 planActionsWithRules 关键词 if-else（单命中、无联合推理）。mock.ts 存在第二套关键词链；agent 路由 demo regex 第三套。
-3. `docs/TRAVEL_OS_ARCHITECTURE.md` 过时（仍写 TanStack Query / React Hook Form，均已卸载）。
+3. ~~`docs/TRAVEL_OS_ARCHITECTURE.md` 过时~~ 已归档至 docs/archive/（2026-10-05）。
 4. skills/voyage/references/runtime-api.md 缺 6 个 UI 端命令。
 5. RLS：0001 全 `using(true)` 被 0002 修复，但 bookings 表仍只写不读；`itinerary_items.reservation_id` 列悬空（Phase 6 接管）。
 6. estimatedSpend = budget×0.85 拍脑袋 + 固定比例拆分（executor.estimateBudgetItems）——预算诚实化待 Phase 4.2/6。

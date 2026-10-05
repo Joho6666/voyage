@@ -1,3 +1,6 @@
+> [!WARNING]
+> **已归档（2026-10-05）**：Phase 3 时期的验收记录；引用的 src/app/api/agent/create/route.ts 已删除（现为 api/agent/tools）。保留作历史记录，勿作为现状依据。
+
 # Voyage Phase 3 Beta 验收报告 (BETA_ACCEPTANCE.md)
 
 > 验收日期：2026-09-05  

@@ -175,7 +175,7 @@ npm run test:e2e     # Playwright 端到端验证 (25 条，含移动端导航�
 - [`docs/PHASE3_IMPLEMENTATION_PLAN.md`](docs/PHASE3_IMPLEMENTATION_PLAN.md) — Phase 3 详细执行计划
 - [`docs/REAL_WORLD_PROVIDER_GUIDE.md`](docs/REAL_WORLD_PROVIDER_GUIDE.md) — 高德/天气/预订/Supabase 接入指南
 - [`docs/TRAVEL_ACTIONS.md`](docs/TRAVEL_ACTIONS.md) — 24 项 TravelAction 规格与 Diff 预览说明
-- [`docs/BETA_ACCEPTANCE.md`](docs/BETA_ACCEPTANCE.md) — 18 项 Beta 用户路径通关报告
+- [`docs/archive/BETA_ACCEPTANCE.md`](docs/archive/BETA_ACCEPTANCE.md) — 18 项 Beta 用户路径通关报告（Phase 3 历史存档）
 - [`knowledge/README.md`](knowledge/README.md) — Travel Knowledge RAG 数据格式、入库与检索说明
 
 ---

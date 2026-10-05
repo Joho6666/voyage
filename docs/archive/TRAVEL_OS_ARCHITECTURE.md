@@ -1,3 +1,6 @@
+> [!WARNING]
+> **已归档（2026-10-05）**：描述的是重启前的跨应用架构（C-Embedded Agent :3000、unigateway/ :3001），均不在本仓库且依赖（TanStack Query、react-hook-form）已卸载。现行架构以 docs/CURRENT_ARCHITECTURE.md 为准。
+
 # Voyage / Travel OS — Architecture
 
 Product name is centralized in `src/lib/brand.ts`. Change `brand.name` once to rename the product.

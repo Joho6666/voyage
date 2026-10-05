@@ -112,3 +112,17 @@ not configured, the runtime degrades to local curated retrieval instead of faili
 alongside route recommendations. These are explanations and planning evidence; live provider
 facts continue to outrank RAG for weather, route duration, traffic, operating status,
 availability and prices.
+
+## UI-side trip editing commands — exposed on Web `/api/voyage/command` and the skill CLI, not on the LLM agent
+
+These mutation commands drive the itinerary editor (drag & drop, add flows, task check-off).
+All are revision-locked with `expectedTripRevision`; a stale revision is rejected with `REVISION_CONFLICT`.
+
+- `add-place`: `{tripId, place, expectedTripRevision}` — bookmark a provider-verified place onto the trip map without scheduling it.
+- `add-place-item`: `{tripId, place, dayId, expectedTripRevision}` — append a place to a day; the runtime appends under a revision lock, recomputes the day and returns the persisted trip.
+- `import-route`: `{tripId, assignments:[{dayId, places}], createTasks?, expectedTripRevision}` — one-transaction guide import: places spread across days, each stop getting a check-in task; returns `importedCount`.
+- `set-item-status`: `{tripId, itemId, status: planned|current|done|skipped, expectedTripRevision}` — check a stop off (done is immutable afterwards).
+- `set-task-status`: `{tripId, taskId, status: todo|done, expectedTripRevision}` — persist a task checkbox.
+- `restore-trip`: `{tripId, trip, expectedTripRevision}` — restore a full snapshot (undo/redo and local proposal apply path).
+- `remove-item`: `{tripId, itemId, expectedTripRevision}` — remove a stop; the day's route and segments are recomputed server-side.
+- `remove-day`: `{tripId, dayId, expectedTripRevision}` — remove an entire day and renumber the rest.
